@@ -238,3 +238,17 @@ Every entry has a date and a reason. Heading format:
   (tables, price source note, conventions).
 - **Dependent agents to tell:** the data-engineer (phase 1 builds these
   columns), the expected-points-modeller and the optimiser.
+
+### 2026-11-09: main - public repo
+- **Decision (Josh):** the repo is public on GitHub under Joshc386. Power
+  Query can then read the raw output CSV URLs without authentication (brief
+  section 3).
+- **Upstream permission:** olbauday/FPL-Core-Insights has no licence file.
+  Its README says: "Feel free to use the data from this repository in
+  whatever way works best for you", and asks for a link back as the data
+  source.
+  - Publishing derived outputs is fine with credit.
+  - Credit goes on the workbook's README sheet (brief data rule 11), and
+    should also go in the repo README once that is written.
+- **Repo name:** `fpl-xp-model`, per brief section 12. The local folder
+  stays `fpl-model`.

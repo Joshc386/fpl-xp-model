@@ -606,6 +606,6 @@ Answered in phase 0 (2026-11-08). Evidence is in `docs/decisions.md`.
 - [ ] Optimiser bench weight (proposed 0.1)
 - [ ] Personal squad optimisation in v1, or v1.5 as planned
 - [ ] Budget range for the precomputed optimal squads (proposed £95.0m–£105.0m)
-- [ ] Whether a public output repo is acceptable
+- [x] Whether a public output repo is acceptable: yes, public (Josh, 2026-11-09)
 
 **Sources:** [olbauday/FPL-Core-Insights README](https://github.com/olbauday/FPL-Core-Insights)
