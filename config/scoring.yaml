@@ -1,0 +1,92 @@
+# FPL 2026/27 official rules. Owned by the main session; no agent edits this.
+#
+# Sources (read 2026-11-08; full citation in docs/decisions.md,
+# "2026-11-08: scoring - 2026/27 rules"):
+#   - Official rules page: https://fantasy.premierleague.com/help/rules
+#   - Official FPL API: https://fantasy.premierleague.com/api/bootstrap-static/
+#     (game_config.scoring, game_settings, element_types)
+#   - Checked against official points breakdowns for GW7-10
+#     (https://fantasy.premierleague.com/api/event/{gw}/live/)
+#
+# Points values are keyed by position everywhere, so code reads
+# scoring[event][position] with no special cases. Positions use the FPL API's
+# short names (element_type 1-4).
+
+season: 2026-27
+positions: [GKP, DEF, MID, FWD]
+
+# Appearance, per fixture. "60 minutes or more" excludes stoppage time.
+appearance:
+  long_min_minutes: 60
+  short_points: {GKP: 1, DEF: 1, MID: 1, FWD: 1}   # 1-59 minutes
+  long_points: {GKP: 2, DEF: 2, MID: 2, FWD: 2}    # 60+ minutes
+
+goal: {GKP: 10, DEF: 6, MID: 5, FWD: 4}
+
+# FPL assists are wider than xA: they include winning a penalty or direct
+# free-kick that is scored, rebounds from saves/blocks/woodwork, and
+# deflected shots (rules page, "Assists").
+assist: {GKP: 3, DEF: 3, MID: 3, FWD: 3}
+
+# Awarded for conceding no goal while on the pitch and playing 60+ minutes
+# (excluding stoppage time). Conceding after being substituted off does not count.
+clean_sheet:
+  min_minutes: 60
+  points: {GKP: 4, DEF: 4, MID: 1, FWD: 0}
+
+# Per every `per` goals conceded while on the pitch, so floor(N / per) x points.
+# A sent-off player keeps being penalised for goals conceded by his team.
+goals_conceded:
+  per: 2
+  points: {GKP: -1, DEF: -1, MID: 0, FWD: 0}
+
+# Per every `per` shot saves, so floor(S / per) x points. Goalkeepers only.
+saves:
+  per: 3
+  points: {GKP: 1, DEF: 0, MID: 0, FWD: 0}
+
+# Defensive contributions: a flat award once the per-match count reaches the
+# threshold; it does not stack (20 actions still earn 2). GKs are not eligible.
+# Action names match fact_player_match columns; `blocks` means blocked shots.
+# FPL's count is clearances_blocks_interceptions + tackles (+ recoveries for
+# MID/FWD), confirmed on GW7-10 API data.
+defensive_contribution:
+  threshold: {GKP: null, DEF: 10, MID: 12, FWD: 12}
+  points: {GKP: 0, DEF: 2, MID: 2, FWD: 2}
+  actions:
+    GKP: []
+    DEF: [clearances, blocks, interceptions, tackles]
+    MID: [clearances, blocks, interceptions, tackles, recoveries]
+    FWD: [clearances, blocks, interceptions, tackles, recoveries]
+
+penalty_save: {GKP: 5, DEF: 0, MID: 0, FWD: 0}
+penalty_miss: {GKP: -2, DEF: -2, MID: -2, FWD: -2}
+yellow_card: {GKP: -1, DEF: -1, MID: -1, FWD: -1}
+# A red card's -3 includes any yellow deduction: a second-yellow red totals -3.
+red_card: {GKP: -3, DEF: -3, MID: -3, FWD: -3}
+own_goal: {GKP: -2, DEF: -2, MID: -2, FWD: -2}
+
+# Bonus: the top three BPS scores in each match get 3, 2 and 1 points (ties
+# share the higher award; see rules page). One FPL point per bonus point.
+bonus:
+  awards: [3, 2, 1]
+
+# Squad, team-selection and transfer rules. These are official facts, so they
+# live here rather than in optimiser.yaml; the optimiser's settings (budgets,
+# bench weight, locks, bans, the user's hit-cost override) stay in its own file.
+game_rules:
+  initial_budget_tenths: 1000          # £100.0m; money is in integer tenths of £m
+  squad: {GKP: 2, DEF: 5, MID: 5, FWD: 3}
+  starting_xi: 11
+  xi_min: {GKP: 1, DEF: 3, MID: 2, FWD: 1}
+  xi_max: {GKP: 1, DEF: 5, MID: 5, FWD: 3}
+  max_per_club: 3
+  captain_multiplier: 2                # vice-captain takes over if captain plays 0 minutes
+  transfers:
+    free_per_gw: 1
+    max_banked_free: 5                 # API: max_extra_free_transfers = 4, plus the weekly 1
+    hit_cost: 4                        # points per transfer beyond the free allowance
+    max_per_gw: 20                     # not applied with a Wildcard or Free Hit
+    # Selling price: purchase price plus half of any rise, rounded down to £0.1m
+    # (API transfers_sell_on_fee = 0.5). A fall is passed on in full.
+    sell_on_fee: 0.5
