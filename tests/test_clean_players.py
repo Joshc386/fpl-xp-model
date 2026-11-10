@@ -87,19 +87,21 @@ def test_minutes_come_from_minutes_played_and_team_from_that_gameweeks_snapshot(
     assert check_table_schema(out, "fact_player_match") == []
 
 
-def test_rows_of_unprocessed_matches_are_dropped_by_reason() -> None:
+def test_rows_of_matches_that_are_not_complete_are_dropped_by_reason() -> None:
     matches = matches_frame([
         match_row("ok", 3.0, 7.0),
         match_row("live", 3.0, 7.0, finished=False),
-        match_row("stats", 3.0, 7.0, player_stats_processed=False),
+        match_row("no_xg", 3.0, 7.0, away_expected_goals_xg=np.nan),
         match_row("nokick", 3.0, 7.0, kickoff_time=None),
     ])
-    players = players_frame([player_row(10, 3)])
-    pms = pms_frame([pms_row(10, m, 90.0) for m in ("ok", "live", "stats", "nokick")])
+    players = players_frame([player_row(10, 3), player_row(11, 7)])
+    ids = ("ok", "live", "no_xg", "nokick")
+    pms = pms_frame([pms_row(p, m, 90.0) for m in ids for p in (10, 11)])
     out, dropped = run_pm(pms, matches, players)
-    assert out.match_id.tolist() == ["ok"]
+    assert set(out.match_id) == {"ok"}
     assert dropped == {
-        "match_has_no_kickoff_time": 1, "match_not_processed": 2, "player_not_in_snapshot": 0,
+        "match_has_no_kickoff_time": 2, "match_not_finished": 2, "match_not_complete": 2,
+        "player_not_in_snapshot": 0,
     }
 
 
@@ -181,5 +183,7 @@ def test_a_player_whose_club_is_not_in_teams_is_an_error() -> None:
     with pytest.raises(CleanError, match="team"):
         build_dim_player(players, playerstats_frame([{"id": 10}]), SWAPPED, POSITIONS)
     matches, _ = pm_inputs()
+    players = players_frame([player_row(10, 3), player_row(11, 98)])
+    pms = pms_frame([pms_row(10, "m1", 90.0), pms_row(11, "m1", 90.0)])
     with pytest.raises(CleanError, match="team"):
-        run_pm(pms_frame([pms_row(10, "m1", 90.0)]), matches, players)
+        run_pm(pms, matches, players)

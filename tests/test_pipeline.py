@@ -50,13 +50,15 @@ def test_reconciliation_adds_up_for_every_table_and_season(
 def test_sample_counts_for_2026_27(raw_2627: RawSeason, cfg: dict) -> None:
     built = build_season(raw_2627, cfg)
     rec = built.reconciliation.set_index(["table", "line", "reason"]).rows
-    # 9 matches in the samples (3 per folder); GW1 has one prem match failing stats_processed.
+    # 9 matches in the samples (3 per folder); the 6 finished ones are all complete.
     assert rec[("fact_fixture", "rows_in", "")] == 9
     assert built.tables["fact_fixture"].finished.sum() == 6
-    assert built.tables["fact_fixture"].processed.sum() == 5
-    # GW1: 120 rows of which the unprocessed match's are dropped; GW2: 100 rows, all kept.
+    assert built.tables["fact_fixture"].stats_complete.sum() == 6
+    # GW1: 120 rows and GW2: 100 rows. The flagged-unprocessed GW1 match is complete, so kept.
     assert rec[("fact_player_match", "rows_in", "")] == 220
-    assert rec[("fact_player_match", "dropped", "match_not_processed")] > 0
+    assert rec[("fact_player_match", "dropped", "match_not_complete")] == 0
+    missing = rec[("fact_player_match", "dropped", "player_not_in_snapshot")]
+    assert rec[("fact_player_match", "rows_out", "")] == 220 - missing
     # Player-gameweek rows are all kept: 125 for GW1 and 180 for GW2.
     assert len(built.tables["fact_player_gw"]) == 305
 

@@ -33,14 +33,14 @@ def teams_frame(pairs: list[tuple[int, int]]) -> pd.DataFrame:
 
 
 def match_row(match_id: str, home: float, away: float, **kw: object) -> dict:
-    """One processed Premier League match row; override fields with kwargs."""
+    """One finished Premier League match row; override fields with kwargs."""
     row = {
         "match_id": match_id, "snapshot_gw": 1, "gameweek": 1, "tournament": "prem",
         "kickoff_time": "2026-08-21T19:00:00", "home_team": home, "away_team": away,
         "home_team_elo": 1600.0, "away_team_elo": 1500.0, "home_score": 2.0, "away_score": 1.0,
         "home_expected_goals_xg": 1.5, "away_expected_goals_xg": 0.7,
         "home_non_penalty_xg": 1.2, "away_non_penalty_xg": 0.7,
-        "finished": True, "stats_processed": True, "player_stats_processed": True,
+        "finished": True,
     }
     row.update(kw)
     return row
@@ -101,11 +101,16 @@ SWAPPED = teams_frame([(1, 3), (3, 1), (2, 7), (7, 2)])
 
 def pm_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
     matches = matches_frame([
-        match_row("m1", 3.0, 7.0),
-        match_row("m2", 7.0, 3.0, snapshot_gw=2, gameweek=2),
+        match_row("m1", 3.0, 99.0),
+        match_row("m2", 7.0, 99.0, snapshot_gw=2, gameweek=2),
     ])
     players = players_frame([
         player_row(10, 3), player_row(11, 7),
         player_row(10, 7, snapshot_gw=2), player_row(11, 7, snapshot_gw=2),
     ])
     return matches, players
+
+
+def complete_all(matches: pd.DataFrame) -> pd.Series:
+    """A completeness flag that is true for every match, for tests that are about something else."""
+    return pd.Series(True, index=matches.index)

@@ -14,7 +14,7 @@ import pandas as pd
 RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
     "matches": {
         "str": ["match_id", "kickoff_time", "tournament"],
-        "bool": ["finished", "stats_processed", "player_stats_processed"],
+        "bool": ["finished"],
         "num": [
             "gameweek", "home_team", "away_team", "home_team_elo", "away_team_elo",
             "home_score", "away_score", "home_expected_goals_xg", "away_expected_goals_xg",
@@ -79,7 +79,7 @@ PROCESSED_SCHEMA: dict[str, list[Col]] = {
         ("kickoff_utc", "str", False), ("tournament", "str", False),
         ("home_team_id", "int", True), ("away_team_id", "int", True),
         ("home_upstream_elo", "float", True), ("away_upstream_elo", "float", True),
-        ("finished", "bool", False), ("processed", "bool", False),
+        ("finished", "bool", False), ("stats_complete", "bool", False),
         ("home_xg", "float", True), ("away_xg", "float", True),
         ("home_npxg", "float", True), ("away_npxg", "float", True),
         ("home_goals", "int", True), ("away_goals", "int", True),

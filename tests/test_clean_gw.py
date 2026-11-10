@@ -61,7 +61,7 @@ def test_fact_player_gw_rejects_non_integer_minutes_and_null_goals_conceded() ->
         run_gw(pgs_frame([{"goals_conceded": np.nan}]), matches, players)
 
 
-UNPLAYED = {"finished": False, "stats_processed": False, "player_stats_processed": False}
+UNPLAYED = {"finished": False}
 
 
 def gate_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -102,9 +102,9 @@ def test_a_blank_gameweek_keeps_its_rows() -> None:
     assert out.player_id.tolist() == [14] and dropped["club_fixture_not_finished"] == 0
 
 
-def test_a_finished_but_unprocessed_fixture_does_not_hold_rows_back() -> None:
+def test_an_incomplete_but_finished_fixture_does_not_hold_rows_back() -> None:
     matches, players = gate_inputs()
-    matches.loc[matches.match_id == "played", ["stats_processed", "player_stats_processed"]] = False
+    matches.loc[matches.match_id == "played", "home_expected_goals_xg"] = np.nan
     out, _ = run_gw(pgs_frame([{"id": 10}]), matches, players)
     assert out.player_id.tolist() == [10]
 

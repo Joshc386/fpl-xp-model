@@ -7,11 +7,11 @@ import pandas as pd
 import pytest
 
 from fpl.clean import build_dim_team, build_fact_fixture
+from fpl.complete import complete_matches
 from fpl.frames import CleanError, JoinError, checked_merge, normalise_kickoff, tenths, to_int
 from fpl.ingest import RawSeason
 from fpl.schema import check_table_schema
-from fpl.validate import is_processed
-from helpers import SWAPPED, match_row, matches_frame, teams_frame
+from helpers import SWAPPED, complete_all, match_row, matches_frame, teams_frame
 
 # ---- joins ----------------------------------------------------------------------------------
 
@@ -50,7 +50,7 @@ def test_dim_team_passes_upstream_elo_through_unchanged_including_nulls() -> Non
 
 def test_match_teams_map_through_team_code_not_team_id() -> None:
     m = matches_frame([match_row("a", home=3.0, away=7.0)])
-    out, _ = build_fact_fixture(m, SWAPPED, "2026-2027", "prem")
+    out, _ = build_fact_fixture(m, SWAPPED, "2026-2027", "prem", complete_all(m))
     # code 3 is team id 1 and code 7 is team id 2; ids 3 and 7 would be other clubs.
     assert out.home_team_id.tolist() == [1]
     assert out.away_team_id.tolist() == [2]
@@ -60,7 +60,11 @@ def test_real_sample_opener_is_arsenal_v_coventry_not_bournemouth_v_everton(
     raw_2627: RawSeason,
 ) -> None:
     teams = build_dim_team(raw_2627.teams).set_index("team_id").name
-    fx, _ = build_fact_fixture(raw_2627.matches, raw_2627.teams, "2026-2027", "prem")
+    fx, _ = build_fact_fixture(
+        raw_2627.matches, raw_2627.teams, "2026-2027", "prem", complete_matches(
+            raw_2627.matches, raw_2627.playermatchstats, raw_2627.players, raw_2627.teams
+        ),
+    )
     opener = fx[fx.match_id == "26-27-prem-arsenal-vs-coventry-city"].iloc[0]
     assert teams[opener.home_team_id] == "Arsenal"
     assert teams[opener.away_team_id] == "Coventry City"
@@ -68,7 +72,7 @@ def test_real_sample_opener_is_arsenal_v_coventry_not_bournemouth_v_everton(
 
 def test_non_premier_league_clubs_get_a_null_team_id() -> None:
     m = matches_frame([match_row("cup", home=np.nan, away=3.0, tournament="efl-cup")])
-    out, _ = build_fact_fixture(m, SWAPPED, "2026-2027", "prem")
+    out, _ = build_fact_fixture(m, SWAPPED, "2026-2027", "prem", complete_all(m))
     assert out.home_team_id.isna().all()
     assert out.away_team_id.tolist() == [1]
 
@@ -76,7 +80,7 @@ def test_non_premier_league_clubs_get_a_null_team_id() -> None:
 def test_a_premier_league_match_with_an_unmapped_team_is_an_error() -> None:
     m = matches_frame([match_row("a", home=99.0, away=3.0)])
     with pytest.raises(CleanError, match="team"):
-        build_fact_fixture(m, SWAPPED, "2026-2027", "prem")
+        build_fact_fixture(m, SWAPPED, "2026-2027", "prem", complete_all(m))
 
 
 # ---- fact_fixture -----------------------------------------------------------------------------
@@ -93,30 +97,20 @@ def test_kickoff_is_normalised_to_utc_iso_8601_with_z(raw: str, expected: str) -
     assert normalise_kickoff(pd.Series([raw])).tolist() == [expected]
 
 
-def test_is_processed_needs_all_three_flags() -> None:
-    m = matches_frame([
-        match_row("ok", 3.0, 7.0),
-        match_row("not_finished", 3.0, 7.0, finished=False),
-        match_row("stats", 3.0, 7.0, stats_processed=False),
-        match_row("player_stats", 3.0, 7.0, player_stats_processed=False),
-    ])
-    assert is_processed(m).tolist() == [True, False, False, False]
-
-
-def test_finished_keeps_the_score_and_processed_keeps_the_xg() -> None:
+def test_finished_keeps_the_score_and_complete_keeps_the_xg() -> None:
     m = matches_frame([
         match_row("ok", 3.0, 7.0),
         match_row("live", 3.0, 7.0, finished=False, home_score=0.0, away_score=0.0),
-        match_row("unprocessed", 1.0, 7.0, stats_processed=False),
-        match_row("player_stats", 1.0, 7.0, player_stats_processed=False),
+        match_row("incomplete", 1.0, 7.0),
     ])
-    out, dropped = build_fact_fixture(m, SWAPPED, "2026-2027", "prem")
-    assert len(out) == 4 and dropped["no_kickoff_time"] == 0
-    assert out.finished.tolist() == [True, False, True, True]
-    assert out.processed.tolist() == [True, False, False, False]
+    complete = pd.Series([True, False, False])
+    out, dropped = build_fact_fixture(m, SWAPPED, "2026-2027", "prem", complete)
+    assert len(out) == 3 and dropped["no_kickoff_time"] == 0
+    assert out.finished.tolist() == [True, False, True]
+    assert out.stats_complete.tolist() == [True, False, False]
     goals, xg = ["home_goals", "away_goals"], ["home_xg", "away_xg", "home_npxg", "away_npxg"]
     # a part-played score on an unfinished match is nulled
-    assert out.loc[[0, 2, 3], goals].notna().all().all()
+    assert out.loc[[0, 2], goals].notna().all().all()
     assert out.loc[1, goals].isna().all()
     assert out.loc[0, xg].notna().all()
     assert out.loc[1:, xg].isna().all().all()
@@ -125,7 +119,7 @@ def test_finished_keeps_the_score_and_processed_keeps_the_xg() -> None:
 
 def test_fact_fixture_column_mapping_and_upstream_elo_passthrough() -> None:
     m = matches_frame([match_row("a", 3.0, 7.0, home_team_elo=np.nan)])
-    out, _ = build_fact_fixture(m, SWAPPED, "2026-2027", "prem")
+    out, _ = build_fact_fixture(m, SWAPPED, "2026-2027", "prem", complete_all(m))
     row = out.iloc[0]
     assert (row.home_xg, row.away_xg, row.home_npxg, row.away_npxg) == (1.5, 0.7, 1.2, 0.7)
     assert (row.home_goals, row.away_goals) == (2, 1)
@@ -138,9 +132,9 @@ def test_matches_with_no_kickoff_time_are_dropped_and_counted() -> None:
     m = matches_frame([
         match_row("ok", 3.0, 7.0),
         match_row("placeholder", np.nan, 7.0, tournament="efl-cup", kickoff_time=None,
-                  finished=False, stats_processed=False, player_stats_processed=False),
+                  finished=False),
     ])
-    out, dropped = build_fact_fixture(m, SWAPPED, "2026-2027", "prem")
+    out, dropped = build_fact_fixture(m, SWAPPED, "2026-2027", "prem", complete_all(m))
     assert out.match_id.tolist() == ["ok"]
     assert dropped == {"no_kickoff_time": 1}
 

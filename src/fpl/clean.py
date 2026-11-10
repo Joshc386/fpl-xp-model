@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from fpl.complete import complete_matches
 from fpl.frames import (
     CleanError,
     JoinError,
@@ -24,7 +25,7 @@ from fpl.frames import (
 from fpl.ingest import RawSeason
 from fpl.reconcile import Reconciliation
 from fpl.schema import PROCESSED_SCHEMA, fill_sources
-from fpl.validate import ValidationError, check_rule15_guards, is_processed
+from fpl.validate import ValidationError, check_rule15_guards
 
 log = logging.getLogger(__name__)
 
@@ -51,13 +52,13 @@ def build_dim_team(teams: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_fact_fixture(
-    matches: pd.DataFrame, teams: pd.DataFrame, season: str, prem_tag: str
+    matches: pd.DataFrame, teams: pd.DataFrame, season: str, prem_tag: str, complete: pd.Series
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     """fact_fixture: every competition. Returns the table and the rows dropped by reason.
 
-    Matches with no kickoff_time are dropped. Scores are kept for every finished
-    match and xG only for processed ones; an unfinished match, even one with a
-    part-played score, has them all null.
+    `complete` flags complete matches, indexed like `matches`. Matches with no kickoff_time
+    are dropped. Scores are kept for every finished match and xG only for complete ones; an
+    unfinished match, even one with a part-played score, has them all null.
     """
     has_kickoff = matches.kickoff_time.notna()
     dropped = {"no_kickoff_time": int((~has_kickoff).sum())}
@@ -67,7 +68,8 @@ def build_fact_fixture(
     unmapped = (df.tournament == prem_tag) & (home.isna() | away.isna())
     if unmapped.any():
         raise CleanError(f"{int(unmapped.sum())} {prem_tag} matches have a team not in teams")
-    finished, done = df.finished.fillna(False).astype(bool), is_processed(df)
+    finished = df.finished.fillna(False).astype(bool)
+    done = complete[has_kickoff].reset_index(drop=True)
 
     def result(col: str, mask: pd.Series) -> pd.Series:
         return df[col].where(mask)
@@ -77,7 +79,7 @@ def build_fact_fixture(
         "kickoff_utc": normalise_kickoff(df.kickoff_time), "tournament": df.tournament,
         "home_team_id": home.astype("Int64"), "away_team_id": away.astype("Int64"),
         "home_upstream_elo": df.home_team_elo, "away_upstream_elo": df.away_team_elo,
-        "finished": finished, "processed": done,
+        "finished": finished, "stats_complete": done,
         "home_xg": result("home_expected_goals_xg", done),
         "away_xg": result("away_expected_goals_xg", done),
         "home_npxg": result("home_non_penalty_xg", done),
@@ -128,23 +130,25 @@ def build_fact_player_match(
     pms: pd.DataFrame, matches: pd.DataFrame, players: pd.DataFrame, teams: pd.DataFrame,
     tackles_column: str, fill_columns: list[str],
 ) -> tuple[pd.DataFrame, dict[str, int]]:
-    """fact_player_match: processed matches only, with blanks filled per rule 15.
+    """fact_player_match: complete matches only, with blanks filled per rule 15.
 
     `players` holds one snapshot per gameweek folder; a row's team is the player's
     club in the snapshot of the folder the row came from. Rows are dropped, and
-    counted, when their match has no kickoff_time, is not processed, or when the
-    player is missing from that snapshot. A row for an unknown match is an error.
+    counted, when their match has no kickoff_time, is not finished, or is finished but not
+    complete, or when the player is missing from that snapshot. A row for an unknown
+    match is an error.
     """
-    flags = matches[
-        ["match_id", "kickoff_time", "finished", "stats_processed", "player_stats_processed"]
-    ].assign(_known=True)
+    flags = matches[["match_id", "kickoff_time", "finished"]].assign(
+        _complete=complete_matches(matches, pms, players, teams), _known=True
+    )
     df = checked_merge(pms, flags, on="match_id", how="left", validate="many_to_one",
                        name="playermatchstats -> matches")
     if df["_known"].isna().any():
         raise JoinError("playermatchstats -> matches: rows for unknown match_id")
     no_kickoff = df.kickoff_time.isna()
-    not_done = ~is_processed(df) & ~no_kickoff
-    df = df[~no_kickoff & ~not_done].reset_index(drop=True)
+    not_finished = ~df.finished.fillna(False).astype(bool) & ~no_kickoff
+    not_complete = ~df["_complete"].astype(bool) & ~no_kickoff & ~not_finished
+    df = df[~no_kickoff & ~not_finished & ~not_complete].reset_index(drop=True)
     problems = check_rule15_guards(df, tackles_column, fill_columns)
     if problems:
         raise ValidationError(problems)
@@ -156,7 +160,8 @@ def build_fact_player_match(
     no_player = df.team_code.isna()
     dropped = {
         "match_has_no_kickoff_time": int(no_kickoff.sum()),
-        "match_not_processed": int(not_done.sum()),
+        "match_not_finished": int(not_finished.sum()),
+        "match_not_complete": int(not_complete.sum()),
         "player_not_in_snapshot": int(no_player.sum()),
     }
     df = df[~no_player].reset_index(drop=True)
@@ -221,7 +226,7 @@ def build_fact_player_gw(
     """fact_player_gw from FPL's own per-gameweek stats; minutes are FPL's, not minutes_played.
 
     A row is kept only once every Premier League fixture the player's club has in that
-    gameweek is finished (`finished`, not `processed`); the others are dropped and counted.
+    gameweek is finished (`finished`, not complete); the others are dropped and counted.
     A player with no club in the snapshot waits for every Premier League fixture of the gameweek.
     """
     club_hold, no_club_hold = _gameweek_holds(pgs, players, matches, prem_tag)
@@ -256,7 +261,8 @@ def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
     prem, fill = cfg["premier_league_tag"], cfg["fill_zero_columns"]
     snapshot = raw.players[raw.players.snapshot_gw == raw.latest_gw]
     dim_team = build_dim_team(raw.teams)
-    fixture, d_fix = build_fact_fixture(raw.matches, raw.teams, raw.season, prem)
+    complete = complete_matches(raw.matches, raw.playermatchstats, raw.players, raw.teams)
+    fixture, d_fix = build_fact_fixture(raw.matches, raw.teams, raw.season, prem, complete)
     dim_player, d_pl = build_dim_player(snapshot, raw.playerstats, raw.teams, cfg["position_map"])
     pmatch, d_pm = build_fact_player_match(
         raw.playermatchstats, raw.matches, raw.players, raw.teams, scfg["tackles_column"], fill
@@ -266,7 +272,10 @@ def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
     )
     info = {
         "unfinished_rows_kept_with_null_results": int((~fixture.finished).sum()),
-        "finished_but_not_processed": int((fixture.finished & ~fixture.processed).sum()),
+        "finished_but_not_complete": int((fixture.finished & ~fixture.stats_complete).sum()),
+        "finished_prem_but_not_complete": int(
+            (fixture.finished & ~fixture.stats_complete & (fixture.tournament == prem)).sum()
+        ),
     }
     rec = Reconciliation(raw.season)
     rec.add("dim_team", len(raw.teams), {}, len(dim_team))

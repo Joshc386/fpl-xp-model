@@ -29,12 +29,13 @@ Any competitive game a team plays, in any competition. Only the Premier
 League ones are fixtures.
 _Avoid_: fixture (for cup or European games)
 
-**Processed match**:
-A match that upstream marks finished, stats-processed and
-player-stats-processed. Only processed matches supply xG and player match
-stats. Results (for the Elo ratings) come from every finished match, because
-upstream leaves some finished matches unprocessed for good.
-_Avoid_: completed match, played match
+**Complete match**:
+A finished match whose team xG and player rows (for each of its Premier League
+clubs) are present. Only complete matches supply xG and player match stats;
+results, for the Elo ratings, come from every finished match. Upstream's
+"processed" flags are not used: they stay false on matches whose data is
+complete.
+_Avoid_: processed match, completed match, played match
 
 **Blank gameweek**:
 A gameweek in which a team has no fixture, so its players score 0.
@@ -96,7 +97,8 @@ _Avoid_: EP, FPL xP
 ### Player metrics (`players.csv`)
 
 Unless stated, every metric covers **season to date**: the current season's
-Premier League fixtures up to the as-of gameweek, processed matches only.
+Premier League fixtures up to the as-of gameweek, finished fixtures only.
+Per-match stats (xG, xA) use complete matches only.
 
 **Appearance**:
 A fixture in which the player played at least one minute.
@@ -159,7 +161,7 @@ _Avoid_: freshness, staleness
 - The **As-of gameweek** is always the **Next gameweek** minus one.
 - Only the finished matches of the **As-of gameweek** feed a run. A player's
   gameweek figures count once all their club's fixtures in it are finished,
-  and their match stats once each match is a **Processed match**.
+  and their match stats once each match is a **Complete match**.
 - Each **Run** publishes the newest **Upstream refresh** that existed when it
   started, or nothing at all.
 - A **Horizon** of h covers the **Next gameweek** and the h - 1 gameweeks

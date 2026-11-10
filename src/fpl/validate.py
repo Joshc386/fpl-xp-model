@@ -10,6 +10,7 @@ import logging
 
 import pandas as pd
 
+from fpl.complete import complete_matches
 from fpl.ingest import RawSeason, required_columns_missing
 from fpl.schema import TABLE_KEYS, check_table_schema, fill_sources
 
@@ -22,12 +23,6 @@ class ValidationError(RuntimeError):
     def __init__(self, problems: list[str]) -> None:
         super().__init__("; ".join(problems))
         self.problems = problems
-
-
-def is_processed(matches: pd.DataFrame) -> pd.Series:
-    """True for a processed match: finished, stats_processed and player_stats_processed."""
-    flags = matches.finished & matches.stats_processed & matches.player_stats_processed
-    return flags.fillna(False).astype(bool)
 
 
 def _outside(value: float, bounds: list[float]) -> bool:
@@ -72,10 +67,14 @@ def _bounded(label: str, counts: pd.Series, bounds: list[float]) -> list[str]:
     return [f"{label}: {k} has {v} rows, outside {bounds}" for k, v in bad.items()]
 
 
+def _complete(raw: RawSeason) -> pd.Series:
+    return complete_matches(raw.matches, raw.playermatchstats, raw.players, raw.teams)
+
+
 def check_row_counts(raw: RawSeason, bounds: dict, prem_tag: str) -> list[str]:
     """Row counts are within the configured bounds."""
     in_play = raw.matches.snapshot_gw <= raw.latest_gw
-    done_ids = raw.matches.match_id[is_processed(raw.matches) & in_play]
+    done_ids = raw.matches.match_id[_complete(raw) & in_play]
     per_match = raw.playermatchstats.groupby("match_id").size().reindex(done_ids, fill_value=0)
     pgs = pd.Series(raw.gw_rows["player_gameweek_stats"])
     pgs = pgs[(pgs.index >= 1) & (pgs.index <= raw.latest_gw) & (pgs > 0)]
@@ -127,9 +126,11 @@ def check_latest_gw(raw: RawSeason) -> list[str]:
     later = {g: n for g, n in raw.gw_rows["playermatchstats"].items() if g > raw.latest_gw and n}
     if later:
         out.append(f"playermatchstats rows after the latest gameweek {raw.latest_gw}: {later}")
-    future_done = raw.matches[is_processed(raw.matches) & (raw.matches.snapshot_gw > raw.latest_gw)]
-    if len(future_done):
-        out.append(f"{len(future_done)} processed match(es) in folders after the latest gameweek")
+    future_done = raw.matches.finished.fillna(False) & (raw.matches.snapshot_gw > raw.latest_gw)
+    if future_done.any():
+        out.append(
+            f"{int(future_done.sum())} finished match(es) in folders after the latest gameweek"
+        )
     have = set(raw.matches.snapshot_gw)
     missing = [g for g in range(1, raw.n_gw + 1) if g not in have]
     if missing:
@@ -166,7 +167,7 @@ def check_references(raw: RawSeason, prem_tag: str) -> list[str]:
 def check_rule15_guards(
     pms: pd.DataFrame, tackles_column: str, fill_columns: list[str]
 ) -> list[str]:
-    """Brief data rule 15 guards, on playermatchstats rows of processed matches.
+    """Brief data rule 15 guards, on playermatchstats rows of complete matches.
 
     Fails if a listed column's *source* column (tackles map to `tackles_column`) is
     empty for the whole season, or if an xG is blank beside `total_shots` > 0.
@@ -192,7 +193,7 @@ def validate_inputs(raw: RawSeason, cfg: dict, season_cfg: dict) -> None:
     prem = cfg["premier_league_tag"]
     problems += check_row_counts(raw, bounds, prem) + check_prices(raw, bounds)
     problems += check_references(raw, prem)
-    done = raw.matches.match_id[is_processed(raw.matches)]
+    done = raw.matches.match_id[_complete(raw)]
     pms = raw.playermatchstats[raw.playermatchstats.match_id.isin(done)]
     problems += check_rule15_guards(pms, season_cfg["tackles_column"], cfg["fill_zero_columns"])
     if problems:
@@ -224,17 +225,17 @@ _FOREIGN_KEYS = (
 
 
 def _fixture_result_problems(fx: pd.DataFrame) -> list[str]:
-    """Scores only on finished matches, xG only on processed ones."""
+    """Scores only on finished matches, xG only on complete ones."""
     goals, xg = ["home_goals", "away_goals"], ["home_xg", "away_xg", "home_npxg", "away_npxg"]
     out = []
     if fx.loc[~fx.finished, goals].notna().any().any():
         out.append("fact_fixture: scores present on unfinished matches")
     if fx.loc[fx.finished, goals].isna().any().any():
         out.append("fact_fixture: finished matches without a score")
-    if fx.loc[~fx.processed, xg].notna().any().any():
-        out.append("fact_fixture: xG present on unprocessed matches")
-    if (fx.processed & ~fx.finished).any():
-        out.append("fact_fixture: processed matches that are not finished")
+    if fx.loc[~fx.stats_complete, xg].notna().any().any():
+        out.append("fact_fixture: xG present on incomplete matches")
+    if (fx.stats_complete & ~fx.finished).any():
+        out.append("fact_fixture: complete matches that are not finished")
     return out
 
 

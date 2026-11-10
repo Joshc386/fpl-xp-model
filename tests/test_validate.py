@@ -115,13 +115,13 @@ def test_player_stats_after_the_latest_gameweek_fail(
     assert "after the latest" in problems(raw_2627, small_cfg)
 
 
-def test_a_processed_match_after_the_latest_gameweek_fails(
+def test_a_finished_match_after_the_latest_gameweek_fails(
     raw_2627: RawSeason, small_cfg: dict
 ) -> None:
     m = raw_2627.matches
     idx = m.index[m.snapshot_gw == 3][0]
-    m.loc[idx, ["finished", "stats_processed", "player_stats_processed"]] = True
-    assert "processed match" in problems(raw_2627, small_cfg)
+    m.loc[idx, "finished"] = True
+    assert "finished match" in problems(raw_2627, small_cfg)
 
 
 def test_a_missing_gameweek_folder_fails(raw_2627: RawSeason, small_cfg: dict) -> None:
@@ -203,8 +203,7 @@ def test_validate_inputs_fails_on_a_blank_xg_beside_shots(
     raw_2627: RawSeason, small_cfg: dict
 ) -> None:
     pms, m = raw_2627.playermatchstats, raw_2627.matches
-    done = m.match_id[m.finished & m.stats_processed & m.player_stats_processed]
-    idx = pms.index[pms.match_id.isin(done)][0]
+    idx = pms.index[pms.match_id.isin(m.match_id[m.finished])][0]
     pms.loc[idx, ["xg", "total_shots"]] = [np.nan, 3.0]
     assert "xg is blank" in problems(raw_2627, small_cfg)
 

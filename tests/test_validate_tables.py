@@ -96,19 +96,19 @@ def test_table_validation_catches_a_result_on_an_unfinished_match(
         validate_tables(tables)
 
 
-def test_table_validation_catches_xg_on_an_unprocessed_match(
+def test_table_validation_catches_xg_on_an_incomplete_match(
     tables: dict[str, pd.DataFrame],
 ) -> None:
     fx = tables["fact_fixture"]
-    fx.loc[fx.index[~fx.processed][0], "home_xg"] = 1.0
-    with pytest.raises(ValidationError, match="unprocessed"):
+    fx.loc[fx.index[~fx.stats_complete][0], "home_xg"] = 1.0
+    with pytest.raises(ValidationError, match="incomplete"):
         validate_tables(tables)
 
 
-def test_table_validation_catches_a_finished_match_without_a_score(
+def test_table_validation_catches_a_complete_match_that_is_not_finished(
     tables: dict[str, pd.DataFrame],
 ) -> None:
     fx = tables["fact_fixture"]
-    fx.loc[fx.index[fx.finished][0], "home_goals"] = pd.NA
-    with pytest.raises(ValidationError, match="without a score"):
+    fx.loc[fx.index[~fx.finished][0], "stats_complete"] = True
+    with pytest.raises(ValidationError, match="complete matches that are not finished"):
         validate_tables(tables)

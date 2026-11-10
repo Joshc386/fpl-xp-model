@@ -627,3 +627,93 @@ mutant that undoes it.
   player is missing from that gameweek's snapshot `players.csv` is held while
   any Premier League fixture in the gameweek is unfinished, counted under
   `no_club_gameweek_not_finished` (0 at `0206600`; the 34 GW1-3 rows stay).
+
+### 2026-11-10: main - upstream's processed flags dropped (Josh)
+- **Decision (Josh):** stop using upstream's `stats_processed` and
+  `player_stats_processed` flags. A **complete match** is a finished match
+  with both team xG values present and `playermatchstats` rows for each club
+  that has a Premier League `team_id`. Complete matches supply xG and player
+  match stats; every finished match supplies its result. A finished match
+  that isn't complete is left out of the stats and counted.
+- **Evidence (upstream `0206600`):**
+  - All 20 2025/26 GW37-38 Premier League matches have `stats_processed`
+    false, yet each has a result, xG and full player stats. They have a median
+    of 39 player rows (32 for flagged matches) and 1,972 minutes (1,973), and
+    the gap between summed player xG and team xG is 0.01 (0.01).
+  - The 4 such 2026/27 matches are the same. Josh also checked by hand that
+    every 2025/26 game has a result, including the Europa League final
+    (Aston Villa 3-0 Freiburg, dropped only for its missing kickoff time).
+  - The flags were discarding 924 good Premier League player-match rows (767
+    in 2025/26, 157 in 2026/27) and those 24 matches' xG.
+- **Trade-off:** a partly loaded match (some players missing, not all)
+  passes the completeness check.
+  - **Corrected after Code Review:** the main session first wrote that "the
+    flags didn't catch that either". That is wrong for live gameweeks.
+    Code Review replayed `complete_matches` over every GW9-10 commit and found
+    7 matches called complete while their player stats were still changing.
+    All 7 had `player_stats_processed` false at the time, and no flagged match
+    ever changed afterwards.
+  - Two Premier League matches and one EFL Cup match were each missing one
+    0-minute row, for players 671 and 672, both late additions to FPL. Three
+    European matches had per-player xG or xA revised for 6-8 players.
+  - Team xG and minutes never changed.
+  - So the flags did carry a live signal, but a small one: it concerned
+    unused substitutes and European per-player stats (not used for points).
+    The next run corrects it, and backtests read final folders. The decision
+    stands; this is the true trade-off.
+- **Renamed:** `fact_fixture.processed` becomes `stats_complete`, and the
+  CONTEXT.md term "Processed match" becomes "Complete match", so upstream's
+  flags aren't reintroduced by name.
+- **Supersedes:** item 1 of "task 1 review decisions" (the flag part only;
+  results from every finished match stand) and rule 1 of "phase 1 task 1
+  cleaning rules".
+- **The 4 no-result 2025/26 rows** are draw placeholders with the opponent
+  still undecided (for example `aston-villa-vs-bologna/roma`). The real
+  fixtures sit alongside them with results.
+- **Updated:** brief data rules 9, 12 and 15 and the section 5 table,
+  `docs/data_contract.md` and `CONTEXT.md`.
+
+### 2026-11-10: main - rule 8 relabelled, provisional rows accepted (Josh)
+Both were open items from "task 1 second review".
+1. **Rule 8 relabelled (Josh).** A gameweek folder's snapshot fields
+   (`now_cost`, `selected_by_percent`, `form`, `transfers_in_event`,
+   `transfers_out_event`) describe the run-up to the next deadline, so
+   `fact_player_gw` row g is known when predicting g+1, never g. No code
+   change: the values stay in their own gameweek's row.
+   - Evidence: GW9's `transfers_in_event` totalled 0 at `70f70217`
+     (2026-10-31 13:47 UTC, after the GW9 deadline) and 6,852,210 at
+     `0206600`. 39 of 669 prices and 177 ownership figures changed in
+     between.
+   - Rejected: shifting the columns down one gameweek. GW1 would be blank,
+     and it would add code for no gain. The loader already predicts g+1 from
+     rows up to g.
+2. **Provisional rows accepted (Josh).** The `finished` gate stays. A
+   released row can be provisional for some hours, and the next run corrects
+   it.
+   - Evidence (Code Review): across GW9-10 commits, up to 61 released rows
+     per commit later changed, up to 7 of them in `event_points`, for up to 7
+     hours after kickoff.
+   - Rejected: a gate on upstream's processed flags, which are no longer used
+     and would hold back matches whose data is complete.
+   - **For phase 2:** the bonus model fits only on gameweeks before the as-of
+     gameweek, in live and backtest runs alike (brief section 6.7).
+- **Updated:** brief data rules 8 and 9 and section 6.7, and
+  `docs/data_contract.md` (`fact_player_gw` notes).
+
+### 2026-11-10: data - completeness check replaces processed flags
+- **Done on upstream `0206600`.** `src/fpl/complete.py` (`complete_matches`)
+  replaces `is_processed`. A complete match is finished, has both team xG
+  values, and has `playermatchstats` rows for each of its clubs that is in
+  `teams` (clubs from that gameweek's snapshot `players.csv`). Cup opponents
+  outside the Premier League need no rows. No code in `src/` reads
+  upstream's two processing flags, and a test fails if one does; the schema
+  no longer lists them.
+- `fact_fixture.processed` is `stats_complete`; xG and npxG are null unless
+  it is true, and scores stay null unless `finished`.
+- `fact_player_match` drops, in order, `match_has_no_kickoff_time`,
+  `match_not_finished`, `match_not_complete` and `player_not_in_snapshot`.
+  The reconciliation info lines are `finished_but_not_complete` and
+  `finished_prem_but_not_complete`.
+- **Result:** every finished match left in `fact_fixture` is complete, in both
+  seasons (0 Premier League, 0 other). `fact_player_match` rows: 14,591 in
+  2025/26 (was 13,824) and 5,528 in 2026/27 (was 5,152).
