@@ -1,0 +1,59 @@
+# Pipeline settings: upstream source, local paths, input-validation bounds.
+# Owned by the data-engineer. Model settings live in model.yaml.
+
+upstream:
+  repo_url: https://github.com/olbauday/FPL-Core-Insights
+  checkout_path: data/raw/upstream/repo   # local sparse checkout of the repo
+  data_dir: data                          # folder inside the checkout holding the seasons
+
+paths:
+  processed_dir: data/processed           # tables go to {processed_dir}/{season}/
+
+# One entry per season built. `tackles_column` is the playermatchstats column
+# that holds FPL's tackle measure (docs/data_contract.md, source notes).
+seasons:
+  - id: 2025-2026
+    gameweeks: 38
+    tackles_column: tackles
+  - id: 2026-2027
+    gameweeks: 38
+    tackles_column: tackles_won
+
+# Upstream's tournament tag for the Premier League.
+premier_league_tag: prem
+
+# players.position -> processed position.
+position_map:
+  Goalkeeper: GKP
+  Defender: DEF
+  Midfielder: MID
+  Forward: FWD
+
+# fact_player_match columns where a blank means zero in a processed match
+# (brief data rule 15). Never applied to a column empty for the whole season.
+fill_zero_columns:
+  - goals
+  - assists
+  - xg
+  - xa
+  - pens_scored
+  - pens_missed
+  - tackles
+  - interceptions
+  - clearances
+  - blocks
+  - recoveries
+  - saves
+
+# Input validation bounds, [min, max] inclusive (brief section 11, step 4).
+validation:
+  teams_rows: [20, 20]
+  # Per season: 38 gameweeks x 10 = 380. A postponed match with no gameweek folder
+  # leaves a small shortfall, which passes with a warning.
+  prem_matches_rows: [370, 380]
+  matches_rows: [380, 700]                 # all competitions, per season
+  players_rows_per_snapshot: [500, 1000]
+  playerstats_rows_snapshot: [500, 1000]
+  player_gameweek_stats_rows_per_gw: [500, 1000]
+  playermatchstats_rows_per_match: [10, 60]
+  now_cost_m: [3.0, 20.0]                  # GBP m, as upstream publishes it

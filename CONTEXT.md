@@ -31,8 +31,9 @@ _Avoid_: fixture (for cup or European games)
 
 **Processed match**:
 A match that upstream marks finished, stats-processed and
-player-stats-processed. Only processed matches feed the model, the metrics
-and the Elo ratings; a match still being played is not one.
+player-stats-processed. Only processed matches supply xG and player match
+stats. Results (for the Elo ratings) come from every finished match, because
+upstream leaves some finished matches unprocessed for good.
 _Avoid_: completed match, played match
 
 **Blank gameweek**:
@@ -156,7 +157,9 @@ _Avoid_: freshness, staleness
 - Each **Fixture** has two **Fixture difficulties**, one per team. A
   gameweek's or a horizon's difficulty is the plain sum over its fixtures.
 - The **As-of gameweek** is always the **Next gameweek** minus one.
-- Only the finished, processed matches of the **As-of gameweek** feed a run.
+- Only the finished matches of the **As-of gameweek** feed a run. A player's
+  gameweek figures count once all their club's fixtures in it are finished,
+  and their match stats once each match is a **Processed match**.
 - Each **Run** publishes the newest **Upstream refresh** that existed when it
   started, or nothing at all.
 - A **Horizon** of h covers the **Next gameweek** and the h - 1 gameweeks

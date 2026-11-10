@@ -72,8 +72,10 @@ why.
 
 Update this list as each piece is built.
 
-* `pytest`: run all tests
-* Full pipeline locally: to be added by the data-engineer in phase 1
+* Setup: `python -m venv .venv`, then `.venv/Scripts/python -m pip install -r requirements-dev.txt -e .`
+* `.venv/Scripts/python -m pytest --cov`: run all tests with coverage
+* `.venv/Scripts/ruff check .`: lint
+* `.venv/Scripts/python -m fpl.run\_pipeline`: build the processed tables in `data/processed/` from the local upstream checkout (`data/raw/upstream/repo`; pull it first). Ingest, validate and clean only, so far
 * `python backtest/run\_backtest.py`: run the backtest
 * `python excel/build\_workbook.py`: build the workbook (Windows, Excel installed)
 

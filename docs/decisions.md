@@ -359,8 +359,7 @@ created in the same session. The brief and the contract are updated.
 
 ### 2026-11-10: main - phase 1 task 1 cleaning rules
 Made by the main session before task 1, from checks on upstream commit
-66e73ea. Josh to confirm; any of them can be reversed before task 1 is
-committed.
+66e73ea. Josh confirmed rules 1 and 3 on 2026-11-10.
 
 1. **Rule 9 also requires `finished`.**
    - Evidence: in 2026/27, 14 unfinished matches are flagged
@@ -397,3 +396,234 @@ committed.
 - **Updated:** brief data rules 9 and 15, `docs/data_contract.md` (storage,
   `fact_fixture` notes, blanks note, nullable list) and `CONTEXT.md`
   (processed match).
+
+### 2026-11-10: data - phase 1 task 1 build
+- **Built from** upstream commit `020660035e6fe7ae13fb855b8f892f5ad97abdd9`
+  (2026-11-10 04:44 UTC, pulled over the phase 0 clone at 66e73ea). Latest
+  played gameweek: 38 for 2025/26, 10 for 2026/27.
+- **Layout:** `ingest.py` reads each `GW{n}` folder (never the master files)
+  into `RawSeason`, tagging rows with `snapshot_gw`; `clean.py` holds pure
+  builders; `validate.py` holds the input and table checks; `reconcile.py`
+  and `run_pipeline.py` (`python -m fpl.run_pipeline`) write Parquet,
+  `reconciliation.csv` and `manifest.json` (upstream SHA, latest GW, row
+  counts) to `data/processed/{season}/`. Nothing is written until both
+  seasons pass every check.
+- **Season ids** are upstream's folder names, `2025-2026` and `2026-2027`.
+- **Read once, keep what is used:** ingest keeps only the upstream columns in
+  `schema.RAW_SCHEMA`. That is also why `start_min` and `finish_min` can never
+  reach the tables (data rule 2).
+- **Row counts (2025-2026 / 2026-2027):** `dim_player` 841 / 672, `dim_team`
+  20 / 20, `fact_fixture` 485 / 484, `fact_player_match` 13,824 / 5,152,
+  `fact_player_gw` 29,978 / 6,596. Reconciliation is in
+  `data/processed/{season}/reconciliation.csv`.
+- **Checks on the output:** `fact_player_gw` points and minutes totals equal
+  the sum of `player_gameweek_stats` (34,382 / 9,145 points; 748,552 /
+  196,649 minutes). All 380 Premier League matches in each season have their
+  two clubs mapped through `teams.code`, and the clubs agree with the
+  `match_id` slug in 380 of 380 in both seasons. Every Premier League
+  `fact_player_match.team_id` is one of the match's two clubs.
+- **Foreign keys:** `fact_player_match` and `fact_player_gw` are not required
+  to have their `player_id` in `dim_player`. `dim_player` is the latest
+  snapshot, and a player can leave the list (the 2025/26 GW2 sample has one).
+  At the full-season builds there are no such orphans.
+- **Cleaning rules added:**
+  - `fact_player_match` rows are dropped, in this order, when their match has
+    no `kickoff_time`, when it is not a processed match, or when the player is
+    not in that gameweek's snapshot `players.csv`. Counted separately.
+  - `dim_player` drops players with no `playerstats` row, counted (0 at the
+    latest snapshots).
+  - An unknown position, a Premier League club not in `teams`, or a
+    non-integer count is an error, not a fix.
+
+### 2026-11-10: data - no-kickoff rows are 40, not 4
+- **Found:** 2025/26 has **40** matches with no `kickoff_time`, not four. Four
+  are unfinished placeholders (2 EFL Cup, 2 Europa League). The other 36 are
+  finished and have player stats: 16 Champions League, 12 Europa League, 7
+  Conference League and one EFL Cup tie. The same 40 are in 66e73ea. 2026/27
+  has none.
+- **Applied:** the stated rule as written. All 40 are dropped from
+  `fact_fixture`, and their 749 `fact_player_match` rows go with them, counted
+  under `no_kickoff_time` and `match_has_no_kickoff_time`.
+- **Effect:** 2025/26 loses 36 played cup and European matches that the
+  rotation and fatigue features (brief data rule 3) could have used. Not
+  decided here: the main session chooses between keeping the rule, or dropping
+  only the four unfinished rows and allowing a null `kickoff_utc`.
+
+### 2026-11-10: data - rule 9 premise not reproduced
+- **Found:** in none of the last 14 upstream commits (up to
+  `0206600`) does an unfinished match carry `stats_processed` or
+  `player_stats_processed`. At 66e73ea the four GW10 matches that kicked off
+  at 14:00 on 2026-11-08 had `finished`, `stats_processed` and
+  `player_stats_processed` all false, with part-played scores of 0-0, 0-0, 0-0
+  and 0-1.
+- **The "14":** at 66e73ea, 14 matches in 2026/27 were `finished` with only
+  one processed flag true: 10 cup or European matches (5 EFL Cup, 3 Europa
+  League, 1 Champions League, 1 Conference League) and 4 Premier League
+  matches. All 14 have final scores, so they are not the four part-played ones.
+- **Effect:** none on the build. The rule (all three flags) is still right and
+  harmless, and part-played scores are still nulled because those matches are
+  not finished. The brief's rule 9 evidence line is what needs correcting.
+
+### 2026-11-10: data - team_gc_on_pitch is two different numbers
+- **Found** (processed tables, single-fixture Premier League gameweeks,
+  compared with FPL's `goals_conceded` in `player_gameweek_stats`):
+  - **Players with minutes > 0, 2026/27 GW1-10 and 2025/26 GW26-38:** it is
+    goals conceded while the player was on the pitch. It equals FPL's figure
+    in 99.8% (2,958 rows) and 99.5% (2,787 rows). For substituted players,
+    where the whole-match figure and FPL's differ (750 and 673 rows), it
+    equals FPL's in 744 and 663.
+  - **0-minute rows, both seasons:** it is the team's whole-match goals
+    conceded. Every non-zero value equals the opponent's final score (622 of
+    622 Premier League rows in 2026/27; 661 of 661 in 2025/26, all in GW26-36).
+    FPL's figure for these players is 0.
+  - **2025/26 GW1-25:** 0-minute rows are 0, but for substituted players it is
+    mostly the whole-match figure: of 2,024 rows where the two differ, 1,593
+    equal the opponent's score, 340 equal FPL's, 91 equal neither.
+  - Full-match players (90+ minutes) agree with FPL in 99.8-100% of rows in
+    every period.
+- **Nulls (2025/26):** 262 in `fact_player_match`, of which 241 are Premier
+  League rows in 83 matches, GW16-36 (100 at 90 minutes, 141 at 1-89), and 21
+  are cup rows. 223 of the 241 are in single-fixture gameweeks.
+- **No values changed.** Proposals are in the task report.
+
+### 2026-11-10: data - future gameweek folders (2026/27 GW11-38)
+- Each holds `fixtures.csv` and `matches.csv` with that gameweek's scheduled
+  matches (319 in total: 280 Premier League, 39 cup and European), a
+  `players.csv` identical in content to GW10's (row order differs), the same
+  `teams.csv`, and **header-only** `playerstats`, `playermatchstats` and
+  `player_gameweek_stats` (0 rows, same headers as GW10).
+- The scheduled matches have no score, xG, Elo or processing flag (all null or
+  false), and kickoffs from 2026-11-21 12:30 to 2027-05-30 15:00.
+- **Handling:** ingest reads the player files for every folder but keeps rows
+  only up to the latest gameweek with `player_gameweek_stats` rows. Validation
+  fails if player stats or a processed match appear after that gameweek, or if
+  a gameweek before it is empty. Header-only files are why concatenated
+  numerics load as object without explicit dtypes.
+
+### 2026-11-10: data - other things seen
+- Two 2026/27 `playermatchstats` rows (players 667 and 672, 0 minutes, cup
+  matches in GW4 and GW9) are for players missing from that gameweek's snapshot
+  `players.csv`, so they have no `team_id`. They are dropped and counted
+  (`player_not_in_snapshot`).
+- `dim_player` has nulls in `chance_next`, `news`, `pen_order`, `fk_order` and
+  `corner_order`, and 1 null `ep_next` in 2025/26. Proposed for the contract.
+- 20 finished 2025/26 Premier League matches (all of GW37 and GW38) are not
+  fully processed upstream, so `fact_fixture` shows them unfinished with null
+  results and `fact_player_match` has no rows for them, while `fact_player_gw`
+  has FPL's points for them.
+- `match_id` is unique within each season (525 and 484 rows) and does not
+  repeat across the two seasons; both are validated on every run.
+
+### 2026-11-10: main - task 1 review decisions
+Josh decided items 1-4 after the data-engineer's report and Code Review. The
+main session approved items 5-8. Upstream commit `0206600`.
+
+- **Correction:** the evidence in "phase 1 task 1 cleaning rules", rule 1,
+  was wrong. The main session misread a crosstab; no unfinished match carries
+  the processed flags in any commit checked. Requiring `finished` is kept as
+  a guard. Rule 2 of that entry is superseded by item 1 below, and rule 4's
+  count is corrected by item 2.
+
+1. **Results come from every finished match (Josh).** `fact_fixture` gains
+   `processed`, and `finished` is upstream's own flag. Scores are kept for
+   every finished match; xG, npxG and `fact_player_match` rows come only from
+   processed matches.
+   - Evidence: 20 Premier League matches in 2025/26 GW37-38 and 4 in 2026/27
+     (one from GW1) are finished, with scores, but never processed. Josh
+     confirmed that GW37 has a result for every game.
+   - Why: otherwise the Elo ratings miss 24 results.
+2. **Matches with no kickoff time are dropped (Josh).** There are 40, all
+   2025/26 cup or European matches, and 36 of them were played. Josh: the
+   xP model doesn't need non-Premier League matches. A Premier League match
+   with no kickoff time fails validation.
+   - Brief rule 3 still keeps the cup and European matches that do have a
+     kickoff time, as rotation and fatigue inputs for the minutes model.
+3. **`team_gc_on_pitch` is removed; `fact_player_gw.goals_conceded` is added
+   (Josh).** It is FPL's own on-pitch figure.
+   - Evidence (data-engineer, verified by the main session): upstream's
+     `team_goals_conceded` equals the opponent's full score for every
+     non-zero 0-minute row (661 of 661 in 2025/26). It is mostly the
+     whole-match figure for 2025/26 GW1-25 substitutes, and has 241 genuine
+     gaps in 2025/26.
+   - Why: the defence model works from `lambda_against` and expected minutes,
+     and FPL's figure is what gets scored. The only loss is a per-match split
+     within double gameweeks.
+4. **`fact_player_gw` keeps a row only when all the club's Premier League
+   fixtures that gameweek are finished (Josh).** Blank-gameweek rows stay.
+   Others are dropped and counted under `club_fixture_not_finished`.
+   - Evidence (Code Review, verified): the current build holds 63 played GW10
+     rows (182 points) for Chelsea, Coventry, Everton and Sunderland, whose
+     matches aren't processed. At upstream `027b5a74` (2026-11-07 03:04 UTC)
+     GW10 held 670 rows when only one match had been played.
+   - Why: a Saturday 18:00 run would record every Sunday player as 0 minutes
+     and 0 points.
+5. **`dim_player` nulls:** `chance_next`, `news`, `pen_order`, `fk_order`,
+   `corner_order` and `ep_next` may be null.
+6. **Foreign keys:** fact tables may hold players missing from `dim_player`,
+   which is the latest snapshot.
+7. **Drop reasons** `no_playerstats_row` (`dim_player`) and
+   `player_not_in_snapshot` (`fact_player_match`) are documented filters.
+8. **Season ids** use upstream's folder names, such as `2025-2026`.
+- **Note for task 5:** `players.csv` xG90 and xA90 must divide by the
+  minutes of the same processed matches that supply the xG and xA
+  (`fact_player_match`), not `fact_player_gw` minutes. Otherwise a finished
+  but unprocessed match adds minutes with no xG.
+- **Deferred to task 2:** input validation for part-seasons (Code Review
+  finding 3), and the future fixture list for as-of reads.
+- **Not done:** atomic writes across seasons. CI builds from scratch, and
+  each season's `manifest.json` records its upstream commit.
+- **Updated:** brief data rules 9 and 15 and the section 5 tables,
+  `docs/data_contract.md` and `CONTEXT.md`.
+
+### 2026-11-10: data - task 1 fix round
+- **Built to the updated contract** on upstream `0206600`:
+  - `fact_fixture` has `processed`, and `finished` is upstream's flag. Scores
+    are kept for every finished match; xG and npxG only for processed ones.
+    Finished-but-unprocessed Premier League results now kept: 20 in 2025/26
+    (GW37-38) and 4 in 2026/27.
+  - `team_gc_on_pitch` and the `team_goals_conceded` mapping are gone.
+    `fact_player_gw.goals_conceded` is FPL's figure, never null.
+  - `fact_player_gw` keeps a row only once every Premier League fixture of the
+    player's club in that gameweek is `finished`. The club is the player's
+    `team_code` in that gameweek's snapshot. Dropped rows are counted under
+    `club_fixture_not_finished`; blank-gameweek clubs keep their rows.
+    A player missing from the snapshot has no club to gate, so the row is
+    kept (34 such 0-minute rows in 2026/27, none with points).
+- **At `0206600` the count is 0** for 2026/27 GW10 and for every other
+  gameweek, because all 10 GW10 Premier League matches are now finished. The
+  gate is covered by tests (part-played gameweek, double gameweek, blank
+  gameweek, finished-but-unprocessed, snapshot club).
+- **Validation:** a Premier League match with no `kickoff_time` fails. The
+  Premier League tag is read from `premier_league_tag`. `prem_matches_rows` is
+  now [370, 380]; a count below 380 passes with a logged warning, for postponed
+  matches that have no gameweek folder. Table checks now also fail on scores
+  on unfinished matches, xG on unprocessed ones, and processed-but-unfinished.
+- **Fixes from Code Review:** `as_of_gw=0` reads no folders (was the whole
+  season); tests now cover a passing season followed by a failing one with
+  nothing written, `validate_inputs` failing on the rule 15 guards, and the
+  meaningless empty-directory assertion is removed.
+- **Refactor:** error classes, `checked_merge`, `to_int`, `tenths`,
+  `normalise_kickoff` and `map_codes` moved to `src/fpl/frames.py`; `clean.py`
+  re-exports them.
+
+### 2026-11-10: main - task 1 second review
+Code Review's second pass approved the fix round: every fix was checked by a
+mutant that undoes it.
+- **Players missing from the snapshot are gated too (main session).** Their
+  `fact_player_gw` rows were never gated. All 34 at upstream `0206600` are
+  2026/27 GW1-3 players added to FPL mid-gameweek, with 0 minutes. Such a row
+  is now held until every Premier League fixture in the gameweek is finished.
+- **Open for Josh:**
+  - Brief rule 8 is wrong. A gameweek folder's snapshot fields describe the
+    run-up to the next deadline. Evidence: GW9's `transfers_in_event` totalled
+    0 at `70f70217` (2026-10-31 13:47 UTC, after the GW9 deadline) and
+    6,852,210 at `0206600`. 39 of 669 `now_cost` and 177 `selected_by_percent`
+    values changed in between.
+  - The `finished` gate releases provisional rows. Bonus, BPS and up to 7
+    rows' points per commit kept changing for up to 7 hours after kickoff
+    across GW9-10. The next run corrects them, and backtests read final
+    folders.
+- **Gate for players missing from the snapshot:** a `fact_player_gw` row whose
+  player is missing from that gameweek's snapshot `players.csv` is held while
+  any Premier League fixture in the gameweek is unfinished, counted under
+  `no_club_gameweek_not_finished` (0 at `0206600`; the 34 GW1-3 rows stay).

@@ -112,7 +112,7 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
 6. `player_id` and `teams.id` are season-specific (verified: only 5 of 482 players shared by 2025/26 and 2026/27 keep their id). Join across seasons on `player_code` and `teams.code`, the stable FPL codes.
 7. Upstream `now_cost` is already in £m to one decimal (15.8), not tenths. Convert it once, in the cleaning step, to integer tenths with round(`now_cost` × 10). The `cost_change_*` columns are already integer tenths.
 8. The snapshot fields in `player_gameweek_stats` (`now_cost`, `selected_by_percent`, `form`) reflect that gameweek's deadline. They are known at prediction time; that gameweek's performance stats are not.
-9. Use only matches where `finished`, `stats_processed` and `player_stats_processed` are all true. Upstream sets the processed flags while a match is still being played: the 2026-11-08 14:25 UTC snapshot flags four GW10 matches as processed at 0-0, 25 minutes after kickoff.
+9. Take xG and player match stats only from processed matches: `finished`, `stats_processed` and `player_stats_processed` all true. Take results from every finished match, because upstream leaves some finished matches unprocessed for good (all of 2025/26 GW37–38). A gameweek's FPL figures for a player count only once every Premier League fixture their club has in it is finished.
 10. Coventry, Hull and Ipswich have no 2026/27 Premier League history at the start. Use Elo and last-season priors for them. Their Elo seeds come from upstream's GW1–2 match rows (rule 12).
 11. Credit the upstream repo with a link on the workbook's README sheet, as its author asks.
 12. **Elo is computed in-house.** Upstream takes Elo from ClubElo, whose API returned HTTP 502 on 2026-11-08 and 09. The 2026/27 `teams.elo` column is null and match Elo stops after GW2.
@@ -125,7 +125,7 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
     - **The rule:** in processed matches, fill blanks with 0 in these `fact_player_match` columns: `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves`. This covers 0-minute rows (unused substitutes) too: 2026/27 leaves all their counts blank, while 2025/26 records them as explicit zeros.
     - **Evidence (GW1–10, 2,803 rows):** zero-filled goals, saves and missed penalties equal FPL's own counts in every row. FPL's xG is 0 in all 1,459 rows with a blank xG, and a blank xG never sits beside a shot.
     - **Never fill a column that is empty for the whole season.** 2026/27 `tackles` and `defensive_contributions` are like this, so take tackles from `tackles_won`.
-    - **Never fill `team_gc_on_pitch`.** In 2025/26 it has 241 genuinely missing values across 83 matches, for players with 1–90 minutes. The data-engineer proposes how to handle them.
+    - **Goals conceded come from FPL, not match data.** Upstream's `team_goals_conceded` is the whole-match figure for unused substitutes and for most 2025/26 GW1–25 substitutes, and has 241 genuine gaps in 2025/26. So `fact_player_match` doesn't carry it, and `fact_player_gw.goals_conceded` (FPL's own on-pitch figure) is used instead.
     - **Validation fails the run** if a listed column is empty for a whole season, or if a blank xG sits beside `total_shots` > 0.
 
 ## Data contract
@@ -138,9 +138,9 @@ Every agent builds against these schemas. A change means updating this section a
 | --- | --- | --- |
 | `dim_player` | Player, current season | `player_id`, `player_code`, `web_name`, `team_id`, `position`, `price_tenths`, `status`, `chance_next`, `news`, `selected_pct`, `pen_order`, `fk_order`, `corner_order`, `ep_next` |
 | `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `upstream_elo` |
-| `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
-| `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves`, `team_gc_on_pitch` |
-| `fact_player_gw` | Player × gameweek | `player_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
+| `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `processed`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
+| `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves` |
+| `fact_player_gw` | Player × gameweek | `player_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
 
 The `upstream_elo` columns hold upstream ClubElo exactly as provided (null from 2026/27 GW3). The model's own Elo ratings are the Elo component's output (data rule 12). `home_team_id` and `away_team_id` are null for clubs outside the Premier League. The `fact_player_gw` defensive counts are FPL's own figures. The other source mappings are in `docs/data_contract.md`.
 

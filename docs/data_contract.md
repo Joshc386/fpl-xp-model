@@ -22,9 +22,9 @@ so a table never mixes seasons.
 | --- | --- | --- |
 | `dim_player` | Player, current season | `player_id`, `player_code`, `web_name`, `team_id`, `position`, `price_tenths`, `status`, `chance_next`, `news`, `selected_pct`, `pen_order`, `fk_order`, `corner_order`, `ep_next` |
 | `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `upstream_elo` |
-| `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
-| `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves`, `team_gc_on_pitch` |
-| `fact_player_gw` | Player × gameweek | `player_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
+| `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `processed`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
+| `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves` |
+| `fact_player_gw` | Player × gameweek | `player_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
 
 ### Source notes
 
@@ -60,36 +60,66 @@ Brief section 4 lists the data rules.
   with `Z`. `home_xg` is `home_expected_goals_xg`, `home_npxg` is
   `home_non_penalty_xg` and `home_goals` is `home_score`; the same applies to
   away.
-- **`fact_fixture.finished`:** true only for a processed match, where
-  upstream's `finished`, `stats_processed` and `player_stats_processed` are
-  all true (brief data rule 9). Otherwise it is false, and the result and xG
-  columns are null, even if upstream shows a part-played score. Unfinished
-  matches stay in the table because fixture difficulty needs future fixtures.
-- **`fact_fixture` dropped rows:** matches with no `kickoff_time` are
-  unscheduled placeholders (four 2025/26 cup and European rows). They are
-  dropped and counted under that reason.
+- **`fact_fixture.finished` and `processed`:** `finished` is upstream's
+  `finished`. `processed` is true when `finished`, `stats_processed` and
+  `player_stats_processed` are all true (brief data rule 9).
+  - `home_goals` and `away_goals` are kept for every finished match, and
+    null otherwise, even if upstream shows a part-played score.
+  - The xG and npxG columns are kept only for processed matches.
+  - Upstream leaves some finished matches unprocessed for good: all 20 of
+    2025/26 GW37-38, and 4 in 2026/27 by GW10. Their results still count.
+  - Unfinished matches stay in the table, because fixture difficulty needs
+    future fixtures.
+- **`fact_fixture` dropped rows:** matches with no `kickoff_time` are dropped
+  and counted under that reason. All 40 at upstream `0206600` are 2025/26
+  cup and European matches (36 played), which the model doesn't need.
+  Validation fails if a Premier League match has no kickoff time.
 - **`fact_player_match.minutes`:** `minutes_played`.
 - **`fact_player_match.tackles`:** FPL's tackle measure. That is
   `tackles_won` in 2026/27, where total `tackles` is null, and `tackles` in
   2025/26.
 - **`fact_player_match` other columns:** `pens_scored` and `pens_missed` come
-  from `penalties_scored` and `penalties_missed`. `team_gc_on_pitch` comes
-  from `team_goals_conceded`.
+  from `penalties_scored` and `penalties_missed`.
+- **`fact_player_match` rows:** processed matches only. A row whose player is
+  missing from that gameweek's snapshot `players.csv` is dropped and counted
+  under `player_not_in_snapshot`.
 - **`fact_player_match` blanks:** blanks mean zero (brief data rule 15). In
   processed matches, blanks in `goals`, `assists`, `xg`, `xa`, `pens_scored`,
   `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`,
   `recoveries` and `saves` are filled with 0. This includes 0-minute rows
   (unused substitutes), which are kept.
-  `team_gc_on_pitch` is never filled. Upstream's goalkeeper-only
-  `goals_conceded` column isn't used.
+- **Goals conceded:** upstream's `team_goals_conceded` and goalkeeper-only
+  `goals_conceded` in `playermatchstats` aren't used. `team_goals_conceded`
+  is the whole-match figure for unused substitutes and for most 2025/26
+  GW1-25 substitutes, and has 241 genuine gaps in 2025/26. Use
+  `fact_player_gw.goals_conceded` instead.
 - **`fact_player_gw` minutes:** `minutes` is FPL's own value from
   `player_gameweek_stats`, which sets the 60-minute threshold. It is not
   `minutes_played`.
 - **`fact_player_gw` other columns:** `points` is `event_points`, and `yellow`
   and `red` are `yellow_cards` and `red_cards`. `tackles`, `cbi`
   (`clearances_blocks_interceptions`), `recoveries` and
-  `defensive_contribution` are FPL's own counts. `transfers_in` and
-  `transfers_out` are `transfers_in_event` and `transfers_out_event`.
+  `defensive_contribution` are FPL's own counts. `goals_conceded` is FPL's
+  own goals conceded while on the pitch. `transfers_in` and `transfers_out`
+  are `transfers_in_event` and `transfers_out_event`.
+- **`fact_player_gw` rows:** a player's gameweek row is kept only once every
+  Premier League fixture their club has in that gameweek is finished. The
+  club comes from that gameweek's snapshot `players.csv`. Other rows are
+  dropped and counted under `club_fixture_not_finished`, and reappear once
+  the fixtures finish. A club with no fixture in the gameweek (a blank
+  gameweek) keeps its rows. A player missing from that gameweek's snapshot
+  has no club, so his row is held until every Premier League fixture in the
+  gameweek is finished (players added to FPL mid-gameweek).
+  - Why: FPL publishes a row for every player while a gameweek is being
+    played. A player whose match is still to come would read as 0 minutes
+    and 0 points.
+  - The gate is `finished`, not `processed`, because FPL's own figures don't
+    depend on upstream's stats processing.
+- **`dim_player`:** the latest snapshot of the season's players, so fact
+  tables may hold a `player_id` that isn't in it (players who left). A player
+  with no `playerstats` row is dropped and counted under
+  `no_playerstats_row`.
+- **`season`:** upstream's folder name, for example `2025-2026`.
 
 ## Published outputs
 
@@ -131,9 +161,13 @@ CSV in `outputs/`, committed, read by Excel.
   (null for minimum-priced players), and `backtest_mae_model` and
   `backtest_mae_ep_next` (null only until the first backtest).
 - Processed tables may also be null in `home_team_id` and `away_team_id`
-  (non-Premier League clubs), in the `upstream_elo` columns, in
-  `team_gc_on_pitch`, and in `fact_fixture`'s `home_goals`, `away_goals`,
-  `home_xg`, `away_xg`, `home_npxg` and `away_npxg` when `finished` is false.
+  (non-Premier League clubs), and in the `upstream_elo` columns.
+  - `fact_fixture`: `home_goals` and `away_goals` may be null when `finished`
+    is false; `home_xg`, `away_xg`, `home_npxg` and `away_npxg` when
+    `processed` is false.
+  - `dim_player`: `chance_next`, `news`, `pen_order`, `fk_order`,
+    `corner_order` and `ep_next` may be null. A null order means the player
+    isn't on that order.
 
 ## Point-in-time loader
 

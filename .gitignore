@@ -1,5 +1,6 @@
-# Raw and processed data cache (never committed)
-data/
+# Raw and processed data cache (never committed). Root only, so the
+# test samples in tests/fixtures/upstream/data/ are committed.
+/data/
 
 # Secrets
 .env
@@ -14,3 +15,6 @@ venv/
 
 # Excel lock files
 ~$*.xlsx
+*.egg-info/
+.coverage
+.ruff_cache/
