@@ -2,7 +2,8 @@
 
 The canonical schema for every processed table and published output. Copied
 from section 5 of docs/brief.md in phase 0 (2026-11-08) and amended on
-2026-11-09 with the phase 0 findings (see docs/decisions.md). From now on this
+2026-11-09 with the phase 0 findings and the phase 1 plan review (see
+docs/decisions.md). From now on this
 file is the contract: it overrides section 5 of the brief, and changes are
 made here first.
 
@@ -18,8 +19,8 @@ Internal; Parquet in `data/processed/`, not committed.
 | Table | Grain | Columns |
 | --- | --- | --- |
 | `dim_player` | Player, current season | `player_id`, `player_code`, `web_name`, `team_id`, `position`, `price_tenths`, `status`, `chance_next`, `news`, `selected_pct`, `pen_order`, `fk_order`, `corner_order`, `ep_next` |
-| `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `elo` |
-| `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_elo`, `away_elo`, `finished`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
+| `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `upstream_elo` |
+| `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
 | `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves`, `team_gc_on_pitch` |
 | `fact_player_gw` | Player × gameweek | `player_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
 
@@ -47,9 +48,11 @@ Brief section 4 lists the data rules.
   history in backtest mode.
 - **`dim_player.fk_order` and `corner_order`:** `direct_freekicks_order` and
   `corners_and_indirect_freekicks_order`.
-- **Elo:** `dim_team.elo`, `home_elo` and `away_elo` are the in-house Elo
-  (brief data rule 12). `home_elo` and `away_elo` are the ratings before
-  kickoff; `dim_team.elo` is the rating at the snapshot.
+- **Upstream Elo:** `dim_team.upstream_elo` (`teams.elo`), and
+  `home_upstream_elo` and `away_upstream_elo` (`home_team_elo` and
+  `away_team_elo`). These are upstream ClubElo exactly as provided: no
+  filling, null from 2026/27 GW3. The model's own Elo ratings are the Elo
+  component's output, not a processed-table column (brief data rule 12).
 - **`fact_fixture`:** `kickoff_utc` comes from `kickoff_time`. That is UTC,
   naive in 2026/27 and offset-stamped in 2025/26, so normalise to ISO 8601
   with `Z`. `home_xg` is `home_expected_goals_xg`, `home_npxg` is
@@ -84,11 +87,26 @@ CSV in `outputs/`, committed, read by Excel.
 | File | Grain | Columns |
 | --- | --- | --- |
 | `players.csv` | Player | `player_id`, `web_name`, `team`, `position`, `price_m`, `status`, `chance_next`, `news`, `selected_pct`, `minutes`, `starts`, `total_points`, `ppg`, `xg90`, `xa90`, `dc90`, `pen_taker`, `net_transfers_gw`, `price_change_gw`, `price_change_start` |
-| `projections.csv` | Player × gameweek (next 5) | `player_id`, `gw`, `opponent`, `home`, `exp_minutes`, `p_start`, `p_60`, `xg`, `xa`, `p_cs`, `exp_gc`, `xp_appear`, `xp_goals`, `xp_assists`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves`, `xp_bonus`, `xp_cards`, `xp_total`, `low_confidence` |
-| `player_summary.csv` | Player | `player_id`, `xp_next`, `xp_horizon`, `xp_horizon_weighted`, `replacement_xp`, `xp_above_repl`, `value_per_m`, `xp_per_m`, `ep_next_fpl` |
-| `fixture_difficulty.csv` | Team × gameweek | `team_id`, `gw`, `opponent_id`, `home`, `lambda_for`, `lambda_against`, `p_cs`, `is_blank`, `is_double` |
-| `optimal_squads.csv` | Budget × player | `budget_m`, `player_id`, `role` (XI or bench), `bench_order`, `is_captain`, `is_vice`, `xp_next`, `xp_horizon` |
-| `meta.csv` | One row | `run_utc`, `upstream_commit`, `current_gw`, `next_gw`, `next_deadline_utc`, `model_version`, `horizon`, `decay`, `backtest_mae_model`, `backtest_mae_ep_next`, `status` |
+| `projections.csv` | Player × gameweek (next 5; no row for a blank gameweek) | `player_id`, `gw`, `opponent`, `home`, `exp_minutes`, `p_start`, `p_60`, `xg`, `xa`, `p_cs`, `exp_gc`, `xp_appear`, `xp_goals`, `xp_assists`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves`, `xp_bonus`, `xp_cards`, `xp_total`, `low_confidence` |
+| `player_summary.csv` | Player × horizon (1–5) | `player_id`, `horizon`, `xp_next`, `xp_horizon`, `replacement_xp`, `xp_above_repl`, `value_per_m`, `xp_per_m`, `ep_next_fpl` |
+| `fixture_difficulty.csv` | Team × fixture (gameweeks in the next 5) | `team_id`, `match_id`, `gw`, `opponent_id`, `home`, `lambda_for`, `lambda_against`, `p_cs` |
+| `elo_ratings.csv` | Team × Premier League match, 2025/26 and 2026/27 | `team_id`, `match_id`, `season`, `gw`, `kickoff_utc`, `elo_before`, `elo_after` |
+| `optimal_squads.csv` | Horizon × budget × player | `horizon`, `budget_m`, `player_id`, `role` (XI or bench), `bench_order`, `is_captain`, `is_vice`, `xp_next`, `xp_horizon` |
+| `meta.csv` | One row | `run_utc`, `upstream_commit`, `current_gw`, `next_gw`, `next_deadline_utc`, `model_version`, `max_horizon`, `backtest_mae_model`, `backtest_mae_ep_next`, `status` |
+
+- **`fixture_difficulty.csv`:** a double gameweek has two rows for a team, and
+  a blank gameweek has none. The workbook sums a gameweek's rows and shows a
+  dash where there are none.
+- **`projections.csv`:** in a double gameweek, `opponent` lists both
+  opponents.
+- **`elo_ratings.csv`:** an analysis output for Josh's comparison with an
+  outside Elo source. The workbook doesn't load it.
+- **`meta.csv`:** `current_gw` is the as-of gameweek. `max_horizon` is the
+  number of gameweeks projected (5, from `config/model.yaml`).
+  `model_version` is filled from phase 1, for example `0.1.0-elo`.
+- **Gameweeks:** the next gameweek is the first gameweek whose deadline is
+  after the run time. A gameweek whose deadline has passed never appears in
+  the outputs (`CONTEXT.md`).
 
 ## Conventions
 
@@ -98,10 +116,12 @@ CSV in `outputs/`, committed, read by Excel.
   price arithmetic in tenths.
 - Times in UTC, ISO 8601.
 - One row per key, no duplicates.
-- In published outputs, nulls only in `news`, `chance_next`, `opponent`
-  (null for a blank gameweek) and `value_per_m` (null for minimum-priced
-  players). Processed tables may also be null in `home_team_id` and
-  `away_team_id` (non-Premier League clubs) and in the source-dependent stats.
+- In published outputs, nulls only in `news`, `chance_next`, `value_per_m`
+  (null for minimum-priced players), and `backtest_mae_model` and
+  `backtest_mae_ep_next` (null only until the first backtest).
+- Processed tables may also be null in `home_team_id` and `away_team_id`
+  (non-Premier League clubs), in the `upstream_elo` columns, and in
+  `team_gc_on_pitch`.
 
 ## Point-in-time loader
 
@@ -127,10 +147,11 @@ component checks.
 
 | Component | Module | Depends on | Output columns |
 | --- | --- | --- | --- |
+| Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per match: `elo_before`, `elo_after`; writes `elo_ratings.csv` |
 | Minutes | `models/minutes.py` | Processed tables | `p_appear`, `p_start`, `p_60`, `exp_minutes` |
-| Team goals | `models/team_goals.py` | Processed tables | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen` |
+| Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The phase 1 Elo goals model is its fallback and benchmark, and supplies `fixture_difficulty.csv` until phase 3 |
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |
 | Bonus | `models/bonus.py` | Minutes, attack, defence | `xp_bonus` |
 | Combine | `xp.py` | All of the above | `xp_appear`, `xp_cards`, `xp_total`; writes `projections.csv` |
-| Value | `value.py` | Combine | Per player: the `player_summary.csv` columns |
+| Value | `value.py` | Combine | Per player per horizon (1–5): the `player_summary.csv` columns |

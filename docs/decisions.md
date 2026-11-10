@@ -252,3 +252,107 @@ Every entry has a date and a reason. Heading format:
     should also go in the repo README once that is written.
 - **Repo name:** `fpl-xp-model`, per brief section 12. The local folder
   stays `fpl-model`.
+
+### 2026-11-09: main - phase 1 plan review (/grill-with-docs)
+Josh's decisions from grilling `docs/plans/phase-1.md`. `CONTEXT.md` was
+created in the same session. The brief and the contract are updated.
+
+1. **Next gameweek:** the first gameweek whose deadline is after the run time.
+   - Why: the deadline is the last point at which transfers count.
+   - The as-of gameweek is the one before it, and `meta.current_gw` reports
+     it.
+   - A gameweek whose deadline has passed never appears in the outputs.
+   - Upstream's `is_current`/`is_next` flags aren't used, because they lag
+     deadlines by hours.
+2. **Horizon:** 5 gameweeks stay projected. Josh briefly chose
+   next-gameweek-only, then reversed it in favour of a user-chosen horizon.
+3. **One workbook-wide horizon picker** (1 to `max_horizon`).
+   - Why: varying horizons across sections at once makes no sense.
+   - Python precomputes `player_summary.csv` per horizon, and
+     `optimal_squads.csv` per horizon × budget (55 solves). The runtime
+     target becomes 5 minutes for all 55.
+4. **No decay.** All totals are plain sums over the chosen horizon.
+   - Removed: `xp_horizon_weighted`, the decay config, `meta.decay` and the
+     optimiser's `w_g`.
+   - Trade-off accepted: far gameweeks are trusted as much as near ones. The
+     answer to that is choosing a shorter horizon.
+5. **`meta.csv` ships in phase 1.**
+   - `horizon` becomes `max_horizon`, and `decay` is removed.
+   - `model_version` is filled (for example `0.1.0-elo`).
+   - The backtest MAEs may be null only until the first backtest.
+6. **`fixture_difficulty.csv` is one row per team per fixture**, keyed on
+   `team_id` + `match_id`, with no row for a blank gameweek and two rows for
+   a double. `is_blank` and `is_double` are dropped.
+   - `projections.csv` follows the same convention: no row for a blank
+     gameweek, and `opponent` lists both opponents in a double. `opponent`
+     leaves the nullable list.
+7. **`players.csv` metric definitions** are approved and recorded in
+   `CONTEXT.md`.
+   - Per-90 stats are 0 at 0 minutes, with no minimum-minutes cut-off.
+   - xG and xA come from upstream match data, not FPL's `expected_goals`.
+8. **Runs at 08:00 and 18:00 UTC only** (Josh). Twice a day is enough.
+   - Upstream actually commits about three times a day, at drifting times in
+     roughly 02:00-04:00, 13:00-16:00 and 19:00-22:00 UTC. That contradicts
+     the brief's 07:30 and 17:30.
+   - The freshness criterion becomes "each run publishes the newest upstream
+     commit that existed when it started". The 1-hour target is dropped.
+   - 30-minute polling was proposed and rejected as too much.
+9. **The Elo goals model goes to the expected-points-modeller**, as the team
+   goals fallback and benchmark, rather than to the data-engineer. This
+   avoids two versions of the same model and keeps model logic out of the
+   data-engineer's code.
+10. **The modeller also owns the Elo ratings**, as one Elo component
+    (`models/elo.py`).
+    - The data-engineer passes upstream ClubElo through unchanged as
+      `upstream_elo` (renamed from `elo`, `home_elo` and `away_elo`).
+    - Elo settings move from `pipeline.yaml` to `model.yaml`.
+    - Why: one owner and one verdict, so a poor result can go to a new Elo
+      agent cleanly.
+11. **The model-validator judges the Elo component** against the pass marks
+    in brief section 7.
+    - Josh separately compares our ratings with an outside Elo source,
+      covering 2026/27 GW3 onwards, where upstream Elo stops.
+    - Advice given: compare ranking and predictive log-loss, not raw rating
+      levels, because the scales differ.
+12. **`elo_ratings.csv` is published** (team × Premier League match, 2025/26
+    and 2026/27, `elo_before` and `elo_after`) for Josh's comparison. It is
+    not loaded by the workbook.
+13. **Each reviewed task is committed straight to `main` and pushed**; there
+    is no `phase-1` branch.
+    - Why: GitHub only offers manual workflow runs from the default branch,
+      and branch-based Power Query URLs would need switching at go-live.
+    - Josh approved pushes for phase 1.
+14. **Josh's Elo verdict gates only the phase 2 Dixon-Coles work.** The
+    minutes model doesn't use Elo and can start after phase 1 sign-off.
+
+### 2026-11-09: optimiser - customisable budget on a £0.5m grid
+- **Decision (Josh):** budgets are customisable, because managers' budgets
+  drift as their players' prices rise and fall.
+  - `in_budget` accepts any budget to £0.1m.
+  - Python solves every horizon × budget from £95.0m to £110.0m in £0.5m
+    steps: 155 solves, with the range and step in `config/optimiser.yaml`.
+  - The workbook shows the squad for the largest solved budget at or below
+    the typed one, and says which.
+- **Supersedes:** the £95.0m-£105.0m range in £1.0m steps and the 55-solve
+  figure in the plan-review entry above.
+- **Why a grid:** workbook users have no Python, so squads must be
+  precomputed.
+  - A £0.1m grid would need about 755 solves per run.
+  - A £1.0m grid could leave up to £0.9m unused; the £0.5m grid leaves at
+    most £0.4m.
+- **Runtime target:** under 20 minutes for all 155 solves. This is a starting
+  target, confirmed in phase 4.
+- The Transfer Planner is unaffected, because it already uses the user's own
+  selling values and bank.
+
+### 2026-11-09: main - optimiser agent file aligned with the brief
+- Edited `.claude/agents/optimiser.md` with Josh's permission:
+  - Removed the decay and decay-weights mention.
+  - A player with no `projections.csv` row in a gameweek now has xP 0 (Josh),
+    replacing "a missing row is a data problem".
+  - Solves, runtime, sanity checks and the results table now cover every
+    horizon × budget.
+  - The hit cost is read from `game_rules` in `config/scoring.yaml`.
+- `expected-points-modeller.md` still lists `xp_horizon_weighted` and decay.
+  It has not been edited; the brief wins, and the modeller will be told in its
+  task message.

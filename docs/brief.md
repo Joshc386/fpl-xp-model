@@ -10,7 +10,7 @@ Josh is the first user; anyone given the workbook is the second. Users need Exce
 | --- | --- | --- |
 | Model accuracy | xP beats FPL's own `ep_next` on mean absolute error across the walk-forward backtest | Validator report |
 | Calibration | Mean actual points within ±0.3 of mean predicted in every xP bin with ≥200 player-gameweeks | Calibration table in the report |
-| Freshness | Workbook data within 1 hour of each upstream refresh | `meta.csv` run time vs upstream commit time |
+| Freshness | Each run (08:00 and 18:00 UTC) publishes the newest upstream commit that existed when it started | `meta.upstream_commit` vs upstream's latest commit at run start |
 | Reliability | Outputs that fail validation are never published | GitHub Actions run history |
 | Optimiser | Returns a legal 15-player squad in under 60 seconds | Unit tests and run log |
 | Usability | A new user finds the best-value midfielder under £7.0m for the next 5 GWs in under a minute | Hand test before sign-off |
@@ -25,6 +25,7 @@ Version 1 delivers an accurate, validated xP model and the six requested sheets.
 
 - Ingest the 2026/27 season, plus previous seasons for backtesting and priors
 - Per-player xP for each of the next 5 gameweeks, with a component breakdown
+- One workbook-wide horizon of 1–5 gameweeks, chosen by the user, that every sheet uses at once (`CONTEXT.md`)
 - A value-above-replacement metric (section 8)
 - Fixture difficulty from the model's own team goal expectations
 - An optimal squad from scratch at a range of budgets
@@ -80,7 +81,7 @@ Either validation check can stop a run. When one does, nothing is published and 
 
 ## Data source
 
-All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL-Core-Insights). It is CSV only, refreshed twice daily at 07:30 and 17:30 UTC, with the 2026/27 season under `data/2026-2027/`.
+All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL-Core-Insights). It is CSV only, with the 2026/27 season under `data/2026-2027/`. Upstream commits about three times a day at drifting times. In November 2026 the windows were roughly 02:00–04:00, 13:00–16:00 and 19:00–22:00 UTC.
 
 **Layout**
 
@@ -114,7 +115,10 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
 9. Use only matches where `stats_processed` and `player_stats_processed` are both true.
 10. Coventry, Hull and Ipswich have no 2026/27 Premier League history at the start. Use Elo and last-season priors for them. Their Elo seeds come from upstream's GW1–2 match rows (rule 12).
 11. Credit the upstream repo with a link on the workbook's README sheet, as its author asks.
-12. **Elo is computed in-house.** Upstream takes Elo from ClubElo, whose API returned HTTP 502 on 2026-11-08 and 09. The 2026/27 `teams.elo` column is null and match Elo stops after GW2. The pipeline runs its own Elo over processed Premier League results, seeded from each club's last upstream ClubElo value: GW1–2 match rows for 19 clubs, and 2025/26 for Arsenal. The method is standard Elo with a home advantage and a goal-margin factor, and its settings live in `config/pipeline.yaml`. Settings are calibrated by replaying 2025/26, where upstream ClubElo is complete. elofootball.com was considered and rejected: it has no API or export, no stated terms of use and no named operator.
+12. **Elo is computed in-house.** Upstream takes Elo from ClubElo, whose API returned HTTP 502 on 2026-11-08 and 09. The 2026/27 `teams.elo` column is null and match Elo stops after GW2.
+    - **Data-engineer:** passes upstream's ClubElo values through unchanged as `upstream_elo`, so every season is available.
+    - **Elo component (expected-points-modeller):** computes the model's own Elo ratings over processed Premier League results. Each club is seeded from its last upstream Elo value: GW1–2 match rows for 19 clubs, and 2025/26 for Arsenal. The method is standard Elo with a home advantage and a goal-margin factor; its settings live in `config/model.yaml` and are calibrated by replaying 2025/26, where upstream Elo is complete.
+    - **Rejected source:** elofootball.com, which has no API or export, no stated terms of use and no named operator.
 13. **Previous seasons:** 2025/26 is complete, with 38 gameweeks and the same columns as 2026/27; 2026/27 adds a few. 2024/25 uses an older layout with no `player_gameweek_stats` or `fixtures`, so it can feed match-level priors only (rule 1 rules out differencing).
 14. **Defensive contributions:** in 2026/27, `playermatchstats.tackles` is empty and FPL's tackle count matches `tackles_won`; in 2025/26 it matches `tackles`. Where gameweek grain is enough, use FPL's own counts from `player_gameweek_stats`.
 15. **Blank match stats mean zero.** Upstream's 2026/27 `playermatchstats` leaves a count blank when the event didn't happen.
@@ -133,23 +137,29 @@ Every agent builds against these schemas. A change means updating this section a
 | Table | Grain | Columns |
 | --- | --- | --- |
 | `dim_player` | Player, current season | `player_id`, `player_code`, `web_name`, `team_id`, `position`, `price_tenths`, `status`, `chance_next`, `news`, `selected_pct`, `pen_order`, `fk_order`, `corner_order`, `ep_next` |
-| `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `elo` |
-| `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_elo`, `away_elo`, `finished`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
+| `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `upstream_elo` |
+| `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
 | `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves`, `team_gc_on_pitch` |
 | `fact_player_gw` | Player × gameweek | `player_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
 
-Elo columns (`dim_team.elo`, `home_elo`, `away_elo`) hold the in-house Elo (data rule 12). `home_team_id` and `away_team_id` are null for clubs outside the Premier League. The `fact_player_gw` defensive counts are FPL's own figures. The other source mappings are in `docs/data_contract.md`.
+The `upstream_elo` columns hold upstream ClubElo exactly as provided (null from 2026/27 GW3). The model's own Elo ratings are the Elo component's output (data rule 12). `home_team_id` and `away_team_id` are null for clubs outside the Premier League. The `fact_player_gw` defensive counts are FPL's own figures. The other source mappings are in `docs/data_contract.md`.
 
 **Published outputs** (CSV in `outputs/`, committed, read by Excel)
 
 | File | Grain | Columns |
 | --- | --- | --- |
 | `players.csv` | Player | `player_id`, `web_name`, `team`, `position`, `price_m`, `status`, `chance_next`, `news`, `selected_pct`, `minutes`, `starts`, `total_points`, `ppg`, `xg90`, `xa90`, `dc90`, `pen_taker`, `net_transfers_gw`, `price_change_gw`, `price_change_start` |
-| `projections.csv` | Player × gameweek (next 5) | `player_id`, `gw`, `opponent`, `home`, `exp_minutes`, `p_start`, `p_60`, `xg`, `xa`, `p_cs`, `exp_gc`, `xp_appear`, `xp_goals`, `xp_assists`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves`, `xp_bonus`, `xp_cards`, `xp_total`, `low_confidence` |
-| `player_summary.csv` | Player | `player_id`, `xp_next`, `xp_horizon`, `xp_horizon_weighted`, `replacement_xp`, `xp_above_repl`, `value_per_m`, `xp_per_m`, `ep_next_fpl` |
-| `fixture_difficulty.csv` | Team × gameweek | `team_id`, `gw`, `opponent_id`, `home`, `lambda_for`, `lambda_against`, `p_cs`, `is_blank`, `is_double` |
-| `optimal_squads.csv` | Budget × player | `budget_m`, `player_id`, `role` (XI or bench), `bench_order`, `is_captain`, `is_vice`, `xp_next`, `xp_horizon` |
-| `meta.csv` | One row | `run_utc`, `upstream_commit`, `current_gw`, `next_gw`, `next_deadline_utc`, `model_version`, `horizon`, `decay`, `backtest_mae_model`, `backtest_mae_ep_next`, `status` |
+| `projections.csv` | Player × gameweek (next 5; no row for a blank gameweek) | `player_id`, `gw`, `opponent`, `home`, `exp_minutes`, `p_start`, `p_60`, `xg`, `xa`, `p_cs`, `exp_gc`, `xp_appear`, `xp_goals`, `xp_assists`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves`, `xp_bonus`, `xp_cards`, `xp_total`, `low_confidence` |
+| `player_summary.csv` | Player × horizon (1–5) | `player_id`, `horizon`, `xp_next`, `xp_horizon`, `replacement_xp`, `xp_above_repl`, `value_per_m`, `xp_per_m`, `ep_next_fpl` |
+| `fixture_difficulty.csv` | Team × fixture (gameweeks in the next 5) | `team_id`, `match_id`, `gw`, `opponent_id`, `home`, `lambda_for`, `lambda_against`, `p_cs` |
+| `elo_ratings.csv` | Team × Premier League match, 2025/26 and 2026/27 | `team_id`, `match_id`, `season`, `gw`, `kickoff_utc`, `elo_before`, `elo_after` |
+| `optimal_squads.csv` | Horizon × budget × player | `horizon`, `budget_m`, `player_id`, `role` (XI or bench), `bench_order`, `is_captain`, `is_vice`, `xp_next`, `xp_horizon` |
+| `meta.csv` | One row | `run_utc`, `upstream_commit`, `current_gw`, `next_gw`, `next_deadline_utc`, `model_version`, `max_horizon`, `backtest_mae_model`, `backtest_mae_ep_next`, `status` |
+
+- **`fixture_difficulty.csv`:** a double gameweek has two rows for a team, and a blank gameweek has none. The workbook sums a gameweek's rows and shows a dash where there are none.
+- **`projections.csv`:** in a double gameweek, `opponent` lists both opponents.
+- **`elo_ratings.csv`:** for Josh's comparison with an outside Elo source. The workbook doesn't load it.
+- **`meta.current_gw`** is the as-of gameweek. `max_horizon` is the number of gameweeks projected (5, from `config/model.yaml`), and the workbook's horizon picker offers 1 to `max_horizon`.
 
 **Conventions**
 
@@ -157,7 +167,7 @@ Elo columns (`dim_team.elo`, `home_elo`, `away_elo`) hold the in-house Elo (data
 - Published prices in £m to one decimal place (`price_m`). Processed tables hold integer tenths of £m (`price_tenths`, 55 = £5.5m), and code does all price arithmetic in tenths.
 - Times in UTC, ISO 8601.
 - One row per key, no duplicates.
-- Nulls only in `news`, `chance_next`, `opponent` (null for a blank gameweek) and `value_per_m` (null for minimum-priced players).
+- Nulls only in `news`, `chance_next`, `value_per_m` (null for minimum-priced players), and `backtest_mae_model` and `backtest_mae_ep_next` (null only until the first backtest).
 
 **Point-in-time loader**
 
@@ -173,13 +183,14 @@ Each model component exposes a function that takes `season` and `as_of_gw` and r
 
 | Component | Module | Depends on | Output columns |
 | --- | --- | --- | --- |
+| Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per match: `elo_before`, `elo_after`; writes `elo_ratings.csv` |
 | Minutes | `models/minutes.py` | Processed tables | `p_appear`, `p_start`, `p_60`, `exp_minutes` |
-| Team goals | `models/team_goals.py` | Processed tables | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen` |
+| Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The Elo goals model (phase 1) is its fallback and benchmark |
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |
 | Bonus | `models/bonus.py` | Minutes, attack, defence | `xp_bonus` |
 | Combine | `xp.py` | All of the above | `xp_appear`, `xp_cards`, `xp_total`; writes `projections.csv` |
-| Value | `value.py` | Combine | Per player: the `player_summary.csv` columns |
+| Value | `value.py` | Combine | Per player per horizon (1–5): the `player_summary.csv` columns |
 
 **Canonical copy:** phase 0 copies this section into `docs/data_contract.md`. From then on that file is the contract, and changes are made there first.
 
@@ -209,8 +220,9 @@ Minutes is the largest source of xP error, so it gets the most care.
 
 - **Outputs:** `lambda_for` and `lambda_against` per team per fixture.
 - **v1 method:** reuse the Dixon-Coles approach from the betting bot. Fit attack and defence ratings on xG-weighted goals with time decay and a home advantage term.
-- **Fallback and benchmark:** a Poisson model driven by the Elo difference.
-- **Inputs:** Premier League results and team xG from `matches.csv`, this season and last; the in-house Elo (data rule 12).
+- **Fallback and benchmark:** the Elo goals model, a Poisson model driven by the Elo-rating gap and home advantage. It is built in phase 1, fitted only on results before the as-of gameweek, and supplies `fixture_difficulty.csv` until phase 3.
+- **Inputs:** Premier League results and team xG from `matches.csv`, this season and last; the Elo ratings from the Elo component (data rule 12).
+- **Gate:** Dixon-Coles work starts only after Josh's own comparison of our Elo ratings with an outside Elo source. If the ratings are poor, a separate Elo agent rebuilds the Elo component first.
 - **Promoted teams:** an Elo-based prior until they have about 6 matches.
 
 ### 3. Attacking returns
@@ -270,7 +282,7 @@ E[\text{goals}_{i,f}] = \lambda^{np}_{f} \cdot \text{share}_i \cdot \frac{m_{i,f
 ### Horizon and aggregation
 
 - A gameweek's xP is the sum over its fixtures; a blank gameweek is 0.
-- Report next-GW xP, the horizon total (default 5 gameweeks), and a weighted horizon total for planning, with decay w = 0.9^(k−1). Horizon and decay are set in config.
+- Report xP for each of the next 5 gameweeks (`max_horizon` in config). Horizon xP is a plain sum over the first h gameweeks, with h = 1–5 chosen once for the whole workbook. There is no decay or weighting (decided 2026-11-09).
 - **Early season:** blend last season (joined on `player_code`) with this one. The current-season weight is n / (n + k), with n the matches played.
 - **New arrivals from outside the league:** use the position-and-team prior and set `low_confidence` to true.
 - Stamp every output with `model_version`.
@@ -307,6 +319,21 @@ The model ships only if it beats FPL's `ep_next` in a walk-forward backtest. The
 - Mean actual within ±0.3 of mean predicted in every calibration bin with ≥200 observations.
 - Every leakage check below passes.
 
+**Elo component check (phase 1, starting thresholds)**
+
+The model-validator judges the Elo component on its own walk-forward test over 2025/26 and 2026/27 to date. Each prediction uses only results from before that fixture.
+
+| Check | Pass mark |
+| --- | --- |
+| Ratings track upstream Elo (2025/26 replay) | Spearman rank correlation ≥ 0.9 at every gameweek from GW6; the mean rating gap is reported |
+| Goals are calibrated | Bins of predicted goals (0–0.75, 0.75–1.25, 1.25–1.75, 1.75+): actual within ±0.1 goals of predicted in every bin with ≥100 team-fixtures |
+| Clean sheets are calibrated | Bins of predicted `p_cs` in steps of 0.1: actual rate within ±5 percentage points in every bin with ≥100 team-fixtures |
+| Beats a no-skill baseline | Lower Poisson log-loss of goals than league-average home and away goals |
+| Early season | GW1–5 of each season reported separately, without pass marks |
+
+- **A fail** returns the Elo component to the modeller with the findings. A second fail is Josh's cue for a separate Elo agent.
+- **Beyond GW2 of 2026/27**, where upstream Elo stops, Josh compares our ratings with an outside Elo source himself. The test there is ranking agreement and predictive log-loss, not raw rating levels. His verdict gates the phase 2 Dixon-Coles work.
+
 **Leakage checklist**
 
 - [ ] Features for gameweek g use nothing timestamped after the g deadline
@@ -327,15 +354,15 @@ The report goes to `backtest/reports/{date}.md`, and the headline MAEs go into `
 
 ## Value for money
 
-Value is a player's 5-GW xP above a replacement-level player in the same position, per £m spent above that position's minimum price.
+Value is a player's horizon xP above a replacement-level player in the same position, per £m spent above that position's minimum price. Python computes it for every horizon h = 1–5, and the workbook shows the row for the chosen horizon.
 
 Raw points per £m is the wrong metric. A £4.0m defender who barely plays ranks well because the denominator is tiny. What you are paying for is the points above what a near-free player would score.
 
 ```latex
-\text{value}_i = \frac{xP^{(5)}_i - xP^{(5)}_{\text{repl},\,pos}}{\max\left(p_i - p_{\min,\,pos},\ 0.5\right)}
+\text{value}_{i,h} = \frac{xP^{(h)}_i - xP^{(h)}_{\text{repl},\,pos}}{\max\left(p_i - p_{\min,\,pos},\ 0.5\right)}
 ```
 
-- **Replacement level** (`replacement_xp`): the mean 5-GW xP of the three best players priced within £0.5m of the position's minimum, with `p_start` ≥ 0.7. Both numbers are set in config.
+- **Replacement level** (`replacement_xp`): the mean horizon xP of the three best players priced within £0.5m of the position's minimum, with `p_start` ≥ 0.7. Both numbers are set in config.
 - **Denominator floor:** £0.5m. Without it, a player priced £0.1m above the minimum gets an absurd ratio.
 - **Minimum-priced players:** show `xp_above_repl` only and leave `value_per_m` blank.
 - **Also published:** raw `xp_per_m`, for familiarity.
@@ -347,15 +374,15 @@ Squad selection is an integer program solved in Python with PuLP. The Excel Tran
 
 ### Squad from scratch
 
-This is the wildcard or free-hit view. It is solved for every budget from £95.0m to £105.0m in £1.0m steps, so users pick a budget from a dropdown instead of re-running Python.
+This is the wildcard or free-hit view. It is solved for every horizon h = 1–5 and every budget from £95.0m to £110.0m in £0.5m steps: 31 budgets × 5 horizons = 155 solves. The range and step are set in `config/optimiser.yaml`. Managers' budgets drift with their players' prices, so the workbook takes any budget to £0.1m. It shows the squad for the largest solved budget at or below it, and says which: for example, "best squad for £101.5m (your budget £101.7m)".
 
-**Variables:** `x_i` = 1 if player i is in the squad; `s_{i,g}` = 1 if he starts in gameweek g; `c_{i,g}` = 1 if he captains in g.
+**Variables:** `x_i` = 1 if player i is in the squad; `s_{i,g}` = 1 if the player starts in gameweek g; `c_{i,g}` = 1 if the player captains in g.
 
 ```latex
-\max \sum_{g} w_g \sum_{i} xP_{i,g} \left( s_{i,g} + c_{i,g} + \beta \, (x_i - s_{i,g}) \right)
+\max \sum_{g \in \text{horizon}} \sum_{i} xP_{i,g} \left( s_{i,g} + c_{i,g} + \beta \, (x_i - s_{i,g}) \right)
 ```
 
-Here `w_g` is the horizon decay weight and β is the bench weight (config, for example 0.1). The captain term adds his xP a second time.
+Here β is the bench weight (config, for example 0.1). The captain term adds the captain's xP a second time. Gameweeks are not weighted: there is no decay.
 
 **Constraints**
 
@@ -379,7 +406,7 @@ Here `w_g` is the horizon decay weight and β is the bench weight (config, for e
 - Transfer Planner formulas score user-chosen moves.
 - A replacement list uses FILTER to check position, price ≤ selling value + bank, and fewer than 3 players from the incoming player's club.
 
-**Runtime:** under 60 seconds for all 11 budget solves on a GitHub runner.
+**Runtime:** under 20 minutes for all 155 solves (5 horizons × 31 budgets) on a GitHub runner. This is a starting target, to be confirmed in phase 4.
 
 **Tests:** every output passes `check_squad`, a rules checker written independently of the integer program, so a buggy constraint can't pass its own check. On a small instance the ILP matches a brute-force search, and the objective never falls as the budget rises. `tests/fixtures/rule_cases.csv` holds squads with their expected selling values and legal or illegal verdicts; `check_squad` and the Transfer Planner's formulas are both tested against it, so Python and Excel can't drift apart.
 
@@ -393,6 +420,7 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 - **Data load:** one Power Query per output CSV, loaded as Excel Tables on hidden `Data_` sheets: `tbl_players`, `tbl_projections`, `tbl_summary`, `tbl_fixtures`, `tbl_squads`, `tbl_meta`.
 - **Refresh:** on open, plus Data → Refresh All.
 - **Naming:** tables `tbl_*`; named input cells `in_*` (`in_budget`, `in_horizon`, `in_bank`, `in_ft`, `in_hit_cost`).
+- **One horizon:** `in_horizon` (1 to `max_horizon`, default 5) is a single workbook-wide picker. Every sheet's xP totals, value, fixture totals, optimal squad and transfer checks use it at once.
 - **Inputs vs outputs:** input cells share one fill colour; everything else is protected (no password) against accidental edits.
 - **Formats:** price `£0.0"m"`, xP `0.0`, percentages `0%`; header rows frozen.
 - **Colour:** a colour-blind-safe scale for xP and difficulty, and the same scale on every sheet.
@@ -401,19 +429,19 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 ### Dashboard
 
 - **Header:** data last updated, current gameweek, next deadline, model version, and a status flag that turns red when data is over 24 hours old.
-- **Panels:** top 10 by next-GW xP per position; top 10 value picks; best and worst 5 teams by 5-GW fixtures (attack and defence); captain shortlist (top 5); your squad's projected points next GW and over 5 GWs against the optimal squad; top 5 transfer opportunities for your squad; latest backtest MAE against `ep_next`.
+- **Panels:** top 10 by next-GW xP per position; top 10 value picks; best and worst 5 teams by fixtures over the horizon (attack and defence); captain shortlist (top 5); your squad's projected points next GW and over the horizon against the optimal squad; top 5 transfer opportunities for your squad; latest backtest MAE against `ep_next`.
 - **Charts:** your squad's xP by gameweek against the optimal squad (line); xP against price by position (scatter), with value picks highlighted.
 
 ### Player Database
 
 - One row per player: `tbl_players` joined to `tbl_summary`.
-- **Columns:** name, team, position, price, status, news, chance of playing, ownership, minutes, starts, total points, PPG, xG/90, xA/90, xGI/90, defensive contributions/90, penalty taker, net transfers this GW, price change this GW and since the start, xP next GW, xP 5 GWs, value per £m.
+- **Columns:** name, team, position, price, status, news, chance of playing, ownership, minutes, starts, total points, PPG, xG/90, xA/90, xGI/90, defensive contributions/90, penalty taker, net transfers this GW, price change this GW and since the start, xP next GW, horizon xP, value per £m. Metric definitions are in `CONTEXT.md`.
 - **Interaction:** slicers for team, position and status; a price filter; a name search box (FILTER).
 - **Formatting:** status colours; data bars on xP.
 
 ### Fixture Analysis
 
-- A grid of 20 teams × the next 5 gameweeks. Each cell shows the opponent's short name and H or A, coloured by difficulty.
+- A grid of 20 teams × the gameweeks in the horizon. Each cell shows the opponent's short name and H or A, coloured by difficulty.
 - A dropdown (`in_fixture_view`) switches between attack (`lambda_for`) and defence (`p_cs`).
 - A total column sums the horizon, and the grid sorts by it.
 - Blank gameweeks show a grey dash. Doubles show both opponents and the combined value.
@@ -421,7 +449,7 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 
 ### Player Projections
 
-- Player × GW+1 to GW+5 xP, with the total and the weighted total.
+- Player × the gameweeks in the horizon, with the horizon xP.
 - Next-GW breakdown: expected minutes, `p_start`, xG, xA, `p_cs`, defensive contribution points, bonus.
 - FPL's `ep_next` sits beside the model's next-GW xP.
 - **Filters:** position, team, maximum price, minimum `p_start`.
@@ -433,7 +461,7 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 
 - 15 squad slots, each a dropdown of player names
 - Purchase price per slot (optional; defaults to the current price)
-- Bank, free transfers, hit cost (default 4) and horizon (1–5 gameweeks)
+- Bank, free transfers and hit cost (default 4). The horizon comes from the workbook-wide `in_horizon`.
 - Tick boxes for the starting XI, plus a captain pick
 
 **Calculations**
@@ -441,19 +469,20 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 - Selling value per player (section 9) and total funds available.
 - Squad xP per gameweek for the chosen XI and captain, with checks that 11 are picked and the formation is legal.
 - Up to 3 planned transfers (out → in). Each is checked for position, budget and the 3-per-club limit, and shows the xP change per gameweek, over the horizon, the hit cost and the net gain.
-- **Candidates:** pick an outgoing player, and FILTER lists eligible replacements sorted by 5-GW xP gain.
+- **Candidates:** pick an outgoing player, and FILTER lists eligible replacements sorted by horizon xP gain.
 - **Price signals:** net transfers and this-GW price change for every squad player and candidate. These are indicators only.
 
 ### Squad Optimisation
 
-- The optimal squad for the budget picked in `in_budget`: the XI by formation, the bench in order, captain and vice, cost, bank left, next-GW xP and 5-GW xP.
-- The parameters used (horizon, decay, bench weight), read from `tbl_meta`.
+- `in_budget` takes any budget to £0.1m. The sheet uses the largest solved budget at or below it and shows both figures.
+- The optimal squad for that budget and the horizon in `in_horizon`: the XI by formation, the bench in order, captain and vice, cost, bank left, next-GW xP and horizon xP.
+- The parameters used (horizon and bench weight).
 - Your squad against the optimal: players in common and the xP gap.
 - The view is from scratch (wildcard or free hit), and the sheet says so.
 
 ## Automation and operations
 
-A GitHub Actions workflow runs the full pipeline at 08:00 and 18:00 UTC, 30 minutes after each upstream refresh. It commits only outputs that pass validation.
+A GitHub Actions workflow runs the full pipeline at 08:00 and 18:00 UTC. Upstream refreshes about three times a day at drifting times, so each run publishes whatever is newest when it starts; twice a day is enough. It commits only outputs that pass validation. GitHub may start scheduled runs several minutes late, so on days with an 18:00 deadline the evening run lands after the deadline.
 
 **Workflows**
 
@@ -468,7 +497,7 @@ GitHub cron runs in UTC and so does the upstream schedule, so no summer-time adj
 **`update.yml` steps**
 
 1. Check out the repo and set up Python with a pip cache.
-2. Sparse-checkout `data/2026-2027/` from upstream and record its commit SHA.
+2. Sparse-checkout `data/2026-2027/` and `data/2025-2026/` from upstream, and record the commit SHA. The Elo component needs 2025/26 for seeds and calibration.
 3. If the upstream SHA matches the last run's, exit without committing.
 4. Validate inputs: expected files exist, schemas match the contract, keys are non-null and unique, row counts are within bounds, and the latest gameweek folder is present.
 5. Build the processed tables.
@@ -505,8 +534,8 @@ fpl-xp-model/
 ├── CLAUDE.md               # project rules; points to docs/brief.md
 ├── config/
 │   ├── scoring.yaml        # 2026/27 points rules by position, plus squad and transfer rules
-│   ├── pipeline.yaml       # upstream source, input-validation bounds, Elo settings
-│   ├── model.yaml          # horizon, decay, shrinkage k, rotation discount
+│   ├── pipeline.yaml       # upstream source, input-validation bounds
+│   ├── model.yaml          # max horizon, Elo settings, shrinkage k, rotation discount
 │   ├── optimiser.yaml      # budgets, bench weight, hit cost, locks, bans
 │   └── my_team.yaml        # optional personal squad (v1.5)
 ├── src/fpl/
@@ -515,6 +544,7 @@ fpl-xp-model/
 │   ├── clean.py
 │   ├── features.py
 │   ├── models/
+│   │   ├── elo.py          # Elo ratings (Elo component)
 │   │   ├── minutes.py
 │   │   ├── team_goals.py
 │   │   ├── attack.py
@@ -547,8 +577,8 @@ The build runs in six phases, each ending with a review before the next starts. 
 
 0. **Foundations.** Set up the repo, `CLAUDE.md`, this brief and the data contract in `docs/`. Fill `scoring.yaml` from the official rules and explore upstream to answer the verify list in section 15.
    - Done when: the contract doc is complete and every verify item has an answer.
-1. **Data pipeline and thin slice.** Build ingestion, validation, the processed tables and the in-house Elo (data rule 12). Publish `players.csv` and an Elo-based `fixture_difficulty.csv`, put `update.yml` live, and build the Player Database and Fixture Analysis sheets through Power Query.
-   - Done when: the workbook refreshes from GitHub on open, row counts match upstream, tests pass, two consecutive scheduled runs succeed, and the in-house Elo replayed over 2025/26 tracks upstream's ClubElo series. The starting target is a Spearman rank correlation of at least 0.9 at every gameweek from GW6.
+1. **Data pipeline and thin slice.** The data-engineer builds ingestion, validation, the processed tables and the point-in-time loader. The expected-points-modeller builds the Elo component (ratings and the Elo goals model). Publish `players.csv`, an Elo-based `fixture_difficulty.csv`, `elo_ratings.csv` and `meta.csv`; put `update.yml` live; build the Player Database and Fixture Analysis sheets through Power Query. Plan: `docs/plans/phase-1.md`.
+   - Done when: the workbook refreshes from GitHub on open; processed row counts reconcile with upstream after the documented filters; tests pass; two consecutive scheduled runs succeed, each publishing a new upstream commit; and the model-validator's Elo component check (section 7) passes.
 2. **xP model v1 and backtest.** Build the components in order: minutes, team goals, attack, defence, bonus, then combine them. The validator builds the backtest harness independently, in parallel.
    - Done when: the acceptance gate in section 7 passes and the report is committed.
 3. **Projections and value.** Publish `projections.csv` and `player_summary.csv`, build the Player Projections sheet, and switch Fixture Analysis to the model's goal expectations.
@@ -566,8 +596,8 @@ Five project agents do the work, alongside the global QA and Code Review agents.
 
 | Agent | Owns | Reads | Writes | Must not |
 | --- | --- | --- | --- | --- |
-| data-engineer | Ingestion, validation, cleaning, processed tables, the in-house Elo, the point-in-time loader, workflows | Upstream data; sections 4, 5, 11 | `ingest.py`, `validate.py`, `clean.py`, `features.py`, `config/pipeline.yaml`, `.github/workflows/`; proposed contract changes | Change model logic; touch the workbook |
-| expected-points-modeller | The minutes, team goals, attack, defence and bonus models; xP combination; value metric | Processed tables, `scoring.yaml`; sections 6, 8 | `src/fpl/models/`, `xp.py`, `value.py`, `config/model.yaml` | Write the backtest or judge its own accuracy; touch the workbook |
+| data-engineer | Ingestion, validation, cleaning, processed tables (passing upstream Elo through), the point-in-time loader, workflows | Upstream data; sections 4, 5, 11 | `ingest.py`, `validate.py`, `clean.py`, `features.py`, `config/pipeline.yaml`, `.github/workflows/`; proposed contract changes | Change model logic; touch the workbook |
+| expected-points-modeller | The Elo component (ratings and Elo goals model); the minutes, team goals, attack, defence and bonus models; xP combination; value metric | Processed tables, `scoring.yaml`; sections 6, 8 | `src/fpl/models/`, `xp.py`, `value.py`, `config/model.yaml` | Write the backtest or judge its own accuracy; touch the workbook |
 | model-validator | Backtest harness, leakage checks, the pass or fail decision | Section 7; model code and outputs (read-only) | `backtest/`, reports | Edit model code |
 | optimiser | Squad optimisation, transfer logic, the budget-range solves | `projections.csv`; section 9 | `optimise.py`, `config/optimiser.yaml` | Change xP values |
 | excel-builder | The workbook, Power Query M code, all sheets | Output CSV schemas; section 10 | `excel/` | Change outputs or Python |
@@ -602,10 +632,10 @@ Answered in phase 0 (2026-11-08). Evidence is in `docs/decisions.md`.
 **Decide** (Josh)
 
 - [ ] Minimum Excel version for users (dynamic arrays need 365 or 2021+)
-- [ ] Default horizon 5 (decided); decay (proposed 0.9)
+- [x] Horizon and decay: 5 gameweeks projected; one workbook-wide horizon of 1–5, chosen by the user; no decay (Josh, 2026-11-09)
 - [ ] Optimiser bench weight (proposed 0.1)
 - [ ] Personal squad optimisation in v1, or v1.5 as planned
-- [ ] Budget range for the precomputed optimal squads (proposed £95.0m–£105.0m)
+- [x] Budget range for the precomputed optimal squads: £95.0m–£110.0m in £0.5m steps, with any typed budget served by the largest solved budget at or below it (Josh, 2026-11-09)
 - [x] Whether a public output repo is acceptable: yes, public (Josh, 2026-11-09)
 
 **Sources:** [olbauday/FPL-Core-Insights README](https://github.com/olbauday/FPL-Core-Insights)
