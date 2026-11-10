@@ -29,7 +29,7 @@ position_map:
   Midfielder: MID
   Forward: FWD
 
-# fact_player_match columns where a blank means zero in a processed match
+# fact_player_match columns where a blank means zero in a complete match
 # (brief data rule 15). Never applied to a column empty for the whole season.
 fill_zero_columns:
   - goals

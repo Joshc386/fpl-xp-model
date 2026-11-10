@@ -65,26 +65,26 @@ def tables(raw_2627: RawSeason, cfg: dict) -> dict[str, pd.DataFrame]:
 
 
 def test_built_tables_pass_table_validation(tables: dict[str, pd.DataFrame]) -> None:
-    validate_tables(tables)
+    validate_tables(tables, "prem")
 
 
 def test_table_validation_catches_a_schema_break(tables: dict[str, pd.DataFrame]) -> None:
     tables["dim_team"] = tables["dim_team"].drop(columns="name")
     with pytest.raises(ValidationError, match="dim_team"):
-        validate_tables(tables)
+        validate_tables(tables, "prem")
 
 
 def test_table_validation_catches_duplicate_keys(tables: dict[str, pd.DataFrame]) -> None:
     pm = tables["fact_player_match"]
     tables["fact_player_match"] = pd.concat([pm, pm.head(1)], ignore_index=True)
     with pytest.raises(ValidationError, match="fact_player_match"):
-        validate_tables(tables)
+        validate_tables(tables, "prem")
 
 
 def test_table_validation_catches_an_orphan_foreign_key(tables: dict[str, pd.DataFrame]) -> None:
     tables["fact_player_match"].loc[0, "team_id"] = 9_999
     with pytest.raises(ValidationError, match="team_id"):
-        validate_tables(tables)
+        validate_tables(tables, "prem")
 
 
 def test_table_validation_catches_a_result_on_an_unfinished_match(
@@ -93,7 +93,7 @@ def test_table_validation_catches_a_result_on_an_unfinished_match(
     fx = tables["fact_fixture"]
     fx.loc[fx.index[~fx.finished][0], "home_goals"] = 0
     with pytest.raises(ValidationError, match="unfinished"):
-        validate_tables(tables)
+        validate_tables(tables, "prem")
 
 
 def test_table_validation_catches_xg_on_an_incomplete_match(
@@ -102,7 +102,7 @@ def test_table_validation_catches_xg_on_an_incomplete_match(
     fx = tables["fact_fixture"]
     fx.loc[fx.index[~fx.stats_complete][0], "home_xg"] = 1.0
     with pytest.raises(ValidationError, match="incomplete"):
-        validate_tables(tables)
+        validate_tables(tables, "prem")
 
 
 def test_table_validation_catches_a_complete_match_that_is_not_finished(
@@ -111,4 +111,39 @@ def test_table_validation_catches_a_complete_match_that_is_not_finished(
     fx = tables["fact_fixture"]
     fx.loc[fx.index[~fx.finished][0], "stats_complete"] = True
     with pytest.raises(ValidationError, match="complete matches that are not finished"):
-        validate_tables(tables)
+        validate_tables(tables, "prem")
+
+
+def test_table_validation_catches_a_finished_match_without_a_score(
+    tables: dict[str, pd.DataFrame],
+) -> None:
+    fx = tables["fact_fixture"]
+    fx.loc[fx.index[fx.finished][0], "home_goals"] = pd.NA
+    with pytest.raises(ValidationError, match="without a score"):
+        validate_tables(tables, "prem")
+
+
+def test_a_complete_premier_league_match_without_npxg_fails(
+    tables: dict[str, pd.DataFrame],
+) -> None:
+    fx = tables["fact_fixture"]
+    idx = fx.index[fx.stats_complete & (fx.tournament == "prem")][0]
+    fx.loc[idx, "away_npxg"] = np.nan
+    with pytest.raises(ValidationError, match="without npxG"):
+        validate_tables(tables, "prem")
+
+
+def test_a_complete_cup_match_without_npxg_is_allowed(tables: dict[str, pd.DataFrame]) -> None:
+    fx = tables["fact_fixture"]
+    cup = fx.index[fx.stats_complete & (fx.tournament != "prem")]
+    assert len(cup)
+    fx.loc[cup, ["home_npxg", "away_npxg"]] = np.nan
+    validate_tables(tables, "prem")
+
+
+def test_the_premier_league_tag_for_the_npxg_check_comes_from_the_caller(
+    tables: dict[str, pd.DataFrame],
+) -> None:
+    fx = tables["fact_fixture"]
+    fx.loc[fx.index[fx.stats_complete & (fx.tournament == "prem")][0], "away_npxg"] = np.nan
+    validate_tables(tables, "no-such-tag")

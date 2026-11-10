@@ -20,6 +20,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from fpl.complete import complete_matches
+
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).resolve().parent / "upstream" / "data"
 FILES = [
@@ -29,9 +31,18 @@ FILES = [
 EXTRA_PLAYERS = 12  # players kept besides those in the selected matches
 
 
-def pick_matches(matches: pd.DataFrame) -> pd.DataFrame:
-    """Choose a few matches that show each case: processed, unprocessed, cup."""
-    done = matches.finished & matches.stats_processed & matches.player_stats_processed
+def pick_matches(
+    matches: pd.DataFrame, pms: pd.DataFrame, players: pd.DataFrame, teams: pd.DataFrame
+) -> pd.DataFrame:
+    """Choose a few matches that show each case: complete, not complete, cup.
+
+    Completeness is judged on the data (finished, team xG, club rows), not on upstream flags.
+    """
+    needed = ["match_id", "tournament", "finished", "home_team", "away_team",
+              "home_expected_goals_xg", "away_expected_goals_xg"]
+    done = complete_matches(
+        matches[needed], pms.assign(snapshot_gw=1), players.assign(snapshot_gw=1), teams
+    )
     prem = matches.tournament == "prem"
     parts = [
         matches[prem & done].head(2),
@@ -56,8 +67,10 @@ def write(df: pd.DataFrame, season: str, gw: int, name: str) -> None:
 
 def cut_played(base: Path, season: str, gw: int, ids: set[int] | None) -> set[int]:
     """Cut one played gameweek; return the player ids kept."""
-    matches = pick_matches(read(base, gw, "matches"))
     pms = read(base, gw, "playermatchstats")
+    matches = pick_matches(
+        read(base, gw, "matches"), pms, read(base, gw, "players"), read(base, gw, "teams")
+    )
     pms = pms[pms.match_id.isin(matches.match_id)]
     keep = set(pms.player_id) | set(read(base, gw, "players").player_id[:EXTRA_PLAYERS])
     keep |= ids or set()

@@ -717,3 +717,23 @@ Both were open items from "task 1 second review".
 - **Result:** every finished match left in `fact_fixture` is complete, in both
   seasons (0 Premier League, 0 other). `fact_player_match` rows: 14,591 in
   2025/26 (was 13,824) and 5,528 in 2026/27 (was 5,152).
+
+### 2026-11-10: main - npxG may be null on complete cup matches
+- **Decision (main session):** `home_npxg` and `away_npxg` may be null on
+  complete cup and European matches. A complete Premier League match without
+  npxG fails validation.
+- **Evidence (Code Review):** five complete 2025/26 EFL Cup matches (GW3-4,
+  for example Man Utd v Grimsby) have null npxG. Under the old rule they were
+  flagged processed too, so this predates the completeness change.
+- **Why not make npxG part of completeness:** that would drop those matches'
+  cup minutes, which the minutes model uses (brief rule 3). The model needs
+  npxG only for Premier League matches, where a gap should be loud.
+- **npxG check:** `validate_tables(tables, prem_tag)` now fails a complete
+  Premier League match with null `home_npxg` or `away_npxg`. Complete cup and
+  European matches may have null npxG (five 2025/26 EFL Cup matches do).
+- **Validation never leaks a bare `JoinError`:** if completeness can't be
+  worked out (for example a duplicate `(snapshot_gw, player_id)` in `players`),
+  `validate_inputs` lists it as a problem with the others and skips the checks
+  that need it. Completeness is computed once per call; `build_season` computes
+  it once and passes the same Series to `build_fact_fixture` and
+  `build_fact_player_match`.

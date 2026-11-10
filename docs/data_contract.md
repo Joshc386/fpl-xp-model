@@ -173,7 +173,9 @@ CSV in `outputs/`, committed, read by Excel.
   (non-Premier League clubs), and in the `upstream_elo` columns.
   - `fact_fixture`: `home_goals` and `away_goals` may be null when `finished`
     is false; `home_xg`, `away_xg`, `home_npxg` and `away_npxg` when
-    `stats_complete` is false.
+    `stats_complete` is false. `home_npxg` and `away_npxg` may also be null
+    on complete cup and European matches (five 2025/26 EFL Cup matches). A
+    complete Premier League match without npxG fails validation.
   - `dim_player`: `chance_next`, `news`, `pen_order`, `fk_order`,
     `corner_order` and `ep_next` may be null. A null order means the player
     isn't on that order.

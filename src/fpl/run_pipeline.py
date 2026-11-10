@@ -52,7 +52,7 @@ def run(cfg: dict, root: Path = ROOT) -> dict[str, Path]:
         raw = read_season(data_dir, scfg, commit)
         validate_inputs(raw, cfg, scfg)
         result = build_season(raw, cfg)
-        validate_tables(result.tables)
+        validate_tables(result.tables, cfg["premier_league_tag"])
         built.append((raw, result))
     check_match_ids_disjoint([raw for raw, _ in built])
     return {

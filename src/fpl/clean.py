@@ -128,18 +128,19 @@ def build_dim_player(
 
 def build_fact_player_match(
     pms: pd.DataFrame, matches: pd.DataFrame, players: pd.DataFrame, teams: pd.DataFrame,
-    tackles_column: str, fill_columns: list[str],
+    tackles_column: str, fill_columns: list[str], complete: pd.Series,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     """fact_player_match: complete matches only, with blanks filled per rule 15.
 
-    `players` holds one snapshot per gameweek folder; a row's team is the player's
-    club in the snapshot of the folder the row came from. Rows are dropped, and
+    `complete` flags complete matches, indexed like `matches`; pass the same Series given to
+    `build_fact_fixture`. `players` holds one snapshot per gameweek folder; a row's team is
+    the player's club in the snapshot of the folder the row came from. Rows are dropped, and
     counted, when their match has no kickoff_time, is not finished, or is finished but not
     complete, or when the player is missing from that snapshot. A row for an unknown
     match is an error.
     """
     flags = matches[["match_id", "kickoff_time", "finished"]].assign(
-        _complete=complete_matches(matches, pms, players, teams), _known=True
+        _complete=complete, _known=True
     )
     df = checked_merge(pms, flags, on="match_id", how="left", validate="many_to_one",
                        name="playermatchstats -> matches")
@@ -265,7 +266,8 @@ def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
     fixture, d_fix = build_fact_fixture(raw.matches, raw.teams, raw.season, prem, complete)
     dim_player, d_pl = build_dim_player(snapshot, raw.playerstats, raw.teams, cfg["position_map"])
     pmatch, d_pm = build_fact_player_match(
-        raw.playermatchstats, raw.matches, raw.players, raw.teams, scfg["tackles_column"], fill
+        raw.playermatchstats, raw.matches, raw.players, raw.teams, scfg["tackles_column"], fill,
+        complete,
     )
     pgw, d_gw = build_fact_player_gw(
         raw.player_gameweek_stats, raw.players, raw.matches, raw.season, prem

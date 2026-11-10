@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from fpl.clean import build_dim_player, build_fact_player_match
+from fpl.complete import complete_matches
 from fpl.frames import CleanError, JoinError
 from fpl.schema import check_table_schema
 from fpl.validate import ValidationError
@@ -71,7 +72,8 @@ def test_dim_player_rejects_an_unknown_position() -> None:
 
 def run_pm(pms: pd.DataFrame, matches: pd.DataFrame, players: pd.DataFrame,
            tackles: str = "tackles") -> tuple[pd.DataFrame, dict[str, int]]:
-    return build_fact_player_match(pms, matches, players, SWAPPED, tackles, FILL)
+    complete = complete_matches(matches, pms, players, SWAPPED)
+    return build_fact_player_match(pms, matches, players, SWAPPED, tackles, FILL, complete)
 
 
 def test_minutes_come_from_minutes_played_and_team_from_that_gameweeks_snapshot() -> None:
@@ -187,3 +189,13 @@ def test_a_player_whose_club_is_not_in_teams_is_an_error() -> None:
     pms = pms_frame([pms_row(10, "m1", 90.0), pms_row(11, "m1", 90.0)])
     with pytest.raises(CleanError, match="team"):
         run_pm(pms, matches, players)
+
+
+def test_the_completeness_passed_in_is_the_one_used() -> None:
+    matches, players = pm_inputs()
+    pms = pms_frame([pms_row(10, "m1", 90.0)])
+    none_complete = pd.Series(False, index=matches.index)
+    out, dropped = build_fact_player_match(
+        pms, matches, players, SWAPPED, "tackles", FILL, none_complete
+    )
+    assert out.empty and dropped["match_not_complete"] == 1

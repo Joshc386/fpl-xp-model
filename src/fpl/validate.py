@@ -11,6 +11,7 @@ import logging
 import pandas as pd
 
 from fpl.complete import complete_matches
+from fpl.frames import JoinError
 from fpl.ingest import RawSeason, required_columns_missing
 from fpl.schema import TABLE_KEYS, check_table_schema, fill_sources
 
@@ -71,14 +72,22 @@ def _complete(raw: RawSeason) -> pd.Series:
     return complete_matches(raw.matches, raw.playermatchstats, raw.players, raw.teams)
 
 
-def check_row_counts(raw: RawSeason, bounds: dict, prem_tag: str) -> list[str]:
-    """Row counts are within the configured bounds."""
-    in_play = raw.matches.snapshot_gw <= raw.latest_gw
-    done_ids = raw.matches.match_id[_complete(raw) & in_play]
-    per_match = raw.playermatchstats.groupby("match_id").size().reindex(done_ids, fill_value=0)
+def check_row_counts(
+    raw: RawSeason, bounds: dict, prem_tag: str, complete: pd.Series | None
+) -> list[str]:
+    """Row counts are within the configured bounds.
+
+    `complete` is the completeness of each match; None when it could not be computed
+    (already reported), which skips the per-match player row bound.
+    """
     pgs = pd.Series(raw.gw_rows["player_gameweek_stats"])
     pgs = pgs[(pgs.index >= 1) & (pgs.index <= raw.latest_gw) & (pgs > 0)]
-    out = _bounded("playermatchstats", per_match, bounds["playermatchstats_rows_per_match"])
+    out = []
+    if complete is not None:
+        in_play = raw.matches.snapshot_gw <= raw.latest_gw
+        done_ids = raw.matches.match_id[complete & in_play]
+        per_match = raw.playermatchstats.groupby("match_id").size().reindex(done_ids, fill_value=0)
+        out += _bounded("playermatchstats", per_match, bounds["playermatchstats_rows_per_match"])
     out += _bounded("player_gameweek_stats", pgs, bounds["player_gameweek_stats_rows_per_gw"])
     out += _bounded("players", raw.players.groupby("snapshot_gw").size(),
                     bounds["players_rows_per_snapshot"])
@@ -191,11 +200,18 @@ def validate_inputs(raw: RawSeason, cfg: dict, season_cfg: dict) -> None:
     bounds = cfg["validation"]
     problems = check_files(raw) + check_keys(raw) + check_latest_gw(raw)
     prem = cfg["premier_league_tag"]
-    problems += check_row_counts(raw, bounds, prem) + check_prices(raw, bounds)
+    try:
+        complete: pd.Series | None = _complete(raw)
+    except JoinError as exc:
+        problems.append(f"complete matches could not be worked out: {exc}")
+        complete = None
+    problems += check_row_counts(raw, bounds, prem, complete) + check_prices(raw, bounds)
     problems += check_references(raw, prem)
-    done = raw.matches.match_id[_complete(raw)]
-    pms = raw.playermatchstats[raw.playermatchstats.match_id.isin(done)]
-    problems += check_rule15_guards(pms, season_cfg["tackles_column"], cfg["fill_zero_columns"])
+    if complete is not None:
+        done = raw.matches.match_id[complete]
+        pms = raw.playermatchstats[raw.playermatchstats.match_id.isin(done)]
+        fill = cfg["fill_zero_columns"]
+        problems += check_rule15_guards(pms, season_cfg["tackles_column"], fill)
     if problems:
         raise ValidationError([f"{raw.season}: {p}" for p in problems])
 
@@ -224,8 +240,8 @@ _FOREIGN_KEYS = (
 )
 
 
-def _fixture_result_problems(fx: pd.DataFrame) -> list[str]:
-    """Scores only on finished matches, xG only on complete ones."""
+def _fixture_result_problems(fx: pd.DataFrame, prem_tag: str) -> list[str]:
+    """Scores only on finished matches, xG only on complete ones, npxG on complete PL ones."""
     goals, xg = ["home_goals", "away_goals"], ["home_xg", "away_xg", "home_npxg", "away_npxg"]
     out = []
     if fx.loc[~fx.finished, goals].notna().any().any():
@@ -236,10 +252,14 @@ def _fixture_result_problems(fx: pd.DataFrame) -> list[str]:
         out.append("fact_fixture: xG present on incomplete matches")
     if (fx.stats_complete & ~fx.finished).any():
         out.append("fact_fixture: complete matches that are not finished")
+    # npxG may be null on complete cup and European matches, never on Premier League ones.
+    prem = fx.stats_complete & (fx.tournament == prem_tag)
+    if fx.loc[prem, ["home_npxg", "away_npxg"]].isna().any().any():
+        out.append(f"fact_fixture: complete {prem_tag} matches without npxG")
     return out
 
 
-def validate_tables(tables: dict[str, pd.DataFrame]) -> None:
+def validate_tables(tables: dict[str, pd.DataFrame], prem_tag: str) -> None:
     """Check processed tables: schema, unique keys, foreign keys, results only when finished."""
     problems: list[str] = []
     for name, df in tables.items():
@@ -251,6 +271,6 @@ def validate_tables(tables: dict[str, pd.DataFrame]) -> None:
             orphans = int((~tables[table][col].dropna().isin(tables[ref][ref_col])).sum())
             if orphans:
                 problems.append(f"{table}.{col}: {orphans} values not in {ref}.{ref_col}")
-        problems += _fixture_result_problems(tables["fact_fixture"])
+        problems += _fixture_result_problems(tables["fact_fixture"], prem_tag)
     if problems:
         raise ValidationError(problems)

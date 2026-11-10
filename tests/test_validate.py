@@ -215,6 +215,15 @@ def test_check_references_uses_the_configured_tag(raw_2627: RawSeason, small_cfg
     assert "efl-cup matches have a team code not in teams.csv" in problems(raw_2627, small_cfg)
 
 
+def test_a_join_failure_inside_validation_is_reported_as_a_problem(
+    raw_2627: RawSeason, small_cfg: dict
+) -> None:
+    players = raw_2627.players
+    raw_2627.players = pd.concat([players, players.head(1)], ignore_index=True)
+    text = problems(raw_2627, small_cfg)  # a bare JoinError would escape instead
+    assert "players" in text and "complete" in text
+
+
 def test_all_problems_are_reported_together(raw_2627: RawSeason, small_cfg: dict) -> None:
     raw_2627.missing_files = ["x.csv"]
     raw_2627.latest_gw = 0

@@ -50,17 +50,17 @@ def test_reconciliation_adds_up_for_every_table_and_season(
 def test_sample_counts_for_2026_27(raw_2627: RawSeason, cfg: dict) -> None:
     built = build_season(raw_2627, cfg)
     rec = built.reconciliation.set_index(["table", "line", "reason"]).rows
-    # 9 matches in the samples (3 per folder); the 6 finished ones are all complete.
-    assert rec[("fact_fixture", "rows_in", "")] == 9
-    assert built.tables["fact_fixture"].finished.sum() == 6
-    assert built.tables["fact_fixture"].stats_complete.sum() == 6
-    # GW1: 120 rows and GW2: 100 rows. The flagged-unprocessed GW1 match is complete, so kept.
-    assert rec[("fact_player_match", "rows_in", "")] == 220
+    # 8 matches in the samples (2, 3 and 3 per folder); the 5 finished ones are all complete.
+    assert rec[("fact_fixture", "rows_in", "")] == 8
+    assert built.tables["fact_fixture"].finished.sum() == 5
+    assert built.tables["fact_fixture"].stats_complete.sum() == 5
+    # GW1: 80 rows and GW2: 100 rows, all from complete matches.
+    assert rec[("fact_player_match", "rows_in", "")] == 180
     assert rec[("fact_player_match", "dropped", "match_not_complete")] == 0
     missing = rec[("fact_player_match", "dropped", "player_not_in_snapshot")]
-    assert rec[("fact_player_match", "rows_out", "")] == 220 - missing
-    # Player-gameweek rows are all kept: 125 for GW1 and 180 for GW2.
-    assert len(built.tables["fact_player_gw"]) == 305
+    assert rec[("fact_player_match", "rows_out", "")] == 180 - missing
+    # Player-gameweek rows are all kept: 85 for GW1 and 157 for GW2.
+    assert len(built.tables["fact_player_gw"]) == 242
 
 
 def test_future_gameweek_matches_are_kept_as_unfinished_with_no_results(
@@ -102,7 +102,7 @@ def test_write_season_writes_parquet_reconciliation_and_manifest(
     manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["upstream_commit"] == "sample"
     assert manifest["latest_gw"] == 2
-    assert manifest["rows"]["fact_fixture"] == 9
+    assert manifest["rows"]["fact_fixture"] == 8
 
 
 def make_checkout(tmp_path: Path) -> Path:
