@@ -112,7 +112,7 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
 6. `player_id` and `teams.id` are season-specific (verified: only 5 of 482 players shared by 2025/26 and 2026/27 keep their id). Join across seasons on `player_code` and `teams.code`, the stable FPL codes.
 7. Upstream `now_cost` is already in £m to one decimal (15.8), not tenths. Convert it once, in the cleaning step, to integer tenths with round(`now_cost` × 10). The `cost_change_*` columns are already integer tenths.
 8. The snapshot fields in `player_gameweek_stats` (`now_cost`, `selected_by_percent`, `form`) reflect that gameweek's deadline. They are known at prediction time; that gameweek's performance stats are not.
-9. Use only matches where `stats_processed` and `player_stats_processed` are both true.
+9. Use only matches where `finished`, `stats_processed` and `player_stats_processed` are all true. Upstream sets the processed flags while a match is still being played: the 2026-11-08 14:25 UTC snapshot flags four GW10 matches as processed at 0-0, 25 minutes after kickoff.
 10. Coventry, Hull and Ipswich have no 2026/27 Premier League history at the start. Use Elo and last-season priors for them. Their Elo seeds come from upstream's GW1–2 match rows (rule 12).
 11. Credit the upstream repo with a link on the workbook's README sheet, as its author asks.
 12. **Elo is computed in-house.** Upstream takes Elo from ClubElo, whose API returned HTTP 502 on 2026-11-08 and 09. The 2026/27 `teams.elo` column is null and match Elo stops after GW2.
@@ -122,7 +122,7 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
 13. **Previous seasons:** 2025/26 is complete, with 38 gameweeks and the same columns as 2026/27; 2026/27 adds a few. 2024/25 uses an older layout with no `player_gameweek_stats` or `fixtures`, so it can feed match-level priors only (rule 1 rules out differencing).
 14. **Defensive contributions:** in 2026/27, `playermatchstats.tackles` is empty and FPL's tackle count matches `tackles_won`; in 2025/26 it matches `tackles`. Where gameweek grain is enough, use FPL's own counts from `player_gameweek_stats`.
 15. **Blank match stats mean zero.** Upstream's 2026/27 `playermatchstats` leaves a count blank when the event didn't happen.
-    - **The rule:** in processed matches, for rows with minutes > 0, fill blanks with 0 in these `fact_player_match` columns: `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves`.
+    - **The rule:** in processed matches, fill blanks with 0 in these `fact_player_match` columns: `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves`. This covers 0-minute rows (unused substitutes) too: 2026/27 leaves all their counts blank, while 2025/26 records them as explicit zeros.
     - **Evidence (GW1–10, 2,803 rows):** zero-filled goals, saves and missed penalties equal FPL's own counts in every row. FPL's xG is 0 in all 1,459 rows with a blank xG, and a blank xG never sits beside a shot.
     - **Never fill a column that is empty for the whole season.** 2026/27 `tackles` and `defensive_contributions` are like this, so take tackles from `tackles_won`.
     - **Never fill `team_gc_on_pitch`.** In 2025/26 it has 241 genuinely missing values across 83 matches, for players with 1–90 minutes. The data-engineer proposes how to handle them.

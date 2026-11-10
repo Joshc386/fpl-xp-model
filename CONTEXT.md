@@ -29,6 +29,12 @@ Any competitive game a team plays, in any competition. Only the Premier
 League ones are fixtures.
 _Avoid_: fixture (for cup or European games)
 
+**Processed match**:
+A match that upstream marks finished, stats-processed and
+player-stats-processed. Only processed matches feed the model, the metrics
+and the Elo ratings; a match still being played is not one.
+_Avoid_: completed match, played match
+
 **Blank gameweek**:
 A gameweek in which a team has no fixture, so its players score 0.
 _Avoid_: blank week, free week

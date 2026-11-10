@@ -356,3 +356,44 @@ created in the same session. The brief and the contract are updated.
 - `expected-points-modeller.md` still lists `xp_horizon_weighted` and decay.
   It has not been edited; the brief wins, and the modeller will be told in its
   task message.
+
+### 2026-11-10: main - phase 1 task 1 cleaning rules
+Made by the main session before task 1, from checks on upstream commit
+66e73ea. Josh to confirm; any of them can be reversed before task 1 is
+committed.
+
+1. **Rule 9 also requires `finished`.**
+   - Evidence: in 2026/27, 14 unfinished matches are flagged
+     `stats_processed` and `player_stats_processed`. Four are GW10 Premier
+     League matches that kicked off at 14:00 on 2026-11-08 and show 0-0 in the
+     14:25 snapshot.
+   - Why: a Saturday 18:00 run could otherwise pick up a 17:30 kickoff as a
+     finished result.
+2. **`fact_fixture.finished` means a processed match.** Otherwise the result
+   and xG columns are null, and the contract's nullable list now includes
+   them.
+   - Why: fixture difficulty needs future fixtures in the table (324
+     unfinished 2026/27 rows), and they have no results.
+3. **Rule 15 covers 0-minute rows,** which are kept.
+   - Evidence: 2026/27 has 1,194 0-minute rows, and every one is blank in
+     `goals`, `assists`, `xg`, `xa`, `tackles_won`, `interceptions`,
+     `clearances`, `blocks`, `recoveries` and `saves`. Its 1,459 2025/26
+     counterparts hold explicit zeros.
+   - Why: nothing can happen in 0 minutes. The rows also carry the "in squad,
+     unused" signal for cup matches, which `fact_player_gw` (Premier League
+     only) can't give.
+   - `team_gc_on_pitch` is still never filled.
+4. **Matches with no `kickoff_time` are dropped** from `fact_fixture` and
+   counted by reason.
+   - Evidence: four unfinished 2025/26 rows (GW32 Europa League, two GW32 EFL
+     Cup, GW33 Europa League).
+5. **Processed tables are stored per season** in `data/processed/{season}/`.
+   - Why: `player_id` and `team_id` are season-specific, and `dim_player`,
+     `dim_team` and `fact_player_match` have no season column.
+- **Flagged for the data-engineer, not decided:** upstream's
+  `team_goals_conceded` is non-zero for 909 0-minute rows in 2025/26 and 843
+  in 2026/27. It may be the whole-match figure rather than goals conceded on
+  the pitch. The data-engineer verifies this in task 1.
+- **Updated:** brief data rules 9 and 15, `docs/data_contract.md` (storage,
+  `fact_fixture` notes, blanks note, nullable list) and `CONTEXT.md`
+  (processed match).

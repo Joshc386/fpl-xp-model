@@ -14,7 +14,9 @@ code changes; dependent agents are told in their next task message.
 
 ## Processed tables
 
-Internal; Parquet in `data/processed/`, not committed.
+Internal; Parquet in `data/processed/{season}/`, one set per season, not
+committed. `player_id` and `team_id` are season-specific (brief data rule 6),
+so a table never mixes seasons.
 
 | Table | Grain | Columns |
 | --- | --- | --- |
@@ -58,6 +60,14 @@ Brief section 4 lists the data rules.
   with `Z`. `home_xg` is `home_expected_goals_xg`, `home_npxg` is
   `home_non_penalty_xg` and `home_goals` is `home_score`; the same applies to
   away.
+- **`fact_fixture.finished`:** true only for a processed match, where
+  upstream's `finished`, `stats_processed` and `player_stats_processed` are
+  all true (brief data rule 9). Otherwise it is false, and the result and xG
+  columns are null, even if upstream shows a part-played score. Unfinished
+  matches stay in the table because fixture difficulty needs future fixtures.
+- **`fact_fixture` dropped rows:** matches with no `kickoff_time` are
+  unscheduled placeholders (four 2025/26 cup and European rows). They are
+  dropped and counted under that reason.
 - **`fact_player_match.minutes`:** `minutes_played`.
 - **`fact_player_match.tackles`:** FPL's tackle measure. That is
   `tackles_won` in 2026/27, where total `tackles` is null, and `tackles` in
@@ -66,9 +76,10 @@ Brief section 4 lists the data rules.
   from `penalties_scored` and `penalties_missed`. `team_gc_on_pitch` comes
   from `team_goals_conceded`.
 - **`fact_player_match` blanks:** blanks mean zero (brief data rule 15). In
-  processed matches with minutes > 0, blanks in `goals`, `assists`, `xg`,
-  `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`,
-  `clearances`, `blocks`, `recoveries` and `saves` are filled with 0.
+  processed matches, blanks in `goals`, `assists`, `xg`, `xa`, `pens_scored`,
+  `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`,
+  `recoveries` and `saves` are filled with 0. This includes 0-minute rows
+  (unused substitutes), which are kept.
   `team_gc_on_pitch` is never filled. Upstream's goalkeeper-only
   `goals_conceded` column isn't used.
 - **`fact_player_gw` minutes:** `minutes` is FPL's own value from
@@ -120,8 +131,9 @@ CSV in `outputs/`, committed, read by Excel.
   (null for minimum-priced players), and `backtest_mae_model` and
   `backtest_mae_ep_next` (null only until the first backtest).
 - Processed tables may also be null in `home_team_id` and `away_team_id`
-  (non-Premier League clubs), in the `upstream_elo` columns, and in
-  `team_gc_on_pitch`.
+  (non-Premier League clubs), in the `upstream_elo` columns, in
+  `team_gc_on_pitch`, and in `fact_fixture`'s `home_goals`, `away_goals`,
+  `home_xg`, `away_xg`, `home_npxg` and `away_npxg` when `finished` is false.
 
 ## Point-in-time loader
 
