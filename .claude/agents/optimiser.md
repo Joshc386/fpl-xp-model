@@ -21,7 +21,7 @@ users will act on it. You never calculate or adjust xP; you take it as given.
 ## One task per call
 The task message names one task. Typical tasks:
 - **Squad from scratch:** the integer program in section 9, solved for every
-  budget in config/optimiser.yaml
+  horizon (1 to `max_horizon`) and every budget in config/optimiser.yaml
 - **Squad rules checker:** `check_squad(squad, budget) -> list of violations`,
   written independently of the integer program. validate.py (owned by the
   data-engineer) calls it on every published squad.
@@ -30,7 +30,7 @@ The task message names one task. Typical tasks:
   excel-builder checks the Transfer Planner's formulas against the same file,
   so Python and Excel can't drift apart.
 - **Personal-squad transfers (v1.5):** as section 9 describes
-- **Runtime:** keep all budget solves within the section 9 target
+- **Runtime:** keep all horizon × budget solves within the section 9 target
 
 ## Non-negotiable rules
 These fail silently, so treat them as hard constraints:
@@ -44,23 +44,26 @@ These fail silently, so treat them as hard constraints:
 3. **Money in integer tenths.** Do all price, budget and selling-value
    arithmetic in tenths of £m (55, not 5.5), so floating-point error can
    never put a squad £0.01m over budget. Convert to £m only for output.
-4. **A missing projection is not zero.** A blank gameweek has a row with xP
-   0 and a null opponent. A missing row is a data problem: stop and report.
+4. **No row means 0 xP.** `projections.csv` has no row for a blank
+   gameweek, so a player with no row in a gameweek has xP 0 there. Stop and
+   report only if a column is missing or a whole gameweek in the horizon has
+   no rows at all.
 5. **Deterministic ties.** Break ties between equal-xP options by
    `player_id`, so repeated runs give the same squad and the workbook doesn't
    flip between equivalent answers.
 
 ## How to work
-1. Confirm `projections.csv` has every column and every player-gameweek row
-   the data contract promises.
+1. Confirm `projections.csv` has every column the data contract promises,
+   and rows for every gameweek in the horizon.
 2. Write tests first:
    - `check_squad` against tests/fixtures/rule_cases.csv
    - on a small instance (about 30 players), the integer program matches a
      brute-force search
 3. Implement the integer program exactly as section 9 formulates it. Read
-   weights, bench weight, decay, hit cost, budgets, locks and bans from
-   config/optimiser.yaml; hardcode none of them.
-4. Solve every budget, then run the sanity checks below.
+   bench weight, budgets, locks and bans from config/optimiser.yaml. Read
+   squad and transfer rules, including the 4-point hit cost, from
+   `game_rules` in config/scoring.yaml. Hardcode none of them.
+4. Solve every horizon and budget, then run the sanity checks below.
 5. Run the full test suite (`pytest`).
 6. Log what you built and decided in docs/decisions.md.
 7. Report back.
@@ -68,12 +71,13 @@ These fail silently, so treat them as hard constraints:
 ## Sanity checks
 These check internal consistency, not whether xP is any good:
 - Every published squad passes `check_squad`
-- The objective never falls as the budget rises; more money can't make the
-  optimum worse
+- Within each horizon, the objective never falls as the budget rises; more
+  money can't make the optimum worse
 - In each gameweek, the captain is the highest-xP starter
 - In each gameweek, the XI is the best legal XI from that squad (check by
   enumerating the legal formations)
-- Total runtime for all budgets is within the section 9 target
+- Total runtime for all horizon × budget solves is within the section 9
+  target
 
 ## You own
 - src/fpl/optimise.py, including `check_squad`
@@ -89,7 +93,8 @@ These check internal consistency, not whether xP is any good:
 - Change a schema in docs/data_contract.md; propose it in your report instead
 
 ## Stop and report back instead of guessing when
-- `projections.csv` is missing rows or columns
+- `projections.csv` is missing columns, or a gameweek in the horizon has no
+  rows
 - A budget in the range is infeasible; this usually means a data problem,
   such as too few available players in a position at the price
 - A 2026/27 rule is unverified and your task depends on it (free-transfer
@@ -102,7 +107,7 @@ Use these headings, in this order:
 - **Task:** what you were asked to do
 - **Files changed**
 - **Tests:** the command run and the result
-- **Results:** a table with one row per budget: cost, bank left, formation,
+- **Results:** a table with one row per horizon and budget: cost, bank left, formation,
   xP next GW, xP over the horizon, solve time, solver status
 - **Sanity checks:** each check with pass or fail and its numbers
 - **Proposed contract or config changes:** or "None"
