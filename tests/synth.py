@@ -187,5 +187,6 @@ def synth_cfg(cfg: dict, checkout: Path) -> dict:
         "matches_rows": [78, 78], "players_rows_per_snapshot": [8, 8],
         "playerstats_rows_snapshot": [8, 8], "player_gameweek_stats_rows_per_gw": [8, 8],
         "playermatchstats_rows_per_match": [2, 8],
+        "fact_player_match_rows_per_complete_match_min": 2,
     }
     return out

@@ -1157,3 +1157,68 @@ UTC, pulled during the round). Row counts are the same as at `0b9378f` except
 - **For the main session:** the contract's as-of 0 bullet says `fact_fixture` is
   the Premier League schedule; under the revised rule a read at as-of 0 also
   holds any cup match played before the GW1 deadline (none exist in the data).
+
+### 2026-11-11: main - task 2 final review follow-ups
+Code Review's third pass approved task 2, committed as `f41e60a`. Its four
+non-blocking findings were settled by the main session:
+1. **Drops are capped.** `club_not_in_match` and `player_not_in_snapshot`
+   get per-season caps in `config/pipeline.yaml`. Code Review simulated two
+   club-mapping regressions on the real 2025/26 build: one dropped 195
+   genuine rows, the other emptied `fact_player_match` entirely, and
+   validation passed both.
+2. **Cup rows of players who moved that gameweek stay dropped** and are
+   logged in `docs/known_gaps.md`. Two genuine rows are affected: Semenyo
+   (2025/26 GW21) and Sávio (2026/27 GW1).
+   - Why: recovering them from later snapshots would break the rule that an
+     as-of read equals the full build for its gameweeks.
+3. **A gameweek with no Premier League fixture takes the previous
+   gameweek's last Premier League kickoff as its deadline**, and its folder
+   may be empty.
+   - Why: on a synthetic wholly postponed gameweek (as in 2022/23 GW7), a
+     cup tie was dated a gameweek early and its result was visible at the
+     earlier as-of. An empty folder failed every read. The new deadline can
+     only date a tie late.
+4. **Derived deadlines must strictly increase.** A single mis-dated kickoff
+   otherwise moved two cup ties out of every read until as-of 30.
+- Also: stale docstrings in `clean.py` and `complete.py`.
+- **Updated:** `docs/data_contract.md` (`fact_player_match` drop caps,
+  loader deadline rules) and `docs/known_gaps.md`.
+
+### 2026-11-11: data - task 2 final follow-ups
+Built on upstream `5ae1d4a`; row counts are unchanged (841 / 20 / 485 / 14,589 /
+29,978 and 672 / 20 / 484 / 5,517 / 6,596).
+- **Drop caps** (`validation.max_dropped_rows` and
+  `fact_player_match_rows_per_complete_match_min` in `config/pipeline.yaml`;
+  `check_drops` and `check_rows_per_match` in `validate_tables.py`, run at the end
+  of `build_season`, which raises `ValidationError`).
+  - A **share** of the `playermatchstats` rows read, 0.5%, with at least 5 rows
+    always allowed, for each of `club_not_in_match` and `player_not_in_snapshot`.
+    A share because the same cap then fits both seasons and every as-of read
+    (a count would need scaling with the rows read); the 5-row floor is because the
+    worst real case is 2 stray rows in 615 (0.33%, 2026/27 as-of 1), which a pure
+    0.5% would only just pass. Real worst cases over all as-of reads: 0.33% and
+    0.02% (full 2025/26); the latest-snapshot regression is 1.3%, so it is caught
+    with a cap of 77 rows (197 dropped).
+  - Floor: 15 `fact_player_match` rows per complete match after the drops (real
+    minimum over all as-of reads 25.3). The synthetic season lowers it to 2.
+  - Probe `probe_club_drop.py`: as built passes (14,589 rows); clubs from the latest
+    snapshot fails ("197 of 15340 rows dropped for club_not_in_match, over the cap
+    of 77"); misaligned club codes fails (cap and floor: "0 rows for 485 complete
+    matches"). Both are also real-data tests.
+- **A gameweek with no Premier League fixture** takes the last Premier League
+  kickoff of the latest earlier gameweek that has one as its deadline (no offset;
+  NaT for GW1), with a warning (`asof.deadlines`). An empty matches file for such a
+  gameweek no longer fails `check_latest_gw` (it logs a warning); a missing file
+  still fails as a missing file, and the Premier League count bound still applies.
+  Probe `probe_empty_gw.py` (GW12 league fixtures moved to GW13, a 9 Nov cup tie in
+  folder 12): deadlines GW11-13 are 1 Nov 12:30, 1 Nov 17:00, 15 Nov 12:30; the tie
+  is dated gw 12; at as-of 11 it loads and the tie is absent; at as-of 12 it is
+  held (gw 12, finished, 3-1). The empty-folder variant loads at as-of 11-13.
+- **Derived deadlines must strictly increase** (`asof.deadline_problems`, in
+  `validate_inputs`), skipping gameweeks that take the fallback. Probe
+  `probe_bad_kickoff.py` (one GW30 fixture dated 1 Sep 2025): as-of 9, 29 and 30
+  all fail with "derived deadline of GW30 is not after that of the gameweek before
+  it". The real 2025/26 and 2026/27 deadlines pass.
+- **Docstrings** in `clean.py` (`build_fact_player_match`) and `complete.py` now say
+  the club comes from the snapshot named by the row's `snapshot_gw`, and mention
+  `club_not_in_match` and the caps. Semenyo and Sávio stay dropped; GW0 is unchanged.

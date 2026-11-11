@@ -10,6 +10,7 @@ import logging
 
 import pandas as pd
 
+from fpl.asof import deadline_problems
 from fpl.complete import complete_matches
 from fpl.frames import JoinError
 from fpl.ingest import RawSeason, required_columns_missing
@@ -160,10 +161,15 @@ def check_latest_gw(raw: RawSeason, prem_tag: str) -> list[str]:
             f"{int(future_done.sum())} finished match(es) of {prem_tag} in folders after the "
             "latest gameweek"
         )
+    # A gameweek whose matches file is there but empty (wholly postponed) is allowed: the
+    # Premier League count bound still applies. A missing file is reported by check_files.
     have = set(raw.matches.snapshot_gw)
-    missing = [g for g in range(1, raw.n_gw + 1) if g not in have]
-    if missing:
-        out.append(f"gameweek folder(s) {missing} have no matches")
+    empty = [
+        g for g in range(1, raw.n_gw + 1)
+        if g not in have and f"GW{g}/matches.csv" in raw.file_columns
+    ]
+    if empty:
+        log.warning("%s: gameweek folder(s) %s hold no matches", raw.season, empty)
     return out
 
 
@@ -222,6 +228,9 @@ def validate_inputs(raw: RawSeason, cfg: dict, season_cfg: dict) -> None:
     bounds = cfg["validation"]
     prem = cfg["premier_league_tag"]
     problems = check_files(raw) + check_keys(raw) + check_latest_gw(raw, prem)
+    problems += deadline_problems(
+        raw.matches, raw.n_gw, prem, cfg["loader"]["deadline_offset_minutes"]
+    )
     try:
         complete: pd.Series | None = _complete(raw)
     except JoinError as exc:

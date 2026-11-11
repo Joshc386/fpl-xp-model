@@ -44,12 +44,17 @@ def test_every_as_of_read_of_the_samples_passes(season: str, as_of: int | None, 
     assert check(season, as_of, small_cfg) == ""
 
 
-def test_folders_after_as_of_are_still_required_for_the_schedule(small_cfg: dict) -> None:
-    raw = read_sample(SAMPLE_DATA, SAMPLE_SEASONS["2026-2027"], "x", as_of_gw=1)
+def test_a_later_folder_may_be_empty_only_if_the_premier_league_count_holds(
+    small_cfg: dict,
+) -> None:
+    scfg = SAMPLE_SEASONS["2026-2027"]
+    raw = read_sample(SAMPLE_DATA, scfg, "x", as_of_gw=1)
     raw.matches = raw.matches[raw.matches.snapshot_gw != 3]
     raw.fixture_ids = raw.fixture_ids[raw.fixture_ids.snapshot_gw != 3]
-    with pytest.raises(ValidationError, match=r"folder\(s\) \[3\] have no matches"):
-        validate_inputs(raw, small_cfg, SAMPLE_SEASONS["2026-2027"])
+    validate_inputs(raw, small_cfg, scfg)  # the schedule's other gameweeks still count
+    small_cfg["validation"]["prem_matches_rows"] = [7, 380]
+    with pytest.raises(ValidationError, match="prem matches: 4 rows"):
+        validate_inputs(raw, small_cfg, scfg)
 
 
 def test_the_premier_league_schedule_must_still_be_whole_on_an_as_of_read(small_cfg: dict) -> None:

@@ -19,7 +19,8 @@ def complete_matches(
 
     A complete match is finished, has both team xG values, and has player rows for each
     of its clubs that is in `teams` (the Premier League). A player's club is his
-    `team_code` in the snapshot of the folder the row came from. Opponents outside the
+    `team_code` in the snapshot named by the row's `snapshot_gw` (for a cup or European
+    match, the gameweek it was played in). Opponents outside the
     Premier League have no player rows and are not required to.
     """
     rows = checked_merge(

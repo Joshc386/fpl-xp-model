@@ -43,10 +43,12 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     commit history.
 - **Derived deadlines** (2026-11-11).
   - **Gap:** backtests derive each deadline as the first Premier League
-    kickoff minus 90 minutes, which matches FPL for all 38 gameweeks of
-    both seasons.
+    kickoff minus 90 minutes, which matches FPL for all 76 gameweeks of both
+    seasons.
   - **Effect:** if a gameweek's first fixture were postponed after FPL set
-    the deadline, the derived deadline would fall later than FPL's.
+    the deadline, the derived deadline would fall later than FPL's. A wholly
+    postponed gameweek (2022/23 GW7) uses the previous gameweek's last
+    kickoff instead. That is safe, but it can date a cup tie a gameweek late.
   - **Idea:** flag any gameweek where the derived deadline and the master
     `deadline_time` disagree in a live run.
 - **Snapshot timing** (brief section 7).
@@ -70,6 +72,17 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     inputs.
   - **Idea:** recover dates from another upstream file, such as `shots.csv`
     or `xg_by_minute.csv`, if one carries them.
+- **Cup appearances by players who moved that gameweek** (2026-11-11).
+  - **Gap:** a cup row's club comes from the snapshot of the gameweek it was
+    played in. A player who moved clubs during that gameweek still shows his
+    old club, so the row is dropped as `club_not_in_match`.
+  - **Examples:** Semenyo, 90 minutes for Man City on 13 January 2026
+    (2025/26 GW21), and Sávio, 19 minutes for Tottenham on 24 August 2026
+    (2026/27 GW1).
+  - **Effect:** a few genuine cup minutes are lost around transfer windows.
+  - **Idea:** look the club up in later snapshots up to the as-of gameweek.
+    The catch is that an as-of read would then no longer equal the full
+    build for those rows.
 - **Per-match goals conceded** (2026-11-10).
   - **Gap:** upstream's per-match figure is unreliable, so FPL's
     per-gameweek `goals_conceded` is used.

@@ -58,6 +58,34 @@ def _club_and_elo_problems(tables: dict[str, pd.DataFrame], prem_tag: str) -> li
     return out
 
 
+def check_drops(reconciliation: pd.DataFrame, bounds: dict) -> list[str]:
+    """fact_player_match drops for the club and snapshot reasons stay under the cap.
+
+    The cap is `max_dropped_rows.share` of the rows read, and at least `always_allowed`.
+    """
+    rec = reconciliation[reconciliation.table == "fact_player_match"]
+    rows_in = int(rec.loc[rec.line == "rows_in", "rows"].sum())
+    limits = bounds["max_dropped_rows"]
+    cap = max(limits["share"] * rows_in, limits["always_allowed"])
+    out = []
+    for reason in ("club_not_in_match", "player_not_in_snapshot"):
+        n = int(rec.loc[(rec.line == "dropped") & (rec.reason == reason), "rows"].sum())
+        if n > cap:
+            out.append(f"fact_player_match: {n} of {rows_in} rows dropped for {reason}, "
+                       f"over the cap of {cap:.0f}")
+    return out
+
+
+def check_rows_per_match(tables: dict[str, pd.DataFrame], bounds: dict) -> list[str]:
+    """fact_player_match has enough rows per complete match once the drops are made."""
+    complete = int(tables["fact_fixture"].stats_complete.sum())
+    floor = bounds["fact_player_match_rows_per_complete_match_min"]
+    if complete and len(tables["fact_player_match"]) / complete < floor:
+        return [f"fact_player_match: {len(tables['fact_player_match'])} rows for {complete} "
+                f"complete matches, under {floor} a match"]
+    return []
+
+
 def validate_tables(tables: dict[str, pd.DataFrame], prem_tag: str) -> None:
     """Check processed tables: schema, unique keys, foreign keys, results only when finished."""
     problems: list[str] = []

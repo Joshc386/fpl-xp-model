@@ -63,3 +63,14 @@ validation:
   player_gameweek_stats_rows_per_gw: [500, 1000]
   playermatchstats_rows_per_match: [10, 60]
   now_cost_m: [3.0, 20.0]                  # GBP m, as upstream publishes it
+  # fact_player_match rows dropped for a club that is not the match's (club_not_in_match) or
+  # a player missing from the snapshot (player_not_in_snapshot): a mapping regression shows as
+  # a jump. The cap is a share of the playermatchstats rows read, so it scales with as-of
+  # reads, but never less than `always_allowed` rows (a small early read can have a stray
+  # row or two). Real worst cases: 0.33% (2 of 615 rows, 2026/27 as-of 1) and 0.02% on a full
+  # 2025/26 build; taking clubs from the latest snapshot gives 1.3%.
+  max_dropped_rows:
+    share: 0.005
+    always_allowed: 5
+  # fact_player_match rows per complete match, after the drops (real minimum 25).
+  fact_player_match_rows_per_complete_match_min: 15

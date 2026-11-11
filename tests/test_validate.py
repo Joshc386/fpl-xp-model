@@ -124,9 +124,39 @@ def test_a_finished_match_after_the_latest_gameweek_fails(
     assert "finished match" in problems(raw_2627, small_cfg)
 
 
-def test_a_missing_gameweek_folder_fails(raw_2627: RawSeason, small_cfg: dict) -> None:
+def test_a_gameweek_with_an_empty_matches_file_is_allowed_if_the_season_count_holds(
+    raw_2627: RawSeason, small_cfg: dict, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Wholly postponed (as 2022/23 GW7): the file is there but lists nothing.
     raw_2627.matches = raw_2627.matches[raw_2627.matches.snapshot_gw != 3]
-    assert "folder" in problems(raw_2627, small_cfg)
+    raw_2627.fixture_ids = raw_2627.fixture_ids[raw_2627.fixture_ids.snapshot_gw != 3]
+    with caplog.at_level("WARNING"):
+        assert problems(raw_2627, small_cfg) == ""
+    assert any("[3] hold no matches" in r.message for r in caplog.records)
+    small_cfg["validation"]["prem_matches_rows"] = [7, 380]  # the sample has 7; now only 4
+    assert "prem matches: 4 rows" in problems(raw_2627, small_cfg)
+
+
+def test_a_gameweek_whose_matches_file_is_missing_still_fails(
+    raw_2627: RawSeason, small_cfg: dict
+) -> None:
+    raw_2627.matches = raw_2627.matches[raw_2627.matches.snapshot_gw != 3]
+    raw_2627.fixture_ids = raw_2627.fixture_ids[raw_2627.fixture_ids.snapshot_gw != 3]
+    raw_2627.missing_files = ["GW3/matches.csv"]
+    del raw_2627.file_columns["GW3/matches.csv"]
+    text = problems(raw_2627, small_cfg)
+    assert "missing file: GW3/matches.csv" in text and "hold no matches" not in text
+
+
+def test_derived_deadlines_that_do_not_increase_fail(
+    raw_2627: RawSeason, small_cfg: dict
+) -> None:
+    m = raw_2627.matches
+    m.loc[m.index[(m.tournament == "prem") & (m.snapshot_gw == 3)][0], "kickoff_time"] = (
+        "2026-08-01T12:00:00"  # one GW3 fixture dated before GW1
+    )
+    text = problems(raw_2627, small_cfg)
+    assert "derived deadline of GW3" in text
 
 
 def test_stats_for_an_unknown_match_fail(raw_2627: RawSeason, small_cfg: dict) -> None:

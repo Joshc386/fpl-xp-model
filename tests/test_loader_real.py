@@ -16,7 +16,7 @@ from fpl.features import load_as_of
 from fpl.ingest import ROOT, RawSeason, load_config, read_season, upstream_data_dir
 from fpl.master import read_deadlines
 from fpl.overlay import OVERLAID
-from fpl.validate import validate_inputs
+from fpl.validate import ValidationError, validate_inputs
 from leakage import PREM, assert_no_leakage
 
 CFG = load_config(ROOT / "config" / "pipeline.yaml")
@@ -149,3 +149,31 @@ def test_real_2025_26_guehi_is_at_palace_for_the_larnaca_tie_at_as_of_8() -> Non
 def test_real_2025_26_as_of_2_team_elo_is_a_league_kickoff_value_not_a_cup_tie() -> None:
     elo = load_as_of("2025-2026", 2, "backtest")["dim_team"].set_index("name").upstream_elo
     assert elo["Bournemouth"] == 1804.01  # its GW2 kickoff; the 26 Aug EFL Cup row said 1871.97
+
+
+@pytest.mark.parametrize("regression", ["latest_snapshot_clubs", "codes_broken"])
+def test_real_2025_26_club_mapping_regressions_fail_the_build(
+    regression: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Code Review's two simulated regressions: clubs taken from the latest snapshot (197 of
+    # 14,786 rows wrongly dropped) and every match's club codes misaligned (every row drops).
+    import fpl.clean as clean
+
+    real = clean.build_fact_player_match
+
+    def latest_snapshot_clubs(pms: pd.DataFrame, matches: pd.DataFrame, players: pd.DataFrame,
+                              *args: object) -> tuple:
+        last = players[players.snapshot_gw == players.snapshot_gw.max()]
+        every = pd.concat([last.assign(snapshot_gw=g) for g in sorted(set(pms.snapshot_gw))])
+        return real(pms, matches, every, *args)
+
+    def codes_broken(pms: pd.DataFrame, matches: pd.DataFrame, *args: object) -> tuple:
+        return real(pms, matches.assign(home_team=-1.0, away_team=-1.0), *args)
+
+    raw = read("2025-2026")
+    assert build_season(raw, CFG).tables["fact_player_match"].shape[0] > 14_000  # as built
+    monkeypatch.setattr(clean, "build_fact_player_match",
+                        {"latest_snapshot_clubs": latest_snapshot_clubs,
+                         "codes_broken": codes_broken}[regression])
+    with pytest.raises(ValidationError, match="club_not_in_match"):
+        build_season(raw, CFG)

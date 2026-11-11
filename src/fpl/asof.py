@@ -14,10 +14,14 @@ the configured offset), so backtests never need the master `gameweek_summaries.c
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
 from fpl.schema import RESULT_COLUMNS
+
+log = logging.getLogger(__name__)
 
 
 def kickoffs(matches: pd.DataFrame) -> pd.Series:
@@ -30,18 +34,47 @@ def _naive(times: pd.Series) -> np.ndarray:
     return times.dt.tz_convert("UTC").dt.tz_localize(None).to_numpy(dtype="datetime64[ns]")
 
 
+def _first_last(
+    matches: pd.DataFrame, n_gw: int, prem_tag: str
+) -> tuple[pd.Series, pd.Series]:
+    """Each gameweek's first and last Premier League kickoff (NaT where it has none)."""
+    prem = matches[matches.tournament == prem_tag]
+    by_gw = kickoffs(prem).groupby(prem.snapshot_gw)
+    gws = range(1, n_gw + 1)
+    return by_gw.min().reindex(gws), by_gw.max().reindex(gws)
+
+
 def deadlines(
     matches: pd.DataFrame, n_gw: int, prem_tag: str, offset_minutes: int
 ) -> pd.Series:
     """Each gameweek's deadline: its first Premier League kickoff minus the offset.
 
     `matches` carries `snapshot_gw`, `tournament` and `kickoff_time` for every folder. A
-    gameweek with no Premier League kickoff (a missing file, say) has NaT, not an error:
-    validation reports the missing file, and nothing is returned from a failed run.
+    gameweek with no Premier League fixture (wholly postponed, or its file missing) takes the
+    last Premier League kickoff of the latest earlier gameweek that has one, which can only
+    date a cup tie late, never early (NaT for GW1). A missing file is reported by validation,
+    and nothing is returned from a failed run. A warning names such gameweeks.
     """
-    prem = matches[matches.tournament == prem_tag]
-    first = kickoffs(prem).groupby(prem.snapshot_gw).min()
-    return first.reindex(range(1, n_gw + 1)) - pd.Timedelta(minutes=offset_minutes)
+    first, last = _first_last(matches, n_gw, prem_tag)
+    empty = first.isna()
+    if empty.any():
+        log.warning("gameweeks %s have no Premier League fixture; each takes the previous "
+                    "gameweek's last kickoff as its deadline", empty[empty].index.tolist())
+    return (first - pd.Timedelta(minutes=offset_minutes)).where(~empty, last.ffill().shift(1))
+
+
+def deadline_problems(
+    matches: pd.DataFrame, n_gw: int, prem_tag: str, offset_minutes: int
+) -> list[str]:
+    """Problems with the derived deadlines: they must strictly increase with the gameweek.
+
+    Gameweeks with no Premier League fixture (which take the fallback) are skipped.
+    """
+    first, _ = _first_last(matches, n_gw, prem_tag)
+    due = (first - pd.Timedelta(minutes=offset_minutes)).dropna()
+    bad = due.index[1:][(due.diff().iloc[1:] <= pd.Timedelta(0)).to_numpy()]
+    return [f"derived deadline of GW{g} is not after that of the gameweek before it "
+            "(a mis-dated Premier League kickoff?)" for g in bad]
 
 
 def played_gw(kick: pd.Series, deadline: pd.Series) -> pd.Series:

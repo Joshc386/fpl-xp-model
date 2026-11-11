@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from fpl.asof import deadlines, played_gw, select_matches
+from fpl.asof import deadline_problems, deadlines, played_gw, select_matches
 from helpers import match_row, matches_frame
 
 N_GW, OFFSET = 3, 90
@@ -47,12 +47,46 @@ def test_a_gameweeks_deadline_is_its_first_premier_league_kickoff_minus_the_offs
     assert deadlines(schedule(), N_GW, "prem", 0)[2] == pd.Timestamp("2026-09-20T12:00:00Z")
 
 
-def test_a_gameweek_without_a_premier_league_kickoff_has_no_deadline_instead_of_an_error() -> None:
+def test_a_gameweek_with_no_premier_league_fixture_takes_the_previous_gameweeks_last_kickoff(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     m = schedule()
-    m.loc[m.snapshot_gw == 2, "kickoff_time"] = None
-    d = deadlines(m, N_GW, "prem", OFFSET)
-    assert d.isna().tolist() == [False, True, False]
+    m = m[m.snapshot_gw != 2]  # GW2 wholly postponed
+    with caplog.at_level("WARNING"):
+        d = deadlines(m, N_GW, "prem", OFFSET)
+    assert d[2] == pd.Timestamp("2026-09-13T10:00:00Z")  # GW1's only kickoff, no offset
+    assert d[1] < d[2] < d[3]
+    assert any("[2]" in r.message for r in caplog.records)
+    no_gw1 = deadlines(m[m.snapshot_gw != 1], N_GW, "prem", OFFSET)
+    assert no_gw1.isna().tolist() == [True, True, False]  # nothing before GW1 to fall back on
     assert deadlines(schedule(), N_GW, "nothing", OFFSET).isna().all()
+
+
+def test_two_empty_gameweeks_in_a_row_both_take_the_last_populated_kickoff() -> None:
+    m = schedule()
+    m = m[m.snapshot_gw == 1]
+    d = deadlines(m, N_GW, "prem", OFFSET)
+    assert d[2] == d[3] == pd.Timestamp("2026-09-13T10:00:00Z")
+
+
+def test_a_cup_tie_in_an_empty_gameweek_is_dated_to_it_not_the_one_before() -> None:
+    # GW2's league fixtures were all moved to GW3 (a week later); a cup tie is played between.
+    m = schedule()
+    m = m[m.snapshot_gw != 2]
+    m.loc[m.snapshot_gw == 3, "kickoff_time"] = "2026-09-27T12:00:00"
+    m = pd.concat([m, with_cup(("cup", 2, "2026-09-21T19:45:00")).query("match_id == 'cup'")])
+    got, _ = select_matches(m, 2, N_GW, "prem", OFFSET)
+    assert got.set_index("match_id").gameweek["cup"] == 2
+    got1, left1 = select_matches(m, 1, N_GW, "prem", OFFSET)
+    assert "cup" not in got1.match_id.tolist() and "cup" in left1.match_id.tolist()
+
+
+def test_deadline_problems_flag_a_gameweek_that_does_not_come_after_the_one_before() -> None:
+    assert deadline_problems(schedule(), N_GW, "prem", OFFSET) == []
+    m = schedule()
+    m.loc[m.match_id == "p3", "kickoff_time"] = "2026-09-01T12:00:00"
+    assert "GW3" in deadline_problems(m, N_GW, "prem", OFFSET)[0]
+    assert deadline_problems(m[m.snapshot_gw != 3], N_GW, "prem", OFFSET) == []  # empty: skipped
 
 
 @pytest.mark.parametrize(

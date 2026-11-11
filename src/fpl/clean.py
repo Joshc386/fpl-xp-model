@@ -27,6 +27,7 @@ from fpl.playergw import build_fact_player_gw
 from fpl.reconcile import Reconciliation
 from fpl.schema import PROCESSED_SCHEMA, fill_sources
 from fpl.validate import ValidationError, check_rule15_guards
+from fpl.validate_tables import check_drops, check_rows_per_match
 
 log = logging.getLogger(__name__)
 
@@ -152,11 +153,14 @@ def build_fact_player_match(
     """fact_player_match: complete matches only, with blanks filled per rule 15.
 
     `complete` flags complete matches, indexed like `matches`; pass the same Series given to
-    `build_fact_fixture`. `players` holds one snapshot per gameweek folder; a row's team is
-    the player's club in the snapshot of the folder the row came from. Rows are dropped, and
-    counted, when their match has no kickoff_time, is not finished, or is finished but not
-    complete, or when the player is missing from that snapshot. A row for an unknown
-    match is an error.
+    `build_fact_fixture`. `players` holds the snapshots needed; a row's team is the player's
+    club in the snapshot named by the row's `snapshot_gw`, which ingest sets to the gameweek
+    the match was played in for a cup or European match (not the folder that files it). Rows
+    are dropped, and counted, when their match has no kickoff_time, is not finished, or is
+    finished but not complete, when the player is missing from that snapshot, or when his
+    club there is not one of the match's clubs (`club_not_in_match`, an upstream id error or
+    a mapping regression). `build_season` fails when the last two exceed their caps. A row
+    for an unknown match is an error.
     """
     flags = matches[["match_id", "kickoff_time", "finished", "home_team", "away_team"]].assign(
         _complete=complete, _known=True
@@ -243,4 +247,9 @@ def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
     tables = {"dim_player": dim_player, "dim_team": dim_team, "fact_fixture": fixture,
               "fact_player_match": pmatch, "fact_player_gw": pgw}
     log.info("%s: built %s", raw.season, {k: len(v) for k, v in tables.items()})
+    problems = check_drops(rec.frame(), cfg["validation"]) + check_rows_per_match(
+        tables, cfg["validation"]
+    )
+    if problems:
+        raise ValidationError([f"{raw.season}: {p}" for p in problems])
     return BuiltSeason(raw.season, tables, rec.frame())

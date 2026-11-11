@@ -43,6 +43,9 @@ Brief section 4 lists the data rules.
   - A row whose club isn't one of the match's clubs is dropped and counted
     under `club_not_in_match`, and validation checks this. Example: upstream
     id errors such as Bailey in Kairat v Arsenal.
+  - The `club_not_in_match` and `player_not_in_snapshot` drops are capped
+    per season in `config/pipeline.yaml`, so a club-mapping regression
+    fails the run instead of silently emptying the table.
   - Why: upstream filed Palace's October 2025 Conference League tie in the
     GW30 folder, and that folder's snapshot put Guéhi at Man City.
 - **Prices:** upstream `now_cost` is £m. Processed tables store
@@ -231,8 +234,15 @@ guard against leakage.
     2026/27 so far), and the minutes model needs those minutes.
   - **The deadline:** GW g+1's deadline is its first Premier League kickoff
     minus `deadline_offset_minutes` (90, in `config/pipeline.yaml`). This
-    matches FPL's `deadline_time` for all 38 gameweeks of 2026/27 and needs
-    no master file. At as-of 38, every match counts.
+    matches FPL's `deadline_time` for all 76 gameweeks of 2025/26 and 2026/27
+    and needs no master file. At as-of 38, every match counts.
+    - **A gameweek with no Premier League fixture** (wholly postponed, as
+      in 2022/23 GW7) takes the previous gameweek's last Premier League
+      kickoff as its deadline. That is never later than FPL's, so a cup tie
+      can only be dated late, never early. Its folder may hold no matches
+      without failing validation, as long as the season's Premier League
+      count is within bounds.
+    - Validation fails if the derived deadlines don't strictly increase.
 - **Backtest mode:** the processed tables as they stood at the end of
   `GW{as_of_gw}`, built from that snapshot and the folders it needs.
   - It never reads master files.
