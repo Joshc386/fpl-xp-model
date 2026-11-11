@@ -8,11 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from conftest import SAMPLE_DATA, SAMPLE_SEASONS
+from conftest import SAMPLE_DATA, SAMPLE_SEASONS, read_sample
 from fpl.ingest import (
     IngestError,
     RawSeason,
-    read_season,
     read_table,
     read_upstream_commit,
 )
@@ -54,7 +53,7 @@ def test_snapshot_tables_come_from_the_latest_folder(raw_2627: RawSeason) -> Non
 
 @pytest.mark.parametrize("season", ["2025-2026", "2026-2027"])
 def test_numeric_columns_load_as_float_not_object(season: str) -> None:
-    raw = read_season(SAMPLE_DATA, SAMPLE_SEASONS[season], commit="x")
+    raw = read_sample(SAMPLE_DATA, SAMPLE_SEASONS[season], commit="x")
     for col in ("xg", "xa", "goals", "minutes_played", "saves"):
         assert raw.playermatchstats[col].dtype == "float64", col
     assert raw.matches.finished.dtype == "boolean"
@@ -68,25 +67,11 @@ def test_an_empty_future_file_still_loads_with_numeric_dtypes() -> None:
     assert df.goals.dtype == "float64"
 
 
-def test_as_of_gw_hides_later_folders() -> None:
-    raw = read_season(SAMPLE_DATA, SAMPLE_SEASONS["2026-2027"], commit="x", as_of_gw=1)
-    assert raw.latest_gw == 1
-    assert raw.matches.snapshot_gw.max() == 1
-    assert raw.playermatchstats.snapshot_gw.max() == 1
-
-
-def test_as_of_gw_zero_reads_no_gameweek_folders() -> None:
-    raw = read_season(SAMPLE_DATA, SAMPLE_SEASONS["2026-2027"], commit="x", as_of_gw=0)
-    assert raw.latest_gw == 0
-    assert raw.matches.empty and raw.players.empty
-    assert raw.file_columns == {}
-
-
 def test_a_missing_file_is_recorded_not_hidden(tmp_path: Path) -> None:
     data = tmp_path / "data"
     shutil.copytree(SAMPLE_DATA, data)
     (data / "2025-2026" / "By Gameweek" / "GW2" / "matches.csv").unlink()
-    raw = read_season(data, SAMPLE_SEASONS["2025-2026"], commit="x")
+    raw = read_sample(data, SAMPLE_SEASONS["2025-2026"], commit="x")
     assert any("GW2" in f and "matches.csv" in f for f in raw.missing_files)
 
 

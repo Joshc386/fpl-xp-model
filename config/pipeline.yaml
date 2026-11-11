@@ -22,6 +22,12 @@ seasons:
 # Upstream's tournament tag for the Premier League.
 premier_league_tag: prem
 
+# An as-of read holds the cup and European matches that kicked off before the next
+# gameweek's deadline, which is its first Premier League kickoff minus this offset
+# (exact for all 38 gameweeks of 2026/27). Derived from the schedule, never from master files.
+loader:
+  deadline_offset_minutes: 90
+
 # players.position -> processed position.
 position_map:
   Goalkeeper: GKP

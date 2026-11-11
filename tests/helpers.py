@@ -26,7 +26,7 @@ def blank_frame(file: str, rows: list[dict]) -> pd.DataFrame:
 def teams_frame(pairs: list[tuple[int, int]]) -> pd.DataFrame:
     """Teams from (id, code) pairs."""
     rows = [
-        {"id": i, "code": c, "name": f"Team{i}", "short_name": f"T{i:02d}", "elo": 1500.0 + i}
+        {"id": i, "code": c, "name": f"Team{i}", "short_name": f"T{i:02d}"}
         for i, c in pairs
     ]
     return blank_frame("teams", rows)
@@ -105,7 +105,7 @@ def pm_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
         match_row("m2", 7.0, 99.0, snapshot_gw=2, gameweek=2),
     ])
     players = players_frame([
-        player_row(10, 3), player_row(11, 7),
+        player_row(10, 3), player_row(11, 7), player_row(12, 3),
         player_row(10, 7, snapshot_gw=2), player_row(11, 7, snapshot_gw=2),
     ])
     return matches, players

@@ -14,6 +14,8 @@ before starting.
 exists, it overrides section 5 of the brief.
 * **docs/decisions.md** is the dated log of design decisions and component
 hand-off notes.
+* **docs/known\_gaps.md** lists accepted gaps to address once the model is
+running. Add to it when a gap is accepted, and delete an entry when it's fixed.
 * If code, an agent file and the brief disagree, the brief wins. Flag the
 conflict; never resolve it silently.
 
@@ -74,6 +76,7 @@ Update this list as each piece is built.
 
 * Setup: `python -m venv .venv`, then `.venv/Scripts/python -m pip install -r requirements-dev.txt -e .`
 * `.venv/Scripts/python -m pytest --cov`: run all tests with coverage
+* `FPL_FULL_SWEEP=1 .venv/Scripts/python -m pytest tests/test_loader_real.py`: the full real-data leakage sweep (every as-of gameweek of 2025/26)
 * `.venv/Scripts/ruff check .`: lint
 * `.venv/Scripts/python -m fpl.run\_pipeline`: build the processed tables in `data/processed/` from the local upstream checkout (`data/raw/upstream/repo`; pull it first). Ingest, validate and clean only, so far
 * `python backtest/run\_backtest.py`: run the backtest

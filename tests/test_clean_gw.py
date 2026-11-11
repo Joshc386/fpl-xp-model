@@ -16,6 +16,7 @@ from helpers import (
     player_row,
     players_frame,
     pm_inputs,
+    teams_frame,
 )
 
 
@@ -33,10 +34,14 @@ def pgs_frame(rows: list[dict]) -> pd.DataFrame:
     return df
 
 
+# id != code for every club, so a join on the wrong key shows up in team_id.
+TEAMS = teams_frame([(1, 3), (3, 1), (2, 7), (7, 2), (9, 5)])
+
+
 def run_gw(
     pgs: pd.DataFrame, matches: pd.DataFrame, players: pd.DataFrame
 ) -> tuple[pd.DataFrame, dict[str, int]]:
-    return build_fact_player_gw(pgs, players, matches, "2026-2027", "prem")
+    return build_fact_player_gw(pgs, players, matches, TEAMS, "2026-2027", "prem")
 
 
 def test_fact_player_gw_maps_columns_and_uses_fpl_minutes() -> None:
@@ -146,3 +151,33 @@ def test_a_missing_player_is_gated_by_its_own_gameweek() -> None:
     matches.loc[later, ["gameweek", "snapshot_gw", "finished"]] = [2, 2, False]
     out, _ = run_gw(pgs_frame([{"id": 77, "gw": 1}, {"id": 77, "gw": 2}]), matches, players)
     assert out.gw.tolist() == [1]
+
+
+def test_team_id_is_the_club_in_that_gameweeks_snapshot_mapped_through_the_code() -> None:
+    matches, _ = gate_inputs()
+    matches["finished"] = True
+    players = players_frame([
+        player_row(10, 3, snapshot_gw=1), player_row(10, 7, snapshot_gw=2),  # moves clubs
+        player_row(11, 7, snapshot_gw=1), player_row(11, 7, snapshot_gw=2),
+    ])
+    pgs = pgs_frame([{"id": 10, "gw": 1}, {"id": 10, "gw": 2}, {"id": 11, "gw": 1}])
+    out, _ = run_gw(pgs, matches, players)
+    assert out.set_index(["player_id", "gw"]).team_id.to_dict() == {
+        (10, 1): 1, (10, 2): 2, (11, 1): 2,  # code 3 is team 1, code 7 is team 2
+    }
+    assert check_table_schema(out, "fact_player_gw") == []
+
+
+def test_team_id_is_null_for_a_player_missing_from_the_snapshot() -> None:
+    matches, players = gate_inputs()
+    matches["finished"] = True
+    out, _ = run_gw(pgs_frame([{"id": 77}, {"id": 10}]), matches, players)
+    assert out.set_index("player_id").team_id.isna().to_dict() == {77: True, 10: False}
+    assert out.team_id.dtype == "Int64"
+
+
+def test_a_club_code_not_in_teams_is_an_error() -> None:
+    matches, players = gate_inputs()
+    players.loc[players.player_id == 10, "team_code"] = 424.0
+    with pytest.raises(CleanError, match="team_code"):
+        run_gw(pgs_frame([{"id": 10}]), matches, players)

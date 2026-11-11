@@ -8,12 +8,8 @@ import pytest
 
 from fpl.clean import build_season
 from fpl.ingest import RawSeason
-from fpl.validate import (
-    ValidationError,
-    check_match_ids_disjoint,
-    check_rule15_guards,
-    validate_tables,
-)
+from fpl.validate import ValidationError, check_match_ids_disjoint, check_rule15_guards
+from fpl.validate_tables import validate_tables
 from helpers import FILL, pms_frame, pms_row
 
 # ---- rule 15 guards ----------------------------------------------------------------------------
@@ -87,6 +83,19 @@ def test_table_validation_catches_an_orphan_foreign_key(tables: dict[str, pd.Dat
         validate_tables(tables, "prem")
 
 
+def test_table_validation_catches_an_unknown_club_in_fact_player_gw(
+    tables: dict[str, pd.DataFrame],
+) -> None:
+    tables["fact_player_gw"].loc[0, "team_id"] = 9_999
+    with pytest.raises(ValidationError, match="fact_player_gw.team_id"):
+        validate_tables(tables, "prem")
+
+
+def test_a_null_club_in_fact_player_gw_is_allowed(tables: dict[str, pd.DataFrame]) -> None:
+    tables["fact_player_gw"].loc[0, "team_id"] = pd.NA
+    validate_tables(tables, "prem")
+
+
 def test_table_validation_catches_a_result_on_an_unfinished_match(
     tables: dict[str, pd.DataFrame],
 ) -> None:
@@ -146,4 +155,41 @@ def test_the_premier_league_tag_for_the_npxg_check_comes_from_the_caller(
 ) -> None:
     fx = tables["fact_fixture"]
     fx.loc[fx.index[fx.stats_complete & (fx.tournament == "prem")][0], "away_npxg"] = np.nan
+    fx[["home_upstream_elo", "away_upstream_elo"]] = np.nan  # with no league, no row may have Elo
     validate_tables(tables, "no-such-tag")
+
+
+def test_table_validation_catches_a_player_row_for_a_club_not_in_the_match(
+    tables: dict[str, pd.DataFrame],
+) -> None:
+    pm, fx = tables["fact_player_match"], tables["fact_fixture"]
+    match = fx.set_index("match_id").loc[pm.match_id.iloc[0]]
+    other = next(t for t in tables["dim_team"].team_id
+                 if t not in (match.home_team_id, match.away_team_id))
+    pm.loc[0, "team_id"] = other
+    with pytest.raises(ValidationError, match="club not in the match"):
+        validate_tables(tables, "prem")
+
+
+def test_table_validation_catches_upstream_elo_on_a_cup_row(
+    tables: dict[str, pd.DataFrame],
+) -> None:
+    fx = tables["fact_fixture"]
+    fx.loc[fx.index[fx.tournament != "prem"][0], "home_upstream_elo"] = 1871.97
+    with pytest.raises(ValidationError, match="Elo on cup"):
+        validate_tables(tables, "prem")
+
+
+def test_table_validation_catches_a_wrong_club_in_a_match_whose_opponent_has_no_team_id(
+    tables: dict[str, pd.DataFrame],
+) -> None:
+    # A European or cup opponent outside the league has a null team_id; the comparison with it
+    # is NA, which must count as "not the club" rather than hide the row.
+    fx, pm = tables["fact_fixture"], tables["fact_player_match"]
+    cup = fx[fx.home_team_id.isna() | fx.away_team_id.isna()].match_id
+    row = pm.index[pm.match_id.isin(cup)][0]
+    match = fx.set_index("match_id").loc[pm.loc[row, "match_id"]]
+    clubs = [x for x in (match.home_team_id, match.away_team_id) if not pd.isna(x)]
+    pm.loc[row, "team_id"] = next(t for t in tables["dim_team"].team_id if t not in clubs)
+    with pytest.raises(ValidationError, match="club not in the match"):
+        validate_tables(tables, "prem")

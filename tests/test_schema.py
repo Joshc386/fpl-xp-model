@@ -40,7 +40,7 @@ def test_nullable_columns_are_the_contract_ones_plus_the_proposed_dim_player_one
     }
     assert nullable["fact_player_match"] == set()
     assert nullable["dim_team"] == {"upstream_elo"}
-    assert nullable["fact_player_gw"] == set()
+    assert nullable["fact_player_gw"] == {"team_id"}
     # Not listed in the contract; proposed in the task 1 report.
     assert nullable["dim_player"] == {
         "chance_next", "news", "pen_order", "fk_order", "corner_order", "ep_next",

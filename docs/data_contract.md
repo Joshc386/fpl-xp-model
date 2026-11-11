@@ -35,9 +35,16 @@ Brief section 4 lists the data rules.
   `away_team` are team **codes**. Map them through `teams.code` to get
   `home_team_id` and `away_team_id`. These are null for clubs outside the
   Premier League.
-- **`fact_player_match.team_id`:** the player's `team_code` in that
-  gameweek's snapshot `players.csv`, mapped to `teams.id`. Don't use the
-  master `team_history.csv`, because backtest mode never reads master files.
+- **`fact_player_match.team_id`:** the player's `team_code` in the snapshot
+  `players.csv` of the match's `gw`, mapped to `teams.id`. For a cup or
+  European match that is the gameweek it was played in, not the folder that
+  holds it; a GW0 match uses the GW1 snapshot. Don't use the master
+  `team_history.csv`, because backtest mode never reads master files.
+  - A row whose club isn't one of the match's clubs is dropped and counted
+    under `club_not_in_match`, and validation checks this. Example: upstream
+    id errors such as Bailey in Kairat v Arsenal.
+  - Why: upstream filed Palace's October 2025 Conference League tie in the
+    GW30 folder, and that folder's snapshot put Guéhi at Man City.
 - **Prices:** upstream `now_cost` is £m. Processed tables store
   `price_tenths` = round(`now_cost` × 10), as an integer. Published outputs
   store `price_m` = `price_tenths` / 10, to one decimal.
@@ -50,11 +57,31 @@ Brief section 4 lists the data rules.
   history in backtest mode.
 - **`dim_player.fk_order` and `corner_order`:** `direct_freekicks_order` and
   `corners_and_indirect_freekicks_order`.
-- **Upstream Elo:** `dim_team.upstream_elo` (`teams.elo`), and
-  `home_upstream_elo` and `away_upstream_elo` (`home_team_elo` and
-  `away_team_elo`). These are upstream ClubElo exactly as provided: no
-  filling, null from 2026/27 GW3. The model's own Elo ratings are the Elo
-  component's output, not a processed-table column (brief data rule 12).
+- **Upstream Elo:** Premier League matches only.
+  - `home_upstream_elo` and `away_upstream_elo` are `home_team_elo` and
+    `away_team_elo`, the ClubElo rating at kickoff, on Premier League rows.
+    They are null on cup and European rows.
+  - `dim_team.upstream_elo` is each club's most recent non-null Premier
+    League kickoff value among the finished matches in the read, by kickoff
+    time, and null if there is none.
+  - These are upstream ClubElo exactly as provided: no filling, null from
+    2026/27 GW3.
+  - The model's own Elo ratings are the Elo component's output, not a
+    processed-table column (brief data rule 12).
+  - **Why not cup rows:** in 2025/26 their Elo isn't the kickoff rating.
+    Bournemouth's 26 August 2025 EFL Cup tie shows 1871.97, which it reached
+    only at Premier League kickoffs in GW34-38, against 1804-1808 at its
+    GW1-2 kickoffs.
+  - **Why not `teams.elo`:** in 2025/26 its value in folders GW1-25 equals
+    clubs' GW26-30 kickoff Elo. Either source would leak into early
+    backtests.
+- **`fact_fixture.gw`:** for a Premier League fixture, upstream's gameweek
+  (its folder). For a cup or European match, the gameweek it was played in:
+  the latest gameweek whose deadline is at or before kickoff, or 0 before
+  the GW1 deadline, with deadlines derived as in the loader section.
+  - Why: upstream files these in a later folder, one later throughout
+    2026/27 and up to 26 later in 2025/26. Using the folder would break
+    "gameweek up to as-of" for cup rows.
 - **`fact_fixture`:** `kickoff_utc` comes from `kickoff_time`. That is UTC,
   naive in 2026/27 and offset-stamped in 2025/26, so normalise to ISO 8601
   with `Z`. `home_xg` is `home_expected_goals_xg`, `home_npxg` is
@@ -191,22 +218,50 @@ Outside the data-engineer's own code, every agent reads data through
 `load_as_of(season, as_of_gw, mode)` in `src/fpl/features.py`. It is the main
 guard against leakage.
 
+- **Signature:** `load_as_of(season, as_of_gw, mode, *, cfg=None,
+  root=ROOT)`, with `mode` either `"backtest"` or `"live"`.
 - **Returns** the five processed tables, keyed by table name, with the
   columns above.
+- **What an as-of read holds:** a read at as-of g holds every match with
+  `gw` up to g, in any competition.
+  - Because a cup or European match's `gw` is the gameweek it was played
+    in, this includes every cup match that kicked off before the GW g+1
+    deadline, whichever folder upstream filed it in.
+  - Upstream files a midweek tie in the next gameweek's folder (all of
+    2026/27 so far), and the minutes model needs those minutes.
+  - **The deadline:** GW g+1's deadline is its first Premier League kickoff
+    minus `deadline_offset_minutes` (90, in `config/pipeline.yaml`). This
+    matches FPL's `deadline_time` for all 38 gameweeks of 2026/27 and needs
+    no master file. At as-of 38, every match counts.
 - **Backtest mode:** the processed tables as they stood at the end of
-  `GW{as_of_gw}`, built from that snapshot and earlier.
+  `GW{as_of_gw}`, built from that snapshot and the folders it needs.
   - It never reads master files.
   - It never returns a result, xG, upstream Elo or player row from a match
-    in a gameweek after `as_of_gw`.
-  - Fixtures in later gameweeks appear in `fact_fixture` as **schedule
+    outside the read.
+  - **Later Premier League fixtures** appear in `fact_fixture` as **schedule
     only**: `finished` and `stats_complete` false, and results, xG and
     upstream Elo null. Fixture difficulty needs them. Their gameweek and
     kickoff come from the final folders, so a backtest knows about
-    rescheduled fixtures earlier than a manager would (a known limitation).
+    rescheduled fixtures earlier than a manager would (`docs/known_gaps.md`).
+  - **Later cup and European matches are left out.** In a knockout cup a
+    future tie reveals who won the earlier rounds.
 - **Live mode:** the same, with current status, news, chance of playing and
-  price overlaid from the master files. `as_of_gw` may be ahead of the newest
-  folder with data, between a deadline and upstream's first write of that
-  gameweek; the loader then returns what exists.
+  price overlaid from the master files.
+  - **Overlay rules:** the master row with the highest `gw` wins. A cleared
+    concern clears the snapshot value. A player with no master row keeps his
+    snapshot values. Rows are matched by `player_id`, never by position, and
+    `team_id` is not overlaid.
+  - **Between a deadline and upstream's first write** of that gameweek,
+    `as_of_gw` may be ahead of the newest folder with player figures; the
+    loader then returns what exists. Finished cup and European matches
+    already in that folder are normal, not an error.
+- **As-of 0:** `fact_fixture` is the Premier League schedule with nothing
+  finished, plus any cup or European match played before the GW1 deadline
+  (none in either season so far), `dim_team` has no `upstream_elo`, and `dim_player` and the player
+  fact tables are empty (`docs/known_gaps.md`). A live run at as-of 1 before
+  upstream has written GW1 returns the same.
+- **Live gameweeks:** `live_gameweeks(season, run_utc)` returns the next and
+  as-of gameweeks.
 - **Next and as-of gameweek (live only):** the next gameweek is the first
   whose `deadline_time` in the master `gameweek_summaries.csv` is strictly
   after the run time. A run at the exact deadline treats it as passed. The
@@ -215,11 +270,13 @@ guard against leakage.
   season, and the run fails with a clear error.
 - `features.py` also holds generic features. Model-specific features live in
   the model components.
-  - **Recent minutes and starts:** for each player and each window N given
-    by the caller, the totals of FPL `minutes` and `starts` over the last N
+  - **Recent minutes and starts:** `recent_minutes(tables, as_of_gw,
+    windows)`. For each player and each window N given by the caller, it
+    returns the totals of FPL `minutes` and `starts` over the last N
     gameweeks up to `as_of_gw` in which his club had a Premier League
     fixture, plus `fixtures`, the club's fixture count in those gameweeks.
-    A double gameweek counts as one gameweek. The club is
+    It returns long rows: `player_id`, `window`, `minutes`, `starts` and
+    `fixtures`. A double gameweek counts as one gameweek. The club is
     `fact_player_gw.team_id` for each gameweek.
 
 ## Component hand-offs

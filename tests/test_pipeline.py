@@ -63,6 +63,19 @@ def test_sample_counts_for_2026_27(raw_2627: RawSeason, cfg: dict) -> None:
     assert len(built.tables["fact_player_gw"]) == 242
 
 
+def test_fact_player_gw_team_id_is_the_snapshot_club_and_null_only_without_a_snapshot_row(
+    raw_2627: RawSeason, cfg: dict
+) -> None:
+    built = build_season(raw_2627, cfg).tables
+    pgw = built["fact_player_gw"]
+    in_snapshot = pgw.merge(
+        raw_2627.players.rename(columns={"snapshot_gw": "gw", "player_id": "player_id"}),
+        on=["player_id", "gw"], how="left",
+    ).team_code.notna()
+    assert (pgw.team_id.notna() == in_snapshot.to_numpy()).all()
+    assert pgw.team_id.dropna().isin(built["dim_team"].team_id).all()
+
+
 def test_future_gameweek_matches_are_kept_as_unfinished_with_no_results(
     raw_2627: RawSeason, cfg: dict
 ) -> None:

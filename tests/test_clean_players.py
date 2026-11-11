@@ -103,7 +103,7 @@ def test_rows_of_matches_that_are_not_complete_are_dropped_by_reason() -> None:
     assert set(out.match_id) == {"ok"}
     assert dropped == {
         "match_has_no_kickoff_time": 2, "match_not_finished": 2, "match_not_complete": 2,
-        "player_not_in_snapshot": 0,
+        "player_not_in_snapshot": 0, "club_not_in_match": 0,
     }
 
 
@@ -132,7 +132,7 @@ def test_blanks_are_filled_with_zero_including_zero_minute_rows() -> None:
     )
     pms = pms_frame([
         pms_row(10, "m1", 90.0),
-        pms_row(11, "m1", 0.0, **blank),
+        pms_row(12, "m1", 0.0, **blank),
         pms_row(10, "m2", 30.0, snapshot_gw=2, xg=np.nan, total_shots=0.0, saves=np.nan),
     ])
     out, _ = run_pm(pms, matches, players)
@@ -185,6 +185,7 @@ def test_a_player_whose_club_is_not_in_teams_is_an_error() -> None:
     with pytest.raises(CleanError, match="team"):
         build_dim_player(players, playerstats_frame([{"id": 10}]), SWAPPED, POSITIONS)
     matches, _ = pm_inputs()
+    matches.loc[0, "away_team"] = 98.0  # a club in the match, but not in teams
     players = players_frame([player_row(10, 3), player_row(11, 98)])
     pms = pms_frame([pms_row(10, "m1", 90.0), pms_row(11, "m1", 90.0)])
     with pytest.raises(CleanError, match="team"):
@@ -199,3 +200,43 @@ def test_the_completeness_passed_in_is_the_one_used() -> None:
         pms, matches, players, SWAPPED, "tackles", FILL, none_complete
     )
     assert out.empty and dropped["match_not_complete"] == 1
+
+
+def test_a_row_whose_club_is_not_one_of_the_matchs_clubs_is_dropped_and_counted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Like Bailey (Villa) in Kairat v Arsenal: an upstream id error puts a player from another
+    # club in the match. Code 5 is neither of m1's clubs (3 and 7).
+    matches = matches_frame([match_row("m1", 3.0, 7.0)])
+    players = players_frame([player_row(10, 3), player_row(11, 7), player_row(12, 5)])
+    pms = pms_frame([pms_row(p, "m1", 90.0) for p in (10, 11, 12)])
+    with caplog.at_level("WARNING"):
+        out, dropped = run_pm(pms, matches, players)
+    assert out.player_id.tolist() == [10, 11]
+    assert dropped["club_not_in_match"] == 1 and dropped["player_not_in_snapshot"] == 0
+    assert any("12" in r.message and "m1" in r.message for r in caplog.records)
+
+
+def test_a_european_match_keeps_the_premier_league_side_and_drops_a_stray_player() -> None:
+    # The opponent (code 99) is outside the league, so only the Premier League club's players
+    # are in the match.
+    matches = matches_frame([match_row("eu", 3.0, 99.0, tournament="europa-league")])
+    players = players_frame([player_row(10, 3), player_row(11, 7)])
+    pms = pms_frame([pms_row(10, "eu", 90.0), pms_row(11, "eu", 90.0)])
+    out, dropped = run_pm(pms, matches, players)
+    assert out.player_id.tolist() == [10] and dropped["club_not_in_match"] == 1
+
+
+def test_the_clubs_come_from_the_snapshot_given_to_each_row_not_from_the_latest() -> None:
+    matches = matches_frame([match_row("eu", 3.0, 99.0, tournament="europa-league")])
+    players = players_frame([
+        player_row(10, 3, snapshot_gw=1), player_row(10, 7, snapshot_gw=30),  # moved after GW1
+        player_row(11, 3, snapshot_gw=1), player_row(11, 3, snapshot_gw=30),
+    ])
+    rows = [pms_row(p, "eu", 90.0, snapshot_gw=1) for p in (10, 11)]
+    out, _ = run_pm(pms_frame(rows), matches, players)
+    assert out.player_id.tolist() == [10, 11] and set(out.team_id) == {1}  # code 3 is team 1
+    rows = [pms_row(p, "eu", 90.0, snapshot_gw=30) for p in (10, 11)]
+    out, dropped = run_pm(pms_frame(rows), matches, players)
+    assert out.player_id.tolist() == [11]  # the late snapshot would put player 10 at club 7
+    assert dropped["club_not_in_match"] == 1

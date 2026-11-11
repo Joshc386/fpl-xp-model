@@ -1,0 +1,86 @@
+# Known gaps
+
+Gaps found while building the model that are accepted for now, to be
+addressed once the model is up and running. Each entry says what is missing,
+what it affects, and a starting idea for the fix. Decisions and evidence are
+in `docs/decisions.md` under the date given.
+
+When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
+
+## Season edges
+
+- **No players before the GW1 deadline** (2026-11-11).
+  - **Gap:** no snapshot exists before GW1, and GW1's folder already holds
+    post-deadline prices. So `load_as_of` at as-of 0 returns an empty
+    `dim_player`.
+  - **Effect:** backtests can't predict GW1, and a pre-season live run would
+    publish an empty player list.
+  - **Fix before:** 2027/28 GW1.
+  - **Idea:** at as-of 0 in live mode, build `dim_player` from the master
+    current-state files.
+
+## Data timing
+
+- **Provisional gameweek figures** (2026-11-10).
+  - **Gap:** FPL keeps adjusting bonus, BPS and occasionally points for up to
+    about 7 hours after upstream marks a match finished.
+  - **Effect:** a run soon after a match shows provisional points; the next
+    run corrects them.
+  - **Idea:** gate on FPL's own `data_checked` flag in
+    `gameweek_summaries.csv`.
+- **Partly loaded matches** (2026-11-10).
+  - **Gap:** the completeness check passes a match that is missing a few
+    player rows or has provisional per-player xG. Across GW9-10, 7 matches
+    did so for a while (unused substitutes and European per-player stats).
+  - **Idea:** a consistency check, such as summed player xG against team xG
+    or minutes per club, that holds a match back until it settles.
+- **Backtests see the final fixture schedule** (2026-11-11).
+  - **Gap:** later fixtures' gameweeks and kickoffs come from the final
+    folders.
+  - **Effect:** a backtest knows about rescheduled Premier League fixtures,
+    blanks and doubles earlier than a manager would.
+  - **Idea:** rebuild the schedule as it stood at each deadline from upstream's
+    commit history.
+- **Derived deadlines** (2026-11-11).
+  - **Gap:** backtests derive each deadline as the first Premier League
+    kickoff minus 90 minutes, which matches FPL for all 38 gameweeks of
+    both seasons.
+  - **Effect:** if a gameweek's first fixture were postponed after FPL set
+    the deadline, the derived deadline would fall later than FPL's.
+  - **Idea:** flag any gameweek where the derived deadline and the master
+    `deadline_time` disagree in a live run.
+- **Snapshot timing** (brief section 7).
+  - **Gap:** a snapshot can land up to about 7 hours after the next deadline,
+    and the 2025/26 folders were rewritten on 2026-07-22.
+  - **Effect:** status, news and `ep_next` can include post-deadline news. The
+    model-validator reports pre- and post-deadline snapshots separately.
+
+## Missing inputs
+
+- **Upcoming European and cup ties** (2026-11-11).
+  - **Gap:** later cup and European fixtures are left out of as-of reads,
+    because a future knockout tie reveals earlier results.
+  - **Effect:** the minutes model can't see an upcoming midweek tie as a
+    rotation risk.
+  - **Idea:** in live mode only, read the current schedule for a v2 rotation
+    feature, and check it can't be backtested unfairly.
+- **2025/26 cup and European matches with no kickoff time** (2026-11-10).
+  - **Gap:** 36 played matches from GW27 onwards are dropped.
+  - **Effect:** 2025/26 backtests lose late-season rotation and fatigue
+    inputs.
+  - **Idea:** recover dates from another upstream file, such as `shots.csv`
+    or `xg_by_minute.csv`, if one carries them.
+- **Per-match goals conceded** (2026-11-10).
+  - **Gap:** upstream's per-match figure is unreliable, so FPL's
+    per-gameweek `goals_conceded` is used.
+  - **Effect:** in a double gameweek, the split between the two matches is
+    lost.
+
+## Engineering
+
+- **Writes aren't atomic across seasons** (2026-11-10).
+  - **Gap:** a failure while writing the second season leaves mixed tables
+    in `data/processed/`.
+  - **Effect:** none in CI, which builds from scratch each run. Each
+    season's `manifest.json` records its upstream commit, so a mix is
+    detectable locally.

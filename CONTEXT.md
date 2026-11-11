@@ -26,7 +26,9 @@ _Avoid_: game, tie
 
 **Match**:
 Any competitive game a team plays, in any competition. Only the Premier
-League ones are fixtures.
+League ones are fixtures. A cup or European match belongs to the gameweek
+it was played in, the one whose deadline most recently passed before
+kickoff, whatever folder upstream files it in.
 _Avoid_: fixture (for cup or European games)
 
 **Complete match**:
@@ -159,6 +161,9 @@ _Avoid_: freshness, staleness
 - Each **Fixture** has two **Fixture difficulties**, one per team. A
   gameweek's or a horizon's difficulty is the plain sum over its fixtures.
 - The **As-of gameweek** is always the **Next gameweek** minus one.
+- A run with **As-of gameweek** g also sees cup and European **Matches**
+  that kicked off before the GW g+1 **Deadline**, wherever upstream files
+  them. It never sees later cup or European ties.
 - Only the finished matches of the **As-of gameweek** feed a run. A player's
   gameweek figures count once all their club's fixtures in it are finished,
   and their match stats once each match is a **Complete match**.

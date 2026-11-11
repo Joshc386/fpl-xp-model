@@ -27,12 +27,12 @@ RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
         "bool": [],
         "num": ["player_code", "player_id", "team_code"],
     },
-    "teams": {"str": ["name", "short_name"], "bool": [], "num": ["code", "id", "elo"]},
+    "teams": {"str": ["name", "short_name"], "bool": [], "num": ["code", "id"]},
     "playerstats": {
         "str": ["status", "news"],
         "bool": [],
         "num": [
-            "id", "chance_of_playing_next_round", "now_cost", "selected_by_percent",
+            "id", "gw", "chance_of_playing_next_round", "now_cost", "selected_by_percent",
             "penalties_order", "direct_freekicks_order",
             "corners_and_indirect_freekicks_order", "ep_next",
         ],
@@ -46,6 +46,8 @@ RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
             "saves", "penalties_scored", "penalties_missed",
         ],
     },
+    # Master file (live mode only): the deadline clock.
+    "gameweek_summaries": {"str": ["deadline_time"], "bool": [], "num": ["id"]},
     "player_gameweek_stats": {
         "str": [],
         "bool": [],
@@ -58,6 +60,13 @@ RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
         ],
     },
 }
+
+# matches.csv columns that carry a result, xG or upstream Elo. The loader blanks them (and
+# `finished`) for matches in gameweeks after the as-of gameweek, which are schedule only.
+RESULT_COLUMNS: list[str] = [
+    "home_team_elo", "away_team_elo", "home_score", "away_score", "home_expected_goals_xg",
+    "away_expected_goals_xg", "home_non_penalty_xg", "away_non_penalty_xg",
+]
 
 # table -> [(column, kind, nullable)]. Kinds: int, float, bool, str. A nullable int
 # is stored as pandas Int64.
@@ -93,7 +102,8 @@ PROCESSED_SCHEMA: dict[str, list[Col]] = {
         ("recoveries", "int", False), ("saves", "int", False),
     ],
     "fact_player_gw": [
-        ("player_id", "int", False), ("season", "str", False), ("gw", "int", False),
+        ("player_id", "int", False), ("team_id", "int", True), ("season", "str", False),
+        ("gw", "int", False),
         ("points", "int", False), ("minutes", "int", False), ("starts", "int", False),
         ("bonus", "int", False), ("bps", "int", False), ("yellow", "int", False),
         ("red", "int", False), ("own_goals", "int", False),

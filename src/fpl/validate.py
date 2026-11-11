@@ -1,4 +1,4 @@
-"""Validation: input checks (brief section 11, step 4) and processed-table checks.
+"""Validation: input checks (brief section 11, step 4). Table checks are in validate_tables.
 
 Every check returns a list of problems; the public functions gather them all and
 raise `ValidationError` if there is any. A failed check never logs and carries on.
@@ -13,7 +13,7 @@ import pandas as pd
 from fpl.complete import complete_matches
 from fpl.frames import JoinError
 from fpl.ingest import RawSeason, required_columns_missing
-from fpl.schema import TABLE_KEYS, check_table_schema, fill_sources
+from fpl.schema import fill_sources
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def _outside(value: float, bounds: list[float]) -> bool:
     return not bounds[0] <= value <= bounds[1]
 
 
-def _key_problems(df: pd.DataFrame, cols: list[str], label: str) -> list[str]:
+def key_problems(df: pd.DataFrame, cols: list[str], label: str) -> list[str]:
     out = [
         f"{label}.{c}: {int(df[c].isna().sum())} null values" for c in cols if df[c].isna().any()
     ]
@@ -59,7 +59,7 @@ def check_keys(raw: RawSeason) -> list[str]:
         (raw.playermatchstats, ["player_id", "match_id"], "playermatchstats"),
         (raw.player_gameweek_stats, ["id", "gw"], "player_gameweek_stats"),
     ):
-        out += _key_problems(df, cols, label)
+        out += key_problems(df, cols, label)
     return out
 
 
@@ -84,23 +84,31 @@ def check_row_counts(
     pgs = pgs[(pgs.index >= 1) & (pgs.index <= raw.latest_gw) & (pgs > 0)]
     out = []
     if complete is not None:
-        in_play = raw.matches.snapshot_gw <= raw.latest_gw
-        done_ids = raw.matches.match_id[complete & in_play]
+        done_ids = raw.matches.match_id[complete]
         per_match = raw.playermatchstats.groupby("match_id").size().reindex(done_ids, fill_value=0)
         out += _bounded("playermatchstats", per_match, bounds["playermatchstats_rows_per_match"])
     out += _bounded("player_gameweek_stats", pgs, bounds["player_gameweek_stats_rows_per_gw"])
-    out += _bounded("players", raw.players.groupby("snapshot_gw").size(),
-                    bounds["players_rows_per_snapshot"])
-    scalars = (
-        ("teams", len(raw.teams), "teams_rows"),
-        ("playerstats", len(raw.playerstats), "playerstats_rows_snapshot"),
-        ("matches", len(raw.matches), "matches_rows"),
-        ("prem matches", int((raw.matches.tournament == prem_tag).sum()), "prem_matches_rows"),
-    )
-    for label, n, key in scalars:
-        if _outside(n, bounds[key]):
-            out.append(f"{label}: {n} rows, outside {bounds[key]}")
-    n_prem = scalars[-1][1]
+    # Every snapshot the read needs counts, so a header-only players.csv fails the bound.
+    needed = sorted(set(range(1, raw.latest_gw + 1)) | set(raw.playermatchstats.snapshot_gw))
+    players = raw.players.groupby("snapshot_gw").size().reindex(needed, fill_value=0)
+    out += _bounded("players", players, bounds["players_rows_per_snapshot"])
+    n_prem = int((raw.matches.tournament == prem_tag).sum())
+    matches_bounds = bounds["matches_rows"]
+    if raw.as_of_gw is not None and raw.as_of_gw < raw.n_gw:
+        # An as-of read leaves out later cup and European matches, so only the Premier
+        # League schedule is whole: it must still reach the full-season Premier League bound.
+        matches_bounds = [bounds["prem_matches_rows"][0], matches_bounds[1]]
+    scalars = [
+        ("teams", len(raw.teams), bounds["teams_rows"]),
+        ("playerstats", len(raw.playerstats), bounds["playerstats_rows_snapshot"]),
+        ("matches", len(raw.matches), matches_bounds),
+        ("prem matches", n_prem, bounds["prem_matches_rows"]),
+    ]
+    if raw.latest_gw == 0:  # nothing played yet, so no playerstats snapshot
+        del scalars[1]
+    for label, n, limits in scalars:
+        if _outside(n, limits):
+            out.append(f"{label}: {n} rows, outside {limits}")
     if bounds["prem_matches_rows"][0] <= n_prem < bounds["prem_matches_rows"][1]:
         log.warning(
             "%s: %d prem matches, below %d; postponed matches have no gameweek folder",
@@ -123,9 +131,16 @@ def check_prices(raw: RawSeason, bounds: dict) -> list[str]:
     return out
 
 
-def check_latest_gw(raw: RawSeason) -> list[str]:
-    """The latest gameweek folder is present, with no gap before it and no data after it."""
-    if raw.latest_gw < 1:
+def check_latest_gw(raw: RawSeason, prem_tag: str) -> list[str]:
+    """The latest gameweek folder is present, with no gap before it and no data after it.
+
+    "Data after" means Premier League data: player rows or finished matches in a later
+    folder. Finished cup and European matches there are normal (upstream files a midweek
+    tie under the next gameweek), and so are their player rows. On an as-of read the
+    Premier League matches after `as_of_gw` are blanked, so they can only fail if the
+    blanking is removed. Nothing is played yet at as-of 0, or at 1 before upstream writes GW1.
+    """
+    if raw.latest_gw < 1 and raw.as_of_gw not in (0, 1):
         return ["latest gameweek: no folder holds player_gameweek_stats rows"]
     out = []
     pgs = raw.gw_rows["player_gameweek_stats"]
@@ -135,10 +150,15 @@ def check_latest_gw(raw: RawSeason) -> list[str]:
     later = {g: n for g, n in raw.gw_rows["playermatchstats"].items() if g > raw.latest_gw and n}
     if later:
         out.append(f"playermatchstats rows after the latest gameweek {raw.latest_gw}: {later}")
-    future_done = raw.matches.finished.fillna(False) & (raw.matches.snapshot_gw > raw.latest_gw)
+    future_done = (
+        raw.matches.finished.fillna(False)
+        & (raw.matches.snapshot_gw > raw.latest_gw)
+        & (raw.matches.tournament == prem_tag)
+    )
     if future_done.any():
         out.append(
-            f"{int(future_done.sum())} finished match(es) in folders after the latest gameweek"
+            f"{int(future_done.sum())} finished match(es) of {prem_tag} in folders after the "
+            "latest gameweek"
         )
     have = set(raw.matches.snapshot_gw)
     missing = [g for g in range(1, raw.n_gw + 1) if g not in have]
@@ -163,7 +183,9 @@ def check_references(raw: RawSeason, prem_tag: str) -> list[str]:
         out.append(f"{bad} {prem_tag} matches have a team code not in teams.csv")
     if int((~raw.players.team_code.isin(raw.teams.code)).sum()):
         out.append("players: team_code not in teams.csv")
-    wrong_gw = int((m.gameweek != m.snapshot_gw).sum())
+    # A cup or European match's gameweek is derived (the gameweek it was played in), so only
+    # the Premier League ones must agree with the folder.
+    wrong_gw = int((prem.gameweek != prem.snapshot_gw).sum())
     if wrong_gw:
         out.append(f"matches.gameweek differs from its folder in {wrong_gw} rows")
     left = set(zip(raw.fixture_ids.snapshot_gw, raw.fixture_ids.match_id, strict=True))
@@ -198,8 +220,8 @@ def check_rule15_guards(
 def validate_inputs(raw: RawSeason, cfg: dict, season_cfg: dict) -> None:
     """Run every input check for one season; raise `ValidationError` on any problem."""
     bounds = cfg["validation"]
-    problems = check_files(raw) + check_keys(raw) + check_latest_gw(raw)
     prem = cfg["premier_league_tag"]
+    problems = check_files(raw) + check_keys(raw) + check_latest_gw(raw, prem)
     try:
         complete: pd.Series | None = _complete(raw)
     except JoinError as exc:
@@ -227,50 +249,3 @@ def check_match_ids_disjoint(raws: list[RawSeason]) -> None:
             seen.setdefault(mid, raw.season)
     if clash:
         raise ValidationError([f"match_id appears in more than one season: {clash[:5]}"])
-
-
-# Fact tables may hold players who have since left the league, so player_id is not
-# required to be in dim_player (a snapshot of the current players).
-_FOREIGN_KEYS = (
-    ("fact_fixture", "home_team_id", "dim_team", "team_id"),
-    ("fact_fixture", "away_team_id", "dim_team", "team_id"),
-    ("dim_player", "team_id", "dim_team", "team_id"),
-    ("fact_player_match", "match_id", "fact_fixture", "match_id"),
-    ("fact_player_match", "team_id", "dim_team", "team_id"),
-)
-
-
-def _fixture_result_problems(fx: pd.DataFrame, prem_tag: str) -> list[str]:
-    """Scores only on finished matches, xG only on complete ones, npxG on complete PL ones."""
-    goals, xg = ["home_goals", "away_goals"], ["home_xg", "away_xg", "home_npxg", "away_npxg"]
-    out = []
-    if fx.loc[~fx.finished, goals].notna().any().any():
-        out.append("fact_fixture: scores present on unfinished matches")
-    if fx.loc[fx.finished, goals].isna().any().any():
-        out.append("fact_fixture: finished matches without a score")
-    if fx.loc[~fx.stats_complete, xg].notna().any().any():
-        out.append("fact_fixture: xG present on incomplete matches")
-    if (fx.stats_complete & ~fx.finished).any():
-        out.append("fact_fixture: complete matches that are not finished")
-    # npxG may be null on complete cup and European matches, never on Premier League ones.
-    prem = fx.stats_complete & (fx.tournament == prem_tag)
-    if fx.loc[prem, ["home_npxg", "away_npxg"]].isna().any().any():
-        out.append(f"fact_fixture: complete {prem_tag} matches without npxG")
-    return out
-
-
-def validate_tables(tables: dict[str, pd.DataFrame], prem_tag: str) -> None:
-    """Check processed tables: schema, unique keys, foreign keys, results only when finished."""
-    problems: list[str] = []
-    for name, df in tables.items():
-        problems += check_table_schema(df, name)
-        if not problems:
-            problems += _key_problems(df, TABLE_KEYS[name], name)
-    if not problems:
-        for table, col, ref, ref_col in _FOREIGN_KEYS:
-            orphans = int((~tables[table][col].dropna().isin(tables[ref][ref_col])).sum())
-            if orphans:
-                problems.append(f"{table}.{col}: {orphans} values not in {ref}.{ref_col}")
-        problems += _fixture_result_problems(tables["fact_fixture"], prem_tag)
-    if problems:
-        raise ValidationError(problems)

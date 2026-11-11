@@ -23,12 +23,12 @@ from fpl.frames import (
     to_int,
 )
 from fpl.ingest import RawSeason
+from fpl.playergw import build_fact_player_gw
 from fpl.reconcile import Reconciliation
 from fpl.schema import PROCESSED_SCHEMA, fill_sources
 from fpl.validate import ValidationError, check_rule15_guards
 
 log = logging.getLogger(__name__)
-
 
 
 @dataclass
@@ -40,14 +40,31 @@ class BuiltSeason:
     reconciliation: pd.DataFrame
 
 
-def build_dim_team(teams: pd.DataFrame) -> pd.DataFrame:
-    """dim_team; ClubElo passes through as upstream_elo, nulls included."""
+def latest_kickoff_elo(fixture: pd.DataFrame) -> pd.Series:
+    """Each club's most recent non-null kickoff Elo among the finished matches, by team_id."""
+    done = fixture[fixture.finished]
+    sides = pd.concat([
+        done[["kickoff_utc", f"{side}_team_id", f"{side}_upstream_elo"]].set_axis(
+            ["kickoff_utc", "team_id", "elo"], axis=1
+        )
+        for side in ("home", "away")
+    ]).dropna(subset=["team_id", "elo"])
+    latest = sides.sort_values("kickoff_utc", kind="stable").groupby("team_id")["elo"].last()
+    return latest.set_axis(latest.index.astype("int64"))
+
+
+def build_dim_team(teams: pd.DataFrame, fixture: pd.DataFrame) -> pd.DataFrame:
+    """dim_team. `upstream_elo` is the club's latest kickoff Elo in the read (null if none).
+
+    `teams.elo` is not used: in 2025/26 it is a later rating than the folder it sits in.
+    """
+    team_id = to_int(teams["id"], "teams.id")
     return pd.DataFrame({
-        "team_id": to_int(teams["id"], "teams.id"),
+        "team_id": team_id,
         "team_code": to_int(teams["code"], "teams.code"),
         "name": teams["name"],
         "short_name": teams["short_name"],
-        "upstream_elo": teams["elo"].astype("float64"),
+        "upstream_elo": team_id.map(latest_kickoff_elo(fixture)).astype("float64"),
     }).reset_index(drop=True)
 
 
@@ -58,7 +75,8 @@ def build_fact_fixture(
 
     `complete` flags complete matches, indexed like `matches`. Matches with no kickoff_time
     are dropped. Scores are kept for every finished match and xG only for complete ones; an
-    unfinished match, even one with a part-played score, has them all null.
+    unfinished match, even one with a part-played score, has them all null. Upstream Elo is
+    kept for Premier League matches only: in 2025/26 a cup row's Elo is a much later rating.
     """
     has_kickoff = matches.kickoff_time.notna()
     dropped = {"no_kickoff_time": int((~has_kickoff).sum())}
@@ -78,7 +96,8 @@ def build_fact_fixture(
         "match_id": df.match_id, "season": season, "gw": to_int(df.gameweek, "gameweek"),
         "kickoff_utc": normalise_kickoff(df.kickoff_time), "tournament": df.tournament,
         "home_team_id": home.astype("Int64"), "away_team_id": away.astype("Int64"),
-        "home_upstream_elo": df.home_team_elo, "away_upstream_elo": df.away_team_elo,
+        "home_upstream_elo": df.home_team_elo.where(df.tournament == prem_tag),
+        "away_upstream_elo": df.away_team_elo.where(df.tournament == prem_tag),
         "finished": finished, "stats_complete": done,
         "home_xg": result("home_expected_goals_xg", done),
         "away_xg": result("away_expected_goals_xg", done),
@@ -139,7 +158,7 @@ def build_fact_player_match(
     complete, or when the player is missing from that snapshot. A row for an unknown
     match is an error.
     """
-    flags = matches[["match_id", "kickoff_time", "finished"]].assign(
+    flags = matches[["match_id", "kickoff_time", "finished", "home_team", "away_team"]].assign(
         _complete=complete, _known=True
     )
     df = checked_merge(pms, flags, on="match_id", how="left", validate="many_to_one",
@@ -159,13 +178,18 @@ def build_fact_player_match(
         name="playermatchstats -> players",
     )
     no_player = df.team_code.isna()
+    wrong_club = ~no_player & (df.team_code != df.home_team) & (df.team_code != df.away_team)
     dropped = {
         "match_has_no_kickoff_time": int(no_kickoff.sum()),
         "match_not_finished": int(not_finished.sum()),
         "match_not_complete": int(not_complete.sum()),
         "player_not_in_snapshot": int(no_player.sum()),
+        "club_not_in_match": int(wrong_club.sum()),
     }
-    df = df[~no_player].reset_index(drop=True)
+    if wrong_club.any():
+        rows = df[wrong_club][["player_id", "match_id"]].to_dict("records")
+        log.warning("%d player-match rows dropped, club not in the match: %s", len(rows), rows)
+    df = df[~no_player & ~wrong_club].reset_index(drop=True)
     return _shape_player_match(df, teams, tackles_column, fill_columns), dropped
 
 
@@ -187,90 +211,21 @@ def _shape_player_match(
     return out[[c for c, _, _ in PROCESSED_SCHEMA["fact_player_match"]]]
 
 
-def _gameweek_holds(
-    pgs: pd.DataFrame, players: pd.DataFrame, matches: pd.DataFrame, prem_tag: str
-) -> tuple[pd.Series, pd.Series]:
-    """Which pgs rows to hold back: (club has an unfinished fixture, player has no club).
-
-    The club is the player's `team_code` in the snapshot of the row's gameweek folder. A club
-    with no Premier League fixture that gameweek (a blank gameweek) has nothing unfinished. A
-    player missing from the snapshot has no club, so his row is held while *any* Premier League
-    fixture in that gameweek is unfinished.
-    """
-    prem = matches[matches.tournament == prem_tag]
-    fin = prem.finished.fillna(False).astype(bool)
-    sides = [
-        pd.DataFrame({"gw": prem.gameweek, "team_code": prem[side], "open": ~fin})
-        for side in ("home_team", "away_team")
-    ]
-    clubs = pd.concat(sides).groupby(["gw", "team_code"], as_index=False)["open"].any()
-    keyed = checked_merge(
-        pgs[["snapshot_gw", "id", "gw"]],
-        players[["snapshot_gw", "player_id", "team_code"]],
-        left_on=["snapshot_gw", "id"], right_on=["snapshot_gw", "player_id"],
-        how="left", validate="many_to_one", name="player_gameweek_stats -> players",
-    )
-    flagged = checked_merge(
-        keyed[["gw", "team_code"]].astype("float64"), clubs.astype({"open": "bool"}),
-        on=["gw", "team_code"], how="left", validate="many_to_one",
-        name="player_gameweek_stats -> club fixtures",
-    )
-    club_hold = flagged["open"].eq(True).set_axis(pgs.index)
-    open_gws = set(clubs.loc[clubs["open"], "gw"])
-    no_club = keyed["team_code"].isna().set_axis(pgs.index)
-    return club_hold, no_club & pgs["gw"].isin(open_gws)
-
-
-def build_fact_player_gw(
-    pgs: pd.DataFrame, players: pd.DataFrame, matches: pd.DataFrame, season: str, prem_tag: str
-) -> tuple[pd.DataFrame, dict[str, int]]:
-    """fact_player_gw from FPL's own per-gameweek stats; minutes are FPL's, not minutes_played.
-
-    A row is kept only once every Premier League fixture the player's club has in that
-    gameweek is finished (`finished`, not complete); the others are dropped and counted.
-    A player with no club in the snapshot waits for every Premier League fixture of the gameweek.
-    """
-    club_hold, no_club_hold = _gameweek_holds(pgs, players, matches, prem_tag)
-    dropped = {
-        "club_fixture_not_finished": int(club_hold.sum()),
-        "no_club_gameweek_not_finished": int(no_club_hold.sum()),
-    }
-    pgs = pgs[~(club_hold | no_club_hold)]
-    cols = {
-        "points": "event_points", "minutes": "minutes", "starts": "starts", "bonus": "bonus",
-        "bps": "bps", "yellow": "yellow_cards", "red": "red_cards", "own_goals": "own_goals",
-        "goals_conceded": "goals_conceded", "tackles": "tackles",
-        "cbi": "clearances_blocks_interceptions", "recoveries": "recoveries",
-        "defensive_contribution": "defensive_contribution",
-        "transfers_in": "transfers_in_event", "transfers_out": "transfers_out_event",
-    }
-    out = pd.DataFrame({
-        "player_id": to_int(pgs["id"], "player_id"), "season": season,
-        "gw": to_int(pgs["gw"], "gw"),
-    })
-    for col, src in cols.items():
-        out[col] = to_int(pgs[src], col)
-    out["price_tenths"] = tenths(pgs.now_cost, "now_cost")
-    out["selected_pct"] = pgs.selected_by_percent
-    cols_out = [c for c, _, _ in PROCESSED_SCHEMA["fact_player_gw"]]
-    return out[cols_out].reset_index(drop=True), dropped
-
-
 def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
     """Build all five processed tables for a season, and reconcile them with upstream."""
     scfg = next(s for s in cfg["seasons"] if s["id"] == raw.season)
     prem, fill = cfg["premier_league_tag"], cfg["fill_zero_columns"]
     snapshot = raw.players[raw.players.snapshot_gw == raw.latest_gw]
-    dim_team = build_dim_team(raw.teams)
     complete = complete_matches(raw.matches, raw.playermatchstats, raw.players, raw.teams)
     fixture, d_fix = build_fact_fixture(raw.matches, raw.teams, raw.season, prem, complete)
+    dim_team = build_dim_team(raw.teams, fixture)
     dim_player, d_pl = build_dim_player(snapshot, raw.playerstats, raw.teams, cfg["position_map"])
     pmatch, d_pm = build_fact_player_match(
         raw.playermatchstats, raw.matches, raw.players, raw.teams, scfg["tackles_column"], fill,
         complete,
     )
     pgw, d_gw = build_fact_player_gw(
-        raw.player_gameweek_stats, raw.players, raw.matches, raw.season, prem
+        raw.player_gameweek_stats, raw.players, raw.matches, raw.teams, raw.season, prem
     )
     info = {
         "unfinished_rows_kept_with_null_results": int((~fixture.finished).sum()),

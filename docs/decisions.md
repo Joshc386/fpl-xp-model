@@ -770,3 +770,390 @@ the go-ahead for task 2 on 2026-11-11.
 - **Updated:** `docs/data_contract.md` (`fact_player_gw`, source notes,
   nullable list, point-in-time loader), brief section 5 (`fact_player_gw`,
   loader) and brief data rule 8.
+
+### 2026-11-11: data - task 2 point-in-time loader built
+- **Built on upstream `0b9378f088317a7e9814a924e9b13c582df0a396`** (2026-11-11
+  02:56 UTC, pulled over `0206600`). Row counts are unchanged:
+  2025/26 841 / 20 / 485 / 14,591 / 29,978 and 2026/27 672 / 20 / 484 / 5,528 /
+  6,596 (`dim_player` / `dim_team` / `fact_fixture` / `fact_player_match` /
+  `fact_player_gw`). `fact_player_gw.team_id` is null in 0 rows for 2025/26 and
+  34 for 2026/27 (GW1 6, GW2 26, GW3 2; the players added mid-gameweek, all 0
+  minutes and 0 points).
+- **Layout:** `features.py` (`load_as_of`, `live_gameweeks`, `recent_minutes`),
+  `clock.py` (the deadline clock, pure), `overlay.py` (the live overlay, pure),
+  `playergw.py` (`fact_player_gw`, moved out of `clean.py` for the 300-line
+  limit; `fpl.clean` still exports `build_fact_player_gw`). `ingest.py` gained
+  the schedule read, `read_deadlines`, `read_master_state` and
+  `upstream_data_dir`. These last two are the only readers of master files.
+- **Signature:** `load_as_of(season, as_of_gw, mode, *, cfg=None, root=ROOT)`.
+  `cfg` and `root` are only for tests and for pointing at another checkout.
+  It reads the upstream folders (not the Parquet), validates the inputs and the
+  built tables, and raises on any failure. It does not call git; the upstream
+  commit is the manifest's job.
+- **Schedule read (`ingest.read_season(as_of_gw=)`):** folders up to `as_of_gw`
+  are read in full. Folders after it are read for `fixtures.csv` and
+  `matches.csv` only, and `blank_results` sets `finished` false and the scores,
+  xG, npxG and both Elo columns null before anything else sees them. So no
+  later stage can leak a result, and the clean/validate code is unchanged apart
+  from `fact_player_gw.team_id`.
+- **Part-season validation (task 1 finding 3):** because the schedule of every
+  folder is read, the existing full-season checks are correct again. Folders
+  after `as_of_gw` must still have `matches` and `fixtures` (a missing file
+  fails), `matches_rows` and `prem_matches_rows` count the whole season, and a
+  *finished* match in a folder after the latest played one still fails the
+  run; after blanking it can only appear if the blanking is removed. The player
+  file bounds apply to the folders read. `as_of_gw` 0 is allowed to have no
+  player data and no `playerstats` snapshot. Checked on real data at the real
+  bounds: `as_of_gw` 5 for both seasons, and all 39 values for 2025/26.
+- **`as_of_gw` 0:** `fact_fixture` is the whole schedule (nothing finished),
+  `dim_team` has the GW1 ids, codes and names with `upstream_elo` null, and
+  `dim_player` and the player fact tables are empty with the right columns. GW1's
+  prices and `ep_next` come from after the first gameweek, so they are not used.
+- **Live overlay:** each `dim_player` row takes `status`, `news`, `chance_next`
+  and `price_tenths` from the player's row with the highest `gw` in the master
+  `playerstats.csv`. A cleared concern (blank in the master) clears the snapshot
+  value. A player with no master row keeps the snapshot values (warning
+  logged); master rows for players not in `dim_player` are ignored. A duplicate
+  `(id, gw)`, a null `status` or a price outside `now_cost_m` fails the run.
+  `team_id` is not overlaid, so a transfer shows from the next gameweek's
+  snapshot.
+- **Deadline clock** (`clock.py`): `parse_deadlines`, `next_gameweek`,
+  `as_of_gameweek`, and `features.live_gameweeks(season, run_utc)` to read the
+  master file. Strictly after; a run at the exact deadline counts it as passed;
+  before the GW1 deadline the as-of gameweek is 0; at or after the GW38
+  deadline `DeadlineError` names GW38. Offset, `Z` and naive stamps are all UTC
+  (a naive run time too). The table must be gameweeks 1..N with strictly
+  increasing deadlines, else `DeadlineError`. Evidence: in both seasons all 38
+  `deadline_time` values are 25 characters, `YYYY-MM-DDTHH:MM:SS+00:00`, and the
+  rows are not in gameweek order in the file (GW1, 2, 15, 16 ...). The mixed
+  formats are handled but not seen.
+- **Recent minutes and starts** (`features.recent_minutes(tables, as_of_gw,
+  windows, prem_tag=None)`): one row per player and window (`player_id`,
+  `window`, `minutes`, `starts`, `fixtures`). A gameweek counts for a player
+  when he has a `fact_player_gw` row and his club (that row's `team_id`) has at
+  least one Premier League fixture in `fact_fixture` that gameweek. A blank
+  gameweek is skipped, a double counts once with `fixtures` 2, a row with no
+  club is skipped, and a gameweek still being played for his club has no row
+  yet (the gate), so it is not counted. A player with no such gameweek (including
+  anyone only in `dim_player`) gets zeros. Windows must be distinct positive
+  integers.
+- **Tests:** a synthetic 38-gameweek season (`tests/synth.py`: 4 clubs, a blank
+  gameweek, a double, a transfer, a cup match, full results in every folder as in
+  the real final folders, poisoned master files). Leakage is tested for all 39
+  values of `as_of_gw` on the synthetic season and, when the checkout exists, on
+  real 2025/26 (a spread by default, all 39 with `FPL_FULL_SWEEP=1`; both
+  passed). 314 tests, 99% line coverage of `src/fpl`. Each protection was
+  mutated by hand and the tests failed: reading every folder, not blanking
+  results, overlaying in backtest mode, reading a master file in backtest mode,
+  taking `team_id` from the wrong snapshot, not skipping blank gameweeks, and a
+  deadline comparison of `>=`.
+- **Runtime:** a full backtest sweep (2025/26, `as_of_gw` 1-38, real data, with
+  validation and the leakage check): 39.8 s in total, 1.04 s a call on average
+  (0.54 s at GW1, 1.59 s at GW38). No caching added.
+
+### 2026-11-11: data - cup and European matches sit in the folder of the next deadline
+- **Found** (upstream `0b9378f`, `matches.csv` kickoffs against the master
+  `deadline_time`): every Premier League match, 380 of 380 in both seasons, is in
+  the folder of the FPL window it kicked off in (deadline g <= kickoff <
+  deadline g+1 is folder g). Cup and European matches are not:
+  - **2026/27:** all 104 (champions-league 40, europa-league 24, efl-cup 34,
+    conference-league 6) are in folder g+1. A midweek match played between the
+    GW g and GW g+1 deadlines is in the **GW g+1 folder**.
+  - **2025/26:** of 105 with a kickoff, 64 are in folder g, 35 in folder g+1
+    and 6 far later (champions-league 4, europa-league 1, conference-league 1;
+    for example a GW4-window match in the GW30 folder). The 2025/26 folders were
+    rewritten on 2026-07-22 (brief section 7), so that is not live behaviour.
+- **Evidence it is available early:** the GW10 folder at `92a90c26`
+  (2026-11-06 15:16 UTC, before the 18:30 GW10 deadline) already held the 9
+  cup and European matches of 3-5 November, finished, with 185
+  `playermatchstats` rows.
+- **Effect:** a read with `as_of_gw` = g treats folder g+1 as schedule only, so
+  the midweek cup and European matches just before the GW g+1 deadline are not
+  visible, in live or backtest, until g+1 becomes the as-of gameweek. That is
+  consistent between the modes (no leakage), but the freshest rotation and
+  fatigue signal for the minutes model is hidden at the moment of the decision.
+  No code change; proposed in the report as a decision for the main session.
+
+### 2026-11-11: data - the newest folder and as-of gameweek, and 2025/26 team Elo
+- **`as_of_gw` ahead of the newest folder with data happens.** For GW2-10 of
+  2026/27 the first commit in which `GW{g}/player_gameweek_stats.csv` has rows
+  came 1.9 to 7.9 hours after the GW g deadline: GW2 2.0 h, GW3 7.8, GW4 5.3, GW5
+  7.9, GW6 3.9, GW7 7.9, GW8 1.9, GW9 2.8, GW10 2.5. Until then the folder is
+  header-only. A run at 18:00 UTC fell inside that gap for GW2, GW3, GW5 and
+  GW8 (4 of 9); an 08:00 run for none. In the gap the next gameweek is g+1, so
+  the as-of gameweek g is one ahead of the newest folder with data (g-1). The
+  loader then returns what exists: the tables through g-1, with GW g's matches as
+  unfinished schedule rows. Tested on a synthetic season and on real 2026/27
+  with `as_of_gw` = newest + 3. Today (2026-11-11) it does not occur: the next
+  deadline is GW11 on 2026-11-21 11:00 UTC, so the as-of gameweek is 10, the
+  newest folder.
+- **2025/26 `teams.csv` Elo is not per gameweek.** It is identical in folders GW1
+  to GW25 (for example team code 1: 1881) and changes at GW26 and in most later
+  folders. So `dim_team.upstream_elo` in a 2025/26 backtest with `as_of_gw` <= 25
+  is the same pre-season-looking value. No future value leaks, but it is not the
+  rating at that gameweek. The match-level `home_upstream_elo` and
+  `away_upstream_elo` in `fact_fixture` are per match and should be used for
+  anything Elo-related. 2026/27 `teams.elo` is null in every folder.
+
+### 2026-11-11: main - task 2 review decisions
+Josh decided items 1-4 after the data-engineer's report and Code Review. The
+main session confirmed the evidence on upstream `0b9378f`.
+1. **Cup and European matches count once they kick off before the next
+   deadline (Josh).** A read at as-of g holds Premier League fixtures up to g,
+   plus cup and European matches that kicked off before the GW g+1 deadline,
+   whichever folder holds them.
+   - Evidence: all 65 2026/27 cup and European matches in folders 1-11 sit
+     one folder after the window they kicked off in. So a midweek tie before
+     the GW g+1 deadline is in folder g+1, and the minutes model's "cup
+     minutes in the previous 7 days" would otherwise never see it.
+   - The deadline is derived as the first Premier League kickoff minus 90
+     minutes, which is exact for all 38 2026/27 gameweeks. This keeps
+     backtests off the master files.
+2. **`dim_team.upstream_elo` becomes each club's latest kickoff Elo in the
+   read (Josh chose the alternative to dropping it).**
+   - Evidence: 2025/26 `teams.csv` Elo is identical in folders GW1-25 and
+     equals clubs' GW26-30 kickoff Elo (mean gap 0.3). For example, Arsenal
+     reads 2065 against 1993 at the GW1 kickoff. The data-engineer's report
+     said nothing leaks; the main session found otherwise.
+   - Effect: point-in-time correct in every read. For 2026/27 it gives the
+     GW1-2 seeds (Arsenal null, as phase 0 found).
+3. **Nothing before the GW1 deadline is accepted (Josh)** and logged in the
+   new `docs/known_gaps.md`, which Josh asked for to record gaps to address
+   once the model is running.
+4. **Later cup and European matches are left out of as-of reads (Josh).**
+   Later Premier League fixtures stay as schedule only.
+   - Evidence (Code Review, confirmed): a 2025/26 backtest at as-of 10 held
+     48 later cup and European fixtures, including the EFL Cup semi-finals
+     (Arsenal v Chelsea, Man City v Newcastle). Those were decided by
+     quarter-finals in folders 16-17. The 2026/27 holdout has the same
+     problem.
+- **Approved by the main session:**
+  - the loader's names and signatures, now in the contract;
+  - the live overlay rules: the newest master row wins, cleared concerns
+    clear, players with no master row keep their snapshot values, and rows
+    are matched by `player_id`;
+  - a live run at as-of 1 before upstream writes GW1 returns the as-of-0
+    tables, as the contract says;
+  - `FPL_FULL_SWEEP=1` in CLAUDE.md's commands.
+- **Code Review fixes, sent with these decisions:**
+  - Live runs between a deadline and upstream's first player figures fail on
+    finished European matches already in the folder. Confirmed on upstream
+    `92a90c26`: an 18:00 run loads, a 19:00 run raises.
+  - The overlay crashes when a player has no master row.
+  - The overlay matches rows by position.
+  - Tests are missing for equal deadlines and for the as-of filter in
+    `recent_minutes`.
+- **Updated:** `docs/data_contract.md` (Elo source note, loader section),
+  brief data rule 12 and section 5, `CONTEXT.md`, `CLAUDE.md`, and the new
+  `docs/known_gaps.md`.
+
+### 2026-11-11: data - task 2 fix round
+Built to the updated contract on upstream `0b9378f` (unchanged since the first
+build).
+- **Which matches a read holds** (`src/fpl/asof.py`, pure; `read_season` now
+  takes `prem_tag` and `offset_minutes`, from `premier_league_tag` and the new
+  `loader.deadline_offset_minutes: 90` in `config/pipeline.yaml`):
+  - The cutoff for as-of g is the first Premier League kickoff of GW g+1 minus
+    90 minutes, from the schedule. At as-of 38 (or beyond) there is no cutoff
+    and every match counts. A gameweek with no Premier League kickoff raises
+    `ScheduleError`.
+  - Premier League matches after g are blanked to schedule only (as before).
+    A cup or European match is held iff it kicked off strictly before the
+    cutoff, whichever folder holds it, and is left out entirely otherwise
+    (including one with no kickoff time, until as-of 38).
+  - `players` and `playermatchstats` are read for a later folder only if it
+    holds a held cup match. Those rows are kept for cup and European matches
+    from any folder read, so clubs come from that folder's snapshot; Premier
+    League player rows still stop at the latest played gameweek. The full read
+    (`as_of_gw=None`) follows the same rule, so cup rows in a folder after the
+    latest played one now reach `fact_player_match` there too.
+  - Real data, 2026/27 as-of 9 (backtest): 65 cup and European matches (all
+    finished and complete) with 1,543 player rows, of which 9 matches and 185
+    rows are filed in the GW10 folder. As-of 10: the same 65 and 1,543, none
+    from folder 11 (it holds no cup match yet).
+  - The derived deadline equals FPL's `deadline_time` for all 38 gameweeks of
+    2026/27 (tested, `tests/test_loader_real.py`).
+- **`dim_team.upstream_elo`** is each club's latest non-null kickoff Elo among
+  the finished matches in the read (`clean.latest_kickoff_elo`). `teams.elo` is
+  no longer read (removed from `RAW_SCHEMA`). 2025/26 at as-of 1: Arsenal
+  1993.36, Liverpool 1993.42, Man City 1959.96 (`teams.csv` says 2065 for
+  Arsenal); at as-of 25: 2062.52, 1958.14, 1964.84. The full 2026/27 build
+  has 19 clubs with a value (Arsenal null).
+- **Validation (finding 6):** "data after the latest gameweek" now means
+  Premier League data. `check_latest_gw` flags finished Premier League matches
+  in later folders, and `gw_rows["playermatchstats"]` counts Premier League
+  rows only; finished cup matches and their rows there are normal. This also
+  stops the plain pipeline failing the first time a GW g+1 cup tie finishes
+  before upstream writes GW g+1. The `matches_rows` floor is lowered to the
+  Premier League floor on an as-of read (later cup matches are left out); the
+  Premier League bound and the ceiling still apply. The per-match player row
+  bound now covers every complete match, not only those up to the latest
+  gameweek. Real repro (`92a90c26`, `probe_real_gap.py`): a live run at 18:00
+  gives next 10, as-of 9 and loads (`fact_fixture` 445, `fact_player_match`
+  5,130, `fact_player_gw` 5,924); at 19:00 it gives next 11, as-of 10 and now
+  loads with the same row counts (it raised before). The test uses a sample cut
+  from that snapshot (`tests/fixtures/upstream_gap`, built by
+  `tests/fixtures/build_gap_fixture.py`).
+- **Overlay (7, 8):** rows are matched by `player_id` with `.loc`, never by
+  position; values are cast to the column's dtype, so a player with no master
+  row keeps his snapshot values and `price_tenths` stays int64. Duplicate
+  `player_id` in `dim_player` raises. Tests: shuffled and filtered
+  `dim_player`, schema check.
+- **As-of 1 before GW1 is written (9):** a read with no player figures at all
+  passes validation at as-of 0 or 1, and returns the as-of-0 tables (tested
+  through `load_as_of` in both modes). Any other as-of with no figures still
+  fails. `teams` comes from GW1 whenever nothing is played.
+- **Other test gaps (10):** equal deadlines are rejected (`parse_deadlines`
+  already did via `duplicated()`; now tested, including the same instant in
+  another offset). The redundant fixture-side as-of filter in `recent_minutes`
+  was removed, so the `gw <= as_of_gw` filter is the single guard and a test
+  with a player whose rows all come after as-of kills its removal.
+- **Leakage checks (11):** `assert_no_leakage` now also checks that no cup match
+  at or after the cutoff and no player row of one is present, that membership
+  equals the full build's (every Premier League fixture, cup matches iff before
+  the cutoff), and that `dim_team.upstream_elo` equals a plain-loop recomputation
+  from the read's own fixtures. The synthetic season gained `cup-late` (filed in
+  the GW25 folder, played before GW3), and its `truncate_after` now leaves
+  finished cup matches and their rows in the folders after the last played one,
+  as upstream does.
+- **Speed:** `read_table` reads only the columns in `RAW_SCHEMA` (`usecols`),
+  which cut a read of all 38 folders from 4.4 s to 2.4 s on a busy machine. Full
+  backtest sweep, 2025/26 as-of 1-38 with validation and the leakage check:
+  73 s in total, 1.87 s a call (0.49 s to 2.81 s). Earlier today the same sweep
+  took 39.8 s on a quieter machine, before the cup folders were added and
+  `usecols`.
+- **Files:** `master.py` (the master readers, moved from `ingest.py` so the only
+  code that can open a master file is in one place), `asof.py`. `validate.py` is
+  at 295 lines.
+- **Checks:** 371 tests, 99% line coverage of `src/fpl`; `ruff check .` clean;
+  the `FPL_FULL_SWEEP=1` run of `tests/test_loader_real.py` (all 39 as-of values
+  of 2025/26, 0-10 of 2026/27, the rest) passed 59 tests. Mutants, all killed:
+  cutoff `<=`, later cups kept, cups by folder instead of kickoff, finished-cup
+  check not restricted to the Premier League, cup rows counted as Premier League
+  rows, Elo `first` not `last`, Elo from unfinished matches, positional overlay,
+  float overlay dtype, equal deadlines allowed, no `as_of` filter in
+  `recent_minutes`, as-of 1 gap rejected, deadline offset ignored, no extra-folder
+  read.
+
+### 2026-11-11: main - task 2 second review decisions (Josh)
+Code Review's second pass confirmed every first-round fix and found two new
+2025/26 leaks that the leakage tests missed. The main session confirmed both
+on the data. Josh approved both recommendations.
+1. **Upstream Elo is kept for Premier League matches only.** Cup and
+   European rows' `home_upstream_elo` and `away_upstream_elo` are null, and
+   `dim_team.upstream_elo` comes from Premier League kickoffs only. This
+   refines decision 2 of the first review (latest kickoff Elo).
+   - Evidence: at 2025/26 as-of 2, Bournemouth's `upstream_elo` was 1871.97,
+     from its 26 August EFL Cup tie. It reaches that value only at Premier
+     League kickoffs in GW34-38; its GW1-2 kickoff Elo was 1804 and 1808.
+     Brentford and Fulham look the same.
+   - Scale: 38 (club, as-of) pairs across as-of 1-37, and 71 of 103 cup rows
+     sit more than 10 points from the surrounding league ratings. 2026/27 cup
+     rows carry no Elo.
+2. **A cup or European match's `gw` is the gameweek it was played in.** That
+   is the latest deadline at or before kickoff. Players' clubs come from that
+   gameweek's snapshot.
+   - Evidence: Palace's 23 October 2025 Conference League tie is filed in the
+     GW30 folder. That folder's snapshot puts Guéhi (player 260, 90 minutes)
+     at Man City, so every read from as-of 8 to 22 knew about his January
+     move.
+   - Effect: "gw up to as-of" now means the same for every competition.
+     Premier League matches are unchanged, because all 380 per season are
+     already in their own gameweek.
+   - Rows whose club isn't one of the match's clubs are dropped and counted
+     under `club_not_in_match`, and validation checks it. Code Review counts
+     1 in 2025/26 (Bailey in Kairat v Arsenal, an upstream id error) once
+     Guéhi is fixed, and 5 EFL Cup rows in 2026/27.
+- **Also sent as fixes:**
+  - a header-only `players.csv` passed validation (it predates task 2);
+  - a missing next-gameweek `matches.csv` raised before validation;
+  - stale docstrings.
+- **Added to `docs/known_gaps.md`:** derived deadlines would drift if a
+  gameweek's first fixture were postponed late. It hasn't happened in
+  either season.
+- **Updated:** `docs/data_contract.md` (`fact_fixture.gw`,
+  `fact_player_match.team_id`, Upstream Elo, loader section), brief data
+  rules 5 and 12, and `CONTEXT.md` (Match).
+
+### 2026-11-11: data - task 2 second fix round
+Built to the second review decisions on upstream `5ae1d4a` (2026-11-11 15:30
+UTC, pulled during the round). Row counts are the same as at `0b9378f` except
+`fact_player_match`.
+- **Upstream Elo for Premier League matches only.** `build_fact_fixture` nulls
+  `home_upstream_elo` and `away_upstream_elo` on every cup and European row, so
+  `dim_team.upstream_elo` can only come from league kickoffs. `validate_tables`
+  fails any cup row with Elo. 2025/26 as-of 2: Bournemouth 1804.01 (its GW2
+  kickoff; the 26 Aug EFL Cup row said 1871.97), Brentford 1799.19, Fulham
+  1784.41.
+- **A cup or European match's `gw` is the gameweek it was played in** (`asof.py`):
+  `deadlines()` derives every gameweek's deadline from the schedule (first
+  Premier League kickoff minus 90 minutes), and `played_gw()` is the latest
+  gameweek whose deadline is at or before kickoff, 0 before GW1.
+  - `select_matches` holds a match iff it is a Premier League match or its
+    played gameweek is up to as-of (every match at the last gameweek). The old
+    cutoff function is gone. `snapshot_gw` still records the filing folder and
+    `gameweek` becomes the played gameweek, in the full read too, so the full
+    and as-of builds agree. Matches without a kickoff time keep their folder's.
+  - Clubs come from the `players` snapshot of that gameweek, at least GW1: the
+    rows are read from the filing folder, then get that `snapshot_gw` (`_at_club_snapshot`
+    in `ingest.py`). Only a read at as-of 0 needs a `players` folder it hasn't
+    already read (GW1).
+  - `read_season` now requires `offset_minutes`, since cup gameweeks need the
+    deadlines in every read. `check_references` compares `gameweek` with the
+    folder for Premier League matches only.
+  - Real data: no GW0 cup or European match exists in either season (0 and 0;
+    the first cup match is in gameweek 2 in 2025/26 and 1 in 2026/27). A
+    synthetic and a doctored-sample test cover GW0.
+- **`club_not_in_match`** (`build_fact_player_match`, logged with player and
+  match, counted in the reconciliation; `validate_tables` also fails any row
+  whose `team_id` is neither of the match's clubs, reading a null opponent as
+  "not the club", which an early version of the check got wrong).
+  - 2025/26: 2 rows. Semenyo (id 82, Bournemouth) in the EFL Cup tie Man City
+    v Newcastle, 90 minutes; Bailey (id 49, Aston Villa) in the Champions
+    League tie Kairat v Arsenal, 13 minutes. Guéhi is fixed, not dropped.
+  - 2026/27: 6 rows, all EFL Cup: Savinho (403, Man City, 19 min) in Tottenham v
+    Charlton; Watson (133, Brighton, 90) in Ipswich v Leicester; Morato (470,
+    Nott'm Forest, 83), Piroe (348, Leeds, 7) and Mukasa (409, Man City, 51) in
+    West Ham v Fulham; Neave (466, Newcastle, 90) in Everton v Wolves. Code
+    Review expected 5.
+  - **Side effect:** with clubs read at the played gameweek, 2026/27
+    `player_not_in_snapshot` rises from 2 to 7 rows: players absent from the
+    GW1, GW3, GW4 or GW8 snapshot who played a cup tie then. Three have
+    minutes: 623 (90, Plymouth/Exeter v Coventry), 626 (45, Fulham v Bournemouth)
+    and 661 (90, Reading v Brentford); the others have 0. Dropped and counted,
+    as the contract says.
+  - Row counts: `fact_player_match` 14,589 in 2025/26 (was 14,591) and 5,517 in
+    2026/27 (was 5,528); the other tables are unchanged (841 / 20 / 485 /
+    29,978 and 672 / 20 / 484 / 6,596, with 34 null `fact_player_gw.team_id`
+    in 2026/27). Real as-of 9 on 2026/27: 65 cup matches, 1,532 player rows.
+  - Guéhi (260) for AEK Larnaca v Crystal Palace (23 Oct 2025, filed in the
+    GW30 folder) at as-of 8: Crystal Palace (team 8), 90 minutes.
+- **Validation:** a players snapshot that the read needs (gameweeks 1 to the
+  latest, and the snapshots of held cup rows) and that has no rows now fails the
+  bound (`reindex(..., fill_value=0)`; a groupby never saw it). A missing
+  next-gameweek `matches.csv` no longer raises `ScheduleError`: deadlines are NaT
+  for a gameweek with no kickoff, and the missing file is reported with the other
+  problems. `validate.py` is split: table checks live in `validate_tables.py`
+  (251 and 76 lines).
+- **Leakage tests by provenance** (`tests/leakage.py::assert_provenance`, in
+  `assert_no_leakage`, run by the real sweep at all 39 as-of values of 2025/26
+  and 0-10 of 2026/27): every non-null `dim_team.upstream_elo` is a league
+  kickoff Elo of that club before the cutoff in the full build; every
+  `fact_player_match` club is one of the match's clubs; every cup or European
+  row has `gw` up to as-of. Proof on the reverted code (real 2025/26, as-of 2 and
+  8, provenance check alone, with the validation checks switched off):
+  - Elo fix reverted: "club 3: Elo 1728.84 is no league kickoff";
+  - club fix reverted (filing-folder snapshot, no drop): "player rows for a club
+    not in the match: 1";
+  - `gw` fix reverted: "a cup or European match with a later gameweek".
+  All three pass on the fixed code. Further mutants killed: no NA fill in the
+  table club check, players bound without reindex, club snapshot not applied,
+  no `club_not_in_match` drop, cup `gw` as folder, cup Elo kept, GW1 players not
+  read at as-of 0.
+- **Docstrings** in `overlay.py` and `features.py` updated. **Checks:** 391
+  tests, 99% coverage of `src/fpl`, `ruff check .` clean, no file over 300
+  lines; `FPL_FULL_SWEEP=1` run of `tests/test_loader_real.py` passed 61 tests.
+  Full backtest sweep, 2025/26 as-of 1-38: 64.5 s, 1.62 s a call.
+- **For the main session:** the contract's as-of 0 bullet says `fact_fixture` is
+  the Premier League schedule; under the revised rule a read at as-of 0 also
+  holds any cup match played before the GW1 deadline (none exist in the data).

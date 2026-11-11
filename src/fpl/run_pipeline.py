@@ -16,7 +16,8 @@ from pathlib import Path
 
 from fpl.clean import BuiltSeason, build_season
 from fpl.ingest import RawSeason, load_config, read_season, read_upstream_commit
-from fpl.validate import check_match_ids_disjoint, validate_inputs, validate_tables
+from fpl.validate import check_match_ids_disjoint, validate_inputs
+from fpl.validate_tables import validate_tables
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +50,10 @@ def run(cfg: dict, root: Path = ROOT) -> dict[str, Path]:
     data_dir = checkout / cfg["upstream"]["data_dir"]
     built: list[tuple[RawSeason, BuiltSeason]] = []
     for scfg in cfg["seasons"]:
-        raw = read_season(data_dir, scfg, commit)
+        raw = read_season(
+            data_dir, scfg, commit, prem_tag=cfg["premier_league_tag"],
+            offset_minutes=cfg["loader"]["deadline_offset_minutes"],
+        )
         validate_inputs(raw, cfg, scfg)
         result = build_season(raw, cfg)
         validate_tables(result.tables, cfg["premier_league_tag"])

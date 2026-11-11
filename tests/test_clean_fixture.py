@@ -39,13 +39,36 @@ def test_checked_merge_rejects_a_changed_row_count() -> None:
 
 # ---- dim_team and team keys -------------------------------------------------------------------
 
-def test_dim_team_passes_upstream_elo_through_unchanged_including_nulls() -> None:
-    teams = teams_frame([(1, 3), (2, 7)])
-    teams.loc[1, "elo"] = np.nan
-    out = build_dim_team(teams)
-    assert out.upstream_elo.tolist()[0] == 1501.0
-    assert np.isnan(out.upstream_elo.tolist()[1])
+def elo_fixture(rows: list[tuple]) -> pd.DataFrame:
+    """Fixture rows (kickoff, finished, home id, away id, home elo, away elo)."""
+    df = pd.DataFrame(rows, columns=[
+        "kickoff_utc", "finished", "home_team_id", "away_team_id",
+        "home_upstream_elo", "away_upstream_elo",
+    ])
+    return df.astype({"home_team_id": "Int64", "away_team_id": "Int64"})
+
+
+def test_dim_team_elo_is_each_clubs_latest_kickoff_value_by_time_not_row_order() -> None:
+    teams = teams_frame([(1, 3), (2, 7), (3, 9)])
+    fx = elo_fixture([
+        ("2026-09-01T14:00:00Z", True, 1, 2, 1700.0, 1600.0),
+        ("2026-08-20T14:00:00Z", True, 2, 1, 1590.0, 1690.0),  # earlier, listed later
+    ])
+    out = build_dim_team(teams, fx)
+    assert out.upstream_elo.tolist()[:2] == [1700.0, 1600.0]  # away side counts too
+    assert np.isnan(out.upstream_elo.tolist()[2])  # club 3 has no match
     assert check_table_schema(out, "dim_team") == []
+
+
+def test_dim_team_elo_skips_nulls_and_unfinished_matches_and_ignores_teams_csv() -> None:
+    teams = teams_frame([(1, 3), (2, 7)]).assign(elo=9999.0)  # teams.elo must not be used
+    fx = elo_fixture([
+        ("2026-08-20T14:00:00Z", True, 1, 2, 1650.0, 1550.0),
+        ("2026-08-27T14:00:00Z", True, 1, 2, np.nan, np.nan),  # newest finished has no Elo
+        ("2026-09-03T14:00:00Z", False, 1, 2, 1999.0, 1999.0),  # not finished
+    ])
+    assert build_dim_team(teams, fx).upstream_elo.tolist() == [1650.0, 1550.0]
+    assert build_dim_team(teams, fx.iloc[0:0]).upstream_elo.isna().all()
 
 
 def test_match_teams_map_through_team_code_not_team_id() -> None:
@@ -59,12 +82,12 @@ def test_match_teams_map_through_team_code_not_team_id() -> None:
 def test_real_sample_opener_is_arsenal_v_coventry_not_bournemouth_v_everton(
     raw_2627: RawSeason,
 ) -> None:
-    teams = build_dim_team(raw_2627.teams).set_index("team_id").name
     fx, _ = build_fact_fixture(
         raw_2627.matches, raw_2627.teams, "2026-2027", "prem", complete_matches(
             raw_2627.matches, raw_2627.playermatchstats, raw_2627.players, raw_2627.teams
         ),
     )
+    teams = build_dim_team(raw_2627.teams, fx).set_index("team_id").name
     opener = fx[fx.match_id == "26-27-prem-arsenal-vs-coventry-city"].iloc[0]
     assert teams[opener.home_team_id] == "Arsenal"
     assert teams[opener.away_team_id] == "Coventry City"
@@ -153,3 +176,18 @@ def test_tenths_rounds_pounds_millions_to_integer_tenths() -> None:
     out = tenths(pd.Series([15.8, 4.5, 3.9]), "now_cost")
     assert out.tolist() == [158, 45, 39]
     assert out.dtype == "int64"
+
+
+def test_upstream_elo_is_kept_for_premier_league_rows_and_null_on_cup_rows() -> None:
+    m = matches_frame([
+        match_row("league", 3.0, 7.0),
+        match_row("cup", 3.0, 99.0, tournament="efl-cup", home_team_elo=1871.97,
+                  away_team_elo=1500.0),
+    ])
+    out, _ = build_fact_fixture(m, SWAPPED, "2025-2026", "prem", complete_all(m))
+    league, cup = out.set_index("match_id").loc["league"], out.set_index("match_id").loc["cup"]
+    assert (league.home_upstream_elo, league.away_upstream_elo) == (1600.0, 1500.0)
+    assert pd.isna(cup.home_upstream_elo) and pd.isna(cup.away_upstream_elo)
+    # So a club's dim_team Elo can only come from its league kickoffs.
+    dim = build_dim_team(SWAPPED, out).set_index("team_id").upstream_elo
+    assert dim[1] == 1600.0 and dim[2] == 1500.0
