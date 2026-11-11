@@ -24,7 +24,7 @@ so a table never mixes seasons.
 | `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `upstream_elo` |
 | `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `stats_complete`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
 | `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves` |
-| `fact_player_gw` | Player × gameweek | `player_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
+| `fact_player_gw` | Player × gameweek | `player_id`, `team_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
 
 ### Source notes
 
@@ -108,6 +108,9 @@ Brief section 4 lists the data rules.
   gameweek's deadline (brief data rule 8). Row g is known when predicting
   g+1, never g. `transfers_in` and `transfers_out` count transfers made for
   g+1.
+- **`fact_player_gw.team_id`:** the player's `team_code` in that gameweek's
+  snapshot `players.csv`, mapped to `teams.id`, the same club the row gate
+  uses. It is null for a player missing from that snapshot.
 - **`fact_player_gw` rows:** a player's gameweek row is kept only once every
   Premier League fixture their club has in that gameweek is finished. The
   club comes from that gameweek's snapshot `players.csv`. Other rows are
@@ -179,6 +182,8 @@ CSV in `outputs/`, committed, read by Excel.
   - `dim_player`: `chance_next`, `news`, `pen_order`, `fk_order`,
     `corner_order` and `ep_next` may be null. A null order means the player
     isn't on that order.
+  - `fact_player_gw`: `team_id` may be null for a player missing from that
+    gameweek's snapshot.
 
 ## Point-in-time loader
 
@@ -186,13 +191,36 @@ Outside the data-engineer's own code, every agent reads data through
 `load_as_of(season, as_of_gw, mode)` in `src/fpl/features.py`. It is the main
 guard against leakage.
 
+- **Returns** the five processed tables, keyed by table name, with the
+  columns above.
 - **Backtest mode:** the processed tables as they stood at the end of
-  `GW{as_of_gw}`, built from that snapshot and earlier. It never reads master
-  files and never returns a match after `as_of_gw`.
+  `GW{as_of_gw}`, built from that snapshot and earlier.
+  - It never reads master files.
+  - It never returns a result, xG, upstream Elo or player row from a match
+    in a gameweek after `as_of_gw`.
+  - Fixtures in later gameweeks appear in `fact_fixture` as **schedule
+    only**: `finished` and `stats_complete` false, and results, xG and
+    upstream Elo null. Fixture difficulty needs them. Their gameweek and
+    kickoff come from the final folders, so a backtest knows about
+    rescheduled fixtures earlier than a manager would (a known limitation).
 - **Live mode:** the same, with current status, news, chance of playing and
-  price overlaid from the master files.
-- `features.py` also holds generic features such as recent minutes and starts.
-  Model-specific features live in the model components.
+  price overlaid from the master files. `as_of_gw` may be ahead of the newest
+  folder with data, between a deadline and upstream's first write of that
+  gameweek; the loader then returns what exists.
+- **Next and as-of gameweek (live only):** the next gameweek is the first
+  whose `deadline_time` in the master `gameweek_summaries.csv` is strictly
+  after the run time. A run at the exact deadline treats it as passed. The
+  as-of gameweek is the next gameweek minus 1, so it is 0 before the GW1
+  deadline. After the GW38 deadline there is no next gameweek in the
+  season, and the run fails with a clear error.
+- `features.py` also holds generic features. Model-specific features live in
+  the model components.
+  - **Recent minutes and starts:** for each player and each window N given
+    by the caller, the totals of FPL `minutes` and `starts` over the last N
+    gameweeks up to `as_of_gw` in which his club had a Premier League
+    fixture, plus `fixtures`, the club's fixture count in those gameweeks.
+    A double gameweek counts as one gameweek. The club is
+    `fact_player_gw.team_id` for each gameweek.
 
 ## Component hand-offs
 

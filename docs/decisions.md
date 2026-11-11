@@ -737,3 +737,36 @@ Both were open items from "task 1 second review".
   that need it. Completeness is computed once per call; `build_season` computes
   it once and passes the same Series to `build_fact_fixture` and
   `build_fact_player_match`.
+
+### 2026-11-11: main - task 2 loader design settled before delegation
+Main session, from the phase 1 plan and Code Review's task 1 notes. Josh gave
+the go-ahead for task 2 on 2026-11-11.
+1. **Later fixtures are schedule only.** In backtest mode `fact_fixture`
+   carries fixtures from gameweeks after `as_of_gw`, with `finished` and
+   `stats_complete` false and results, xG and upstream Elo null. This
+   replaces the contract's "never returns a match after `as_of_gw`".
+   - Why: fixture difficulty needs the upcoming schedule. In a 2025/26
+     backtest the later folders hold full results (Code Review, task 1).
+   - Upstream Elo is nulled too: it is the rating at kickoff, so it reflects
+     results up to that match.
+   - Known limitation: the schedule comes from the final folders, so a
+     backtest sees reschedulings early.
+2. **`fact_player_gw.team_id` added.** It is the club from that gameweek's
+   snapshot, the same club the row gate already uses.
+   - Why: recent minutes and starts must skip blank gameweeks and follow
+     transfers, and `fact_player_gw` had no club.
+3. **Deadline clock:** the next gameweek is the first with `deadline_time`
+   strictly after the run time. A run at the exact deadline treats it as
+   passed. As-of 0 applies before the GW1 deadline, and a run after the GW38
+   deadline fails with a clear error. It uses the master
+   `gameweek_summaries.csv`, so it is live only.
+4. **Recent minutes and starts** are at gameweek grain from FPL's own
+   figures, over the last N gameweeks in which the club had a fixture, with
+   N given by the caller. Cup minutes and days since the last match are left
+   to the minutes model.
+5. **Brief rule 8 wording:** a snapshot can land up to about 7 hours after
+   the next deadline (brief section 7), so "shortly before its deadline"
+   became "around its deadline".
+- **Updated:** `docs/data_contract.md` (`fact_player_gw`, source notes,
+  nullable list, point-in-time loader), brief section 5 (`fact_player_gw`,
+  loader) and brief data rule 8.
