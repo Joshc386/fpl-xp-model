@@ -69,6 +69,11 @@ Brief section 4 lists the data rules.
     time, and null if there is none.
   - These are upstream ClubElo exactly as provided: no filling, null from
     2026/27 GW3.
+  - **Frozen stretches** (checked 2026-11-12, brief data rule 12): in
+    2025/26 the kickoff values move at every gameweek up to GW26, are frozen
+    in GW27-32, move in GW33-34 and are frozen from GW35. The 2026/27 GW1-2
+    values repeat each club's 2025/26 GW38 kickoff value. The Elo component
+    uses them only as seeds and, where they move, as its tuning target.
   - The model's own Elo ratings are the Elo component's output, not a
     processed-table column (brief data rule 12).
   - **Why not cup rows:** in 2025/26 their Elo isn't the kickoff rating.
@@ -183,7 +188,11 @@ CSV in `outputs/`, committed, read by Excel.
 - **`projections.csv`:** in a double gameweek, `opponent` lists both
   opponents.
 - **`elo_ratings.csv`:** an analysis output for Josh's comparison with an
-  outside Elo source. The workbook doesn't load it.
+  outside Elo source. The workbook doesn't load it. It holds finished Premier
+  League matches only, from the Elo component's one continuous run across
+  both seasons, and `export.py` writes it.
+- **`fixture_difficulty.csv`** comes from the Elo goals model in phase 1, and
+  `export.py` writes it.
 - **`meta.csv`:** `current_gw` is the as-of gameweek. `max_horizon` is the
   number of gameweeks projected (5, from `config/model.yaml`).
   `model_version` is filled from phase 1, for example `0.1.0-elo`.
@@ -292,18 +301,28 @@ guard against leakage.
 ## Component hand-offs
 
 Internal to the model. Each model component exposes a function that takes
-`season` and `as_of_gw` and returns a DataFrame, per player per fixture unless
-noted. Every output carries its keys: `player_id` (or `team_id`), `match_id`
-and `gw`. The model-validator reads `p_60` and `p_cs` from these for its
-component checks.
+`season`, `as_of_gw` and `mode` (passed to `load_as_of`) and returns a
+DataFrame, per player per fixture unless noted. Every output carries its keys:
+`player_id` (or `team_id`), `match_id` and `gw`. The model-validator reads
+`p_60` and `p_cs` from these for its component checks. Components return
+DataFrames only; in phase 1, `export.py` writes `elo_ratings.csv` and
+`fixture_difficulty.csv` from them.
 
 | Component | Module | Depends on | Output columns |
 | --- | --- | --- | --- |
-| Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per match: `elo_before`, `elo_after`; writes `elo_ratings.csv` |
+| Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per finished Premier League match, 2025/26 onwards in one run: `elo_before`, `elo_after` (the `elo_ratings.csv` rows) |
 | Minutes | `models/minutes.py` | Processed tables | `p_appear`, `p_start`, `p_60`, `exp_minutes` |
-| Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The phase 1 Elo goals model is its fallback and benchmark, and supplies `fixture_difficulty.csv` until phase 3 |
+| Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The phase 1 Elo goals model is its fallback and benchmark, and supplies `fixture_difficulty.csv` until phase 3. It returns `lambda_for`, `lambda_against` and `p_cs` (e^(−`lambda_against`)) for each team's Premier League fixtures in the next `max_horizon` gameweeks; `lambda_pen` comes with the phase 2 team goals model |
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |
 | Bonus | `models/bonus.py` | Minutes, attack, defence | `xp_bonus` |
 | Combine | `xp.py` | All of the above | `xp_appear`, `xp_cards`, `xp_total`; writes `projections.csv` |
 | Value | `value.py` | Combine | Per player per horizon (1–5): the `player_summary.csv` columns |
+
+- **Elo seeds are point-in-time.** A club entering the Elo run (every club at
+  2025/26 GW1, and clubs promoted later) is seeded from its first non-null
+  Premier League kickoff Elo in the read. If a club needs a rating and has no
+  seed in the read, the Elo component raises an error. That happens at
+  2025/26 as-of 0 and 2026/27 as-of 0-1 (`docs/known_gaps.md`).
+- Clubs are matched across seasons on `team_code`, never `team_id` (brief
+  data rule 6).

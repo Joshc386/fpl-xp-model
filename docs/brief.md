@@ -98,7 +98,7 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
 | `playerstats.csv` (master) | Player × gameweek | Price, status, news, chance of playing, ownership, set-piece order, `ep_next`, transfers. The latest `gw` row per player is the current state |
 | `GW{x}/player_gameweek_stats.csv` | Player × gameweek | Points, minutes, starts, bonus, price at deadline, FPL's defensive contribution counts. This is the model target |
 | `GW{x}/playermatchstats.csv` | Player × match | xG, xA, tackles, interceptions, clearances, blocks, recoveries, saves, `minutes_played` |
-| `GW{x}/matches.csv` | Match | Team xG, non-penalty xG, scores, Elo at kickoff (null from 2026/27 GW3), processing flags |
+| `GW{x}/matches.csv` | Match | Team xG, non-penalty xG, scores, Elo at kickoff (frozen for stretches of 2025/26, null from 2026/27 GW3; rule 12), processing flags |
 | `GW{x}/fixtures.csv` | Match | Gameweek x's fixtures only, with home and away team codes. The next 5 GWs come from folders `GW{next}` to `GW{next+4}` |
 | `By Tournament/Premier League/` | Various | Premier League-only filter |
 
@@ -119,8 +119,9 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
 10. Coventry, Hull and Ipswich have no 2026/27 Premier League history at the start. Use Elo and last-season priors for them. Their Elo seeds come from upstream's GW1–2 match rows (rule 12).
 11. Credit the upstream repo with a link on the workbook's README sheet, as its author asks.
 12. **Elo is computed in-house.** Upstream takes Elo from ClubElo, whose API returned HTTP 502 on 2026-11-08 and 09. The 2026/27 `teams.elo` column is null and match Elo stops after GW2.
+    - **Upstream Elo updates only in parts of 2025/26** (checked 2026-11-12). Its kickoff ratings move at every gameweek up to GW26, are frozen in GW27–32 (no club's rating moves), move again in GW33–34 and are frozen from GW35; every club's last change is in GW34 or GW35. The 2026/27 GW1–2 values repeat each club's 2025/26 GW38 kickoff value exactly, so they are stale, not pre-season ratings. Where they move, they are pre-match ratings: the change to a club's next kickoff tracks this match's result.
     - **Data-engineer:** passes upstream's ClubElo values through unchanged, so every season is available. Per match they are the kickoff ratings (`home_upstream_elo`, `away_upstream_elo`), kept for Premier League matches only. Per club, `dim_team.upstream_elo` is the club's latest Premier League kickoff rating in the read. Two upstream sources are not used: in 2025/26, `teams.elo` in folders GW1–25 holds GW26-era ratings, and cup rows hold end-of-season ratings.
-    - **Elo component (expected-points-modeller):** computes the model's own Elo ratings over finished Premier League results. Each club is seeded from its last upstream Elo value: GW1–2 match rows for 19 clubs, and 2025/26 for Arsenal. The method is standard Elo with a home advantage and a goal-margin factor; its settings live in `config/model.yaml` and are calibrated by replaying 2025/26, where upstream Elo is complete.
+    - **Elo component (expected-points-modeller):** computes the model's own Elo ratings over finished Premier League results, in one continuous run across seasons. Every 2025/26 club is seeded from its 2025/26 GW1 kickoff Elo, and the ratings run on through 2026/27. Clubs promoted into 2026/27 (Coventry, Hull and Ipswich) are seeded from their 2026/27 GW1–2 match rows. The method is standard Elo with a home advantage and a goal-margin factor. Its settings live in `config/model.yaml` and are tuned on 2025/26 only, against upstream Elo at the kickoffs where it moves (GW2–26 and GW33–34), never on 2026/27, the holdout.
     - **Rejected source:** elofootball.com, which has no API or export, no stated terms of use and no named operator.
 13. **Previous seasons:** 2025/26 is complete, with 38 gameweeks and the same columns as 2026/27; 2026/27 adds a few. 2024/25 uses an older layout with no `player_gameweek_stats` or `fixtures`, so it can feed match-level priors only (rule 1 rules out differencing).
 14. **Defensive contributions:** in 2026/27, `playermatchstats.tackles` is empty and FPL's tackle count matches `tackles_won`; in 2025/26 it matches `tackles`. Where gameweek grain is enough, use FPL's own counts from `player_gameweek_stats`.
@@ -145,7 +146,7 @@ Every agent builds against these schemas. A change means updating this section a
 | `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves` |
 | `fact_player_gw` | Player × gameweek | `player_id`, `team_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
 
-The `upstream_elo` columns hold upstream ClubElo exactly as provided (null from 2026/27 GW3). The model's own Elo ratings are the Elo component's output (data rule 12). `home_team_id` and `away_team_id` are null for clubs outside the Premier League. The `fact_player_gw` defensive counts are FPL's own figures. The other source mappings are in `docs/data_contract.md`.
+The `upstream_elo` columns hold upstream ClubElo exactly as provided (frozen for stretches of 2025/26 and null from 2026/27 GW3). The model's own Elo ratings are the Elo component's output (data rule 12). `home_team_id` and `away_team_id` are null for clubs outside the Premier League. The `fact_player_gw` defensive counts are FPL's own figures. The other source mappings are in `docs/data_contract.md`.
 
 **Published outputs** (CSV in `outputs/`, committed, read by Excel)
 
@@ -161,7 +162,7 @@ The `upstream_elo` columns hold upstream ClubElo exactly as provided (null from 
 
 - **`fixture_difficulty.csv`:** a double gameweek has two rows for a team, and a blank gameweek has none. The workbook sums a gameweek's rows and shows a dash where there are none.
 - **`projections.csv`:** in a double gameweek, `opponent` lists both opponents.
-- **`elo_ratings.csv`:** for Josh's comparison with an outside Elo source. The workbook doesn't load it.
+- **`elo_ratings.csv`:** for Josh's comparison with an outside Elo source. The workbook doesn't load it. It holds finished Premier League matches only, from the Elo component's one continuous run across both seasons.
 - **`meta.current_gw`** is the as-of gameweek. `max_horizon` is the number of gameweeks projected (5, from `config/model.yaml`), and the workbook's horizon picker offers 1 to `max_horizon`.
 
 **Conventions**
@@ -182,13 +183,13 @@ Outside the data-engineer's own code, every agent reads data through `load_as_of
 
 **Component hand-offs** (internal to the model)
 
-Each model component exposes a function that takes `season` and `as_of_gw` and returns a DataFrame, per player per fixture unless noted. Every output carries its keys: `player_id` (or `team_id`), `match_id` and `gw`. The model-validator reads `p_60` and `p_cs` from these for its component checks.
+Each model component exposes a function that takes `season`, `as_of_gw` and `mode` (passed to `load_as_of`) and returns a DataFrame, per player per fixture unless noted. Every output carries its keys: `player_id` (or `team_id`), `match_id` and `gw`. The model-validator reads `p_60` and `p_cs` from these for its component checks. Components return DataFrames; in phase 1, `export.py` writes `elo_ratings.csv` and `fixture_difficulty.csv` from them.
 
 | Component | Module | Depends on | Output columns |
 | --- | --- | --- | --- |
-| Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per match: `elo_before`, `elo_after`; writes `elo_ratings.csv` |
+| Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per finished Premier League match, 2025/26 onwards in one run: `elo_before`, `elo_after` (the `elo_ratings.csv` rows) |
 | Minutes | `models/minutes.py` | Processed tables | `p_appear`, `p_start`, `p_60`, `exp_minutes` |
-| Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The Elo goals model (phase 1) is its fallback and benchmark |
+| Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The Elo goals model (phase 1) is its fallback and benchmark. It returns `lambda_for`, `lambda_against` and `p_cs` (e^(−`lambda_against`)) for each team's Premier League fixtures in the next `max_horizon` gameweeks (the `fixture_difficulty.csv` rows); `lambda_pen` comes with the phase 2 team goals model |
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |
 | Bonus | `models/bonus.py` | Minutes, attack, defence | `xp_bonus` |
@@ -223,8 +224,8 @@ Minutes is the largest source of xP error, so it gets the most care.
 
 - **Outputs:** `lambda_for` and `lambda_against` per team per fixture.
 - **v1 method:** reuse the Dixon-Coles approach from the betting bot. Fit attack and defence ratings on xG-weighted goals with time decay and a home advantage term.
-- **Fallback and benchmark:** the Elo goals model, a Poisson model driven by the Elo-rating gap and home advantage. It is built in phase 1, fitted only on results before the as-of gameweek, and supplies `fixture_difficulty.csv` until phase 3.
-- **Inputs:** Premier League results and team xG from `matches.csv`, this season and last; the Elo ratings from the Elo component (data rule 12).
+- **Fallback and benchmark:** the Elo goals model, a Poisson model driven by the Elo-rating gap and home advantage. It is built in phase 1, fitted only on results up to and including the as-of gameweek (the finished results in the read; a finished result is final, unlike bonus), and supplies `fixture_difficulty.csv` until phase 3.
+- **Inputs:** Premier League results and team xG from `matches.csv`, this season and last; the Elo ratings from the Elo component (data rule 12). 2025/26 has no earlier season loaded, so the Elo goals model fits on 2025/26 alone; its minimum sample is set in `config/model.yaml`.
 - **Gate:** Dixon-Coles work starts only after Josh's own comparison of our Elo ratings with an outside Elo source. If the ratings are poor, a separate Elo agent rebuilds the Elo component first.
 - **Promoted teams:** an Elo-based prior until they have about 6 matches.
 
@@ -329,14 +330,14 @@ The model-validator judges the Elo component on its own walk-forward test over 2
 
 | Check | Pass mark |
 | --- | --- |
-| Ratings track upstream Elo (2025/26 replay) | Spearman rank correlation ≥ 0.9 at every gameweek from GW6; the mean rating gap is reported |
+| Ratings track upstream Elo (2025/26) | Spearman rank correlation ≥ 0.9 at every gameweek from GW6 at which upstream Elo moves: GW6–26 and GW33–34 (data rule 12). The frozen gameweeks (GW27–32 and GW35–38) are reported without a pass mark. The mean rating gap is reported |
 | Goals are calibrated | Bins of predicted goals (0–0.75, 0.75–1.25, 1.25–1.75, 1.75+): actual within ±0.1 goals of predicted in every bin with ≥100 team-fixtures |
 | Clean sheets are calibrated | Bins of predicted `p_cs` in steps of 0.1: actual rate within ±5 percentage points in every bin with ≥100 team-fixtures |
 | Beats a no-skill baseline | Lower Poisson log-loss of goals than league-average home and away goals |
 | Early season | GW1–5 of each season reported separately, without pass marks |
 
 - **A fail** returns the Elo component to the modeller with the findings. A second fail is Josh's cue for a separate Elo agent.
-- **Beyond GW2 of 2026/27**, where upstream Elo stops, Josh compares our ratings with an outside Elo source himself. The test there is ranking agreement and predictive log-loss, not raw rating levels. His verdict gates the phase 2 Dixon-Coles work.
+- **Where upstream Elo is frozen or missing** (2025/26 GW27–32, 2025/26 GW35 onwards and all of 2026/27), Josh compares our ratings with an outside Elo source himself. The test there is ranking agreement and predictive log-loss, not raw rating levels. His verdict gates the phase 2 Dixon-Coles work.
 
 **Leakage checklist**
 

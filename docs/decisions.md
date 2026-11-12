@@ -1222,3 +1222,89 @@ Built on upstream `5ae1d4a`; row counts are unchanged (841 / 20 / 485 / 14,589 /
 - **Docstrings** in `clean.py` (`build_fact_player_match`) and `complete.py` now say
   the club comes from the snapshot named by the row's `snapshot_gw`, and mention
   `club_not_in_match` and the caps. Semenyo and Sávio stay dropped; GW0 is unchanged.
+
+### 2026-11-12: main - task 3 Elo design settled before delegation (Josh)
+The main session checked upstream Elo on upstream `5ae1d4a` (through
+`load_as_of`) before writing task 3. Two premises of the brief were wrong.
+Josh took all eight recommendations.
+- **Evidence:**
+  - **2025/26 upstream Elo is frozen for stretches.** Counting, per gameweek,
+    the clubs whose kickoff Elo differs from their previous kickoff: all 20 at
+    GW2-26 (except GW20, 12 of 20), none at GW27-32, 20 of 26 kickoffs at GW33
+    (a double gameweek), 14 of 14 at GW34, 6 of 20 at GW35 and none at
+    GW36-38. Every club's last change is in GW34 (14 clubs) or GW35 (6).
+  - **Size of a freeze:** upstream's ranking at GW32 (frozen since GW26)
+    against GW33 (moving again) has Spearman 0.931, a mean change of 21.5
+    points and a maximum of 78.2. So a model that tracked ClubElo perfectly
+    could sit near the 0.9 pass mark on frozen weeks.
+  - **The 2026/27 GW1-2 values are stale 2025/26 values.** For all 16 clubs
+    with a value in both seasons, the 2026/27 value equals the club's 2025/26
+    GW38 kickoff value exactly, and GW1 equals GW2 wherever both exist. 2026/27
+    has values for 16 clubs at GW1 and 18 at GW2; Arsenal has none, Coventry,
+    Leeds and Nott'm Forest only GW2, and Aston Villa only GW1. Arsenal's last
+    2025/26 kickoff value is 2063.76 (GW38).
+  - **Where it moves, it is the pre-match rating.** Across 2025/26, a club's
+    change to its next kickoff correlates 0.51 with this match's result and
+    0.05 with the previous match's.
+  - scipy and statsmodels are not installed (`requirements.txt` has numpy,
+    pandas, pyarrow and PyYAML).
+- **Decisions:**
+  1. **Tune and judge the ratings only where upstream Elo moves.** The pass
+     mark becomes Spearman ≥ 0.9 at GW6-26 and GW33-34; frozen gameweeks are
+     reported without a pass mark. Trade-off: the late-season check covers two
+     gameweeks; Josh's outside-source comparison covers the frozen and missing
+     stretches.
+  2. **One continuous Elo run from 2025/26 GW1**, replacing "seed 2026/27 from
+     its GW1-2 rows, and Arsenal from 2025/26". Every 2025/26 club is seeded
+     from its GW1 kickoff Elo and the ratings run on through 2026/27. Coventry,
+     Hull and Ipswich are seeded from their 2026/27 rows.
+     - Why: every result is used once, frozen values never enter, and the
+       published 2026/27 ratings continue the run that was tuned and checked.
+     - Trade-off: our ratings count Premier League matches only, while ClubElo
+       counts every competition, so clubs in Europe can drift. The 2025/26
+       replay shows how much. Rejected: the brief as written, which loses
+       every club's 2025/26 GW35-38 results.
+  3. **The Elo goals model fits on results up to and including the as-of
+     gameweek.** A finished result is final, unlike bonus, so "before the
+     as-of gameweek" only threw away the newest results.
+  4. **The Elo goals model fits on this season and last** (brief 6.2); 2025/26
+     has no earlier season loaded, so it fits on itself. The modeller sets a
+     minimum sample in `config/model.yaml` and reports what happens below it.
+     Trade-off: 2025/26 GW1-3 are weak, and they carry no pass marks. Rejected:
+     loading 2024/25 for priors.
+  5. **Components return DataFrames; task 5's `export.py` writes
+     `elo_ratings.csv` and `fixture_difficulty.csv`.** This settles a conflict
+     between the contract (the Elo component writes the file), the plan
+     (`export.py`) and the agent file (only `xp.py` writes outputs).
+     - The Elo goals model returns `lambda_for`, `lambda_against` and `p_cs`
+       for each team's Premier League fixtures in the next `max_horizon`
+       gameweeks. `lambda_pen` comes with the phase 2 team goals model.
+     - Component functions take `(season, as_of_gw, mode)`, since
+       `load_as_of` needs a mode.
+     - `elo_ratings.csv` holds finished matches only.
+  6. **Tuning:** a grid search over K, home advantage and the goal-margin
+     factor, on 2025/26 only, minimising the mean absolute gap to upstream Elo
+     at the kickoffs where it moves (GW2-26, GW33-34). Spearman by gameweek and
+     match-result log-loss are reported alongside. Nothing is tuned on 2026/27,
+     the holdout. Trade-off: this tunes towards tracking ClubElo rather than
+     predicting results; the log-loss shows if the two disagree.
+  7. **No new dependency.** The three-parameter Poisson is fitted in numpy,
+     with a known-answer test. scipy waits for Dixon-Coles.
+  8. **`.claude/agents/expected-points-modeller.md` is aligned with the brief**
+     (Josh's permission): decay and `xp_horizon_weighted` removed, the Elo row
+     added, team goals depends on Elo, and components return DataFrames.
+- **Decided by the main session while writing the task (say if you
+  disagree):** seeds are point-in-time. A club entering the run is seeded from
+  its first non-null Premier League kickoff Elo in the read. A club that needs
+  a rating with no seed in the read makes the component raise a clear error,
+  rather than guess. That happens at 2025/26 as-of 0 (GW1 is still schedule
+  only) and 2026/27 as-of 0-1 (Coventry's first value is at GW2; Hull's and
+  Ipswich's are at GW1). Rejected: a fallback seed such as the relegated
+  clubs' average, which adds a rule for two early-season reads that carry no
+  pass marks.
+- **Added to `docs/known_gaps.md`:** clubs with no seed early in a season
+  (including any club promoted for 2027/28), and the Premier League-only Elo.
+- **Updated:** brief data rule 12, sections 5, 6.2 and 7; `docs/data_contract.md`
+  (Upstream Elo source note, `elo_ratings.csv` and `fixture_difficulty.csv`
+  notes, component hand-offs); `CONTEXT.md` (Elo rating, Upstream Elo);
+  `docs/plans/phase-1.md` (task 3).

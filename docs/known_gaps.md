@@ -18,6 +18,18 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
   - **Fix before:** 2027/28 GW1.
   - **Idea:** at as-of 0 in live mode, build `dim_player` from the master
     current-state files.
+- **No Elo seed for some clubs early in a season** (2026-11-12).
+  - **Gap:** a club entering the Elo run is seeded from its first upstream
+    Elo in the read, and the Elo component raises an error while that is
+    missing. That happens at 2025/26 as-of 0 (every GW1 value is still
+    schedule only) and 2026/27 as-of 0-1 (Coventry's first value is at GW2).
+    Upstream Elo is null from 2026/27 GW3, so if ClubElo stays down, no club
+    promoted for 2027/28 will have a seed at all.
+  - **Effect:** no team goals or fixture difficulty from those reads, and
+    none for 2027/28 until this is fixed.
+  - **Fix before:** 2027/28 GW1.
+  - **Idea:** seed a promoted club from the average final rating of the
+    relegated clubs, or from an outside Elo source if one becomes usable.
 
 ## Data timing
 
@@ -88,6 +100,14 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     per-gameweek `goals_conceded` is used.
   - **Effect:** in a double gameweek, the split between the two matches is
     lost.
+
+- **Elo counts Premier League matches only** (2026-11-09; 2026-11-12).
+  - **Gap:** ClubElo also counts cup and European matches. Our ratings
+    don't, and since 2026-11-12 they run on across seasons, so any drift
+    builds up.
+  - **Effect:** clubs in Europe can drift from their true strength.
+  - **Idea:** include cup and European matches between two Premier League
+    clubs, or re-anchor to an outside source each summer.
 
 ## Engineering
 
