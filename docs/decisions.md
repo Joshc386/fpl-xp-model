@@ -1545,3 +1545,26 @@ five items.
   the seed notes); `CONTEXT.md` (Elo rating, Upstream Elo);
   `docs/plans/phase-1.md` (task 3, the outside-source check, steps for Josh);
   `docs/known_gaps.md`; `CLAUDE.md` (the tuner command).
+
+### 2026-11-13: main - task 3 second review
+Code Review's second pass approved task 3, committed as `a23a48e`. All
+first-round findings are fixed, 41 of 42 mutants die, and its independent
+provenance check matches to 0.0 at 2025/26 as-of 5 and 20 and 2026/27 as-of
+3 and 10. The main session confirmed on real data that all 17 continuing
+clubs start 2026/27 at their last 2025/26 upstream value, and that the tuner
+reproduces K 18, home advantage 30 and margin power 0.375. Three
+low-severity findings go to the modeller as follow-ups:
+1. **Holdout guard:** the "no season after the run's first" clause has no
+   test of its own (the newest-season clause catches every two-season case).
+   It matters once a third season is configured.
+2. **Silent skip:** `play()` ignores results whose season label has no seed
+   key, giving NaN ratings without an error. Not reachable through
+   `load_history`, but it must raise.
+3. **Clubs promoted back (brief wins):** brief data rule 12 seeds a promoted
+   club from its first upstream Elo in the new season. The code and the
+   contract did so only for a club new to the run, so a club coming back
+   after a relegation carried its old rating even when upstream had a new
+   value. Per `CLAUDE.md` the brief wins: the contract now follows it, and the
+   code will. No effect before 2027/28.
+- **Updated:** `docs/data_contract.md` (Elo seed notes) and
+  `docs/known_gaps.md`.

@@ -26,7 +26,8 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     Upstream Elo is null from 2026/27 GW3, so if ClubElo stays down, no club
     promoted for 2027/28 will have a seed at all, and every other club will
     carry its own rating instead of being re-seeded. A club relegated and
-    later promoted again would come back with its old rating.
+    later promoted again, with no upstream value in its new season, would
+    come back with its old rating.
   - **Effect:** no team goals or fixture difficulty from those reads, and
     none for 2027/28 until this is fixed.
   - **Fix before:** 2027/28 GW1.

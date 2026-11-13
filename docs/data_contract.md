@@ -329,8 +329,11 @@ DataFrames only; in phase 1, `export.py` writes `elo_ratings.csv` and
     League match of the previous season is re-seeded from that value (for
     2026/27, ClubElo's end-of-season 2025/26 rating, Arsenal included), and
     otherwise carries its own rating;
-  - a club new to the run, such as a promoted club, from its first non-null
-    value in the new season.
+  - a club that didn't play the previous season (promoted, whether new to
+    the run or coming back after a relegation) from its first non-null value
+    in the new season, as brief data rule 12 says. A club coming back with no
+    such value carries its old rating; a club new to the run with none
+    raises (below).
 - If a club needs a rating and has no seed in the read, the Elo component
   raises an error. That happens at 2025/26 as-of 0 and 2026/27 as-of 0-1
   (`docs/known_gaps.md`).
