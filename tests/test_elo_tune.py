@@ -9,7 +9,7 @@ import pytest
 
 from elo_tables import CODES_A, FIXTURES_A, PREM, SETTINGS, season_read
 from fpl.models import elo_tune
-from fpl.models.elo import model_config, prepare, run_elo
+from fpl.models.elo import model_config, pipeline_config, prepare, run_elo
 from fpl.models.elo_tune import (
     end_of_season,
     grid_search,
@@ -127,4 +127,26 @@ def test_main_refuses_to_tune_after_the_runs_first_season(
     monkeypatch.setattr(elo_tune, "model_config", holdout)
     monkeypatch.setattr(elo_tune, "load_as_of", lambda *a: pytest.fail("must not load"))
     with pytest.raises(ValueError, match=match):
+        elo_tune.main()
+
+
+def test_main_refuses_a_middle_season_when_three_are_configured(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 2026-2027 is not the newest of three seasons, so only the "after the run's first season"
+    # clause can refuse it.
+    def three_seasons() -> dict:
+        cfg = pipeline_config()
+        cfg["seasons"] = [*cfg["seasons"], {"id": "2027-2028", "gameweeks": 38}]
+        return cfg
+
+    def middle() -> dict:
+        cfg = model_config()
+        cfg["elo"]["tuning"]["season"] = "2026-2027"
+        return cfg
+
+    monkeypatch.setattr(elo_tune, "pipeline_config", three_seasons)
+    monkeypatch.setattr(elo_tune, "model_config", middle)
+    monkeypatch.setattr(elo_tune, "load_as_of", lambda *a: pytest.fail("must not load"))
+    with pytest.raises(ValueError, match="never tune on the holdout"):
         elo_tune.main()

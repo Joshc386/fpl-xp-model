@@ -8,8 +8,10 @@ matches in the read, and each season's seeds are set before its first match:
 * in a later season, a club with a value at its last match of the previous season is
   re-seeded from it (for 2026/27, ClubElo's end-of-season 2025/26 rating); a club whose
   last-match value is null carries its own rating;
-* a club new to the run (a promoted club) from its first non-null value in the new season.
-A club that needs a rating and has no seed raises `MissingSeedError`.
+* a club that didn't play the previous season (promoted, whether new to the run or coming
+  back after a relegation) from its first non-null value in the new season. One coming back
+  with no such value carries its old rating.
+A club new to the run with no seed raises `MissingSeedError`.
 
 The update is standard Elo with a home advantage and a goal-margin factor:
     E = 1 / (1 + 10 ** (-(r_home + home_advantage - r_away) / scale))
@@ -148,10 +150,15 @@ def _last_upstream(results: pd.DataFrame) -> pd.Series:
     return _kickoff_elo(results).drop_duplicates("code", keep="last").set_index("code").elo
 
 
-def _new_club_seeds(read: SeasonRead, results: pd.DataFrame, new: set[int]) -> dict[int, float]:
-    """Seeds for clubs new to the run, from their first value; raise if one has none."""
+def _promoted_seeds(read: SeasonRead, results: pd.DataFrame, promoted: set[int],
+                    rated: set[int]) -> dict[int, float]:
+    """Seeds for clubs that didn't play the previous season, from their first value.
+
+    A club coming back (in `rated`) with no value carries its old rating (no entry); a club
+    new to the run with none raises `MissingSeedError`.
+    """
     first = _first_upstream(results)
-    missing = sorted(c for c in new if c not in first.index)
+    missing = sorted(c for c in promoted - rated if c not in first.index)
     if missing:
         names = read.tables["dim_team"].set_index("team_code").name
         clubs = ", ".join(f"{names[c]} (team_code {c})" for c in missing)
@@ -159,7 +166,7 @@ def _new_club_seeds(read: SeasonRead, results: pd.DataFrame, new: set[int]) -> d
             f"{read.season} as-of {read.as_of_gw}: no Premier League kickoff upstream Elo among "
             f"the finished matches in the read to seed {clubs}"
         )
-    return {c: float(first[c]) for c in sorted(new)}
+    return {c: float(first[c]) for c in sorted(promoted) if c in first.index}
 
 
 def season_seeds(read: SeasonRead, fixtures: pd.DataFrame, results: pd.DataFrame,
@@ -167,12 +174,13 @@ def season_seeds(read: SeasonRead, fixtures: pd.DataFrame, results: pd.DataFrame
     """The ratings set at the start of the season in `read`.
 
     `rated` holds the clubs of every earlier season; `last` the previous season's last-match
-    upstream Elo per club. A continuing club with a last-match value is re-seeded from it,
-    one without carries its rating (no entry), and a club new to the run gets its first value.
+    upstream Elo per club that played it. A continuing club with a last-match value is
+    re-seeded from it, one without carries its rating (no entry), and a club that didn't play
+    the previous season gets its first value in this one (`_promoted_seeds`).
     """
     clubs = set(fixtures.home_code) | set(fixtures.away_code)
     reseed = {int(c): float(v) for c, v in last.dropna().items() if c in clubs}
-    return reseed | _new_club_seeds(read, results, clubs - rated)
+    return reseed | _promoted_seeds(read, results, clubs - set(last.index), rated)
 
 
 def prepare(history: Sequence[SeasonRead], prem_tag: str) -> tuple[pd.DataFrame, Seeds]:
@@ -192,7 +200,10 @@ def prepare(history: Sequence[SeasonRead], prem_tag: str) -> tuple[pd.DataFrame,
 
 
 def play(results: pd.DataFrame, seeds: Seeds, s: EloSettings) -> EloRun:
-    """Play the results season by season, setting each season's seeds before its first match."""
+    """Play the results season by season, setting each season's seeds before its first match.
+
+    Raises `EloError` if a result belongs to a season with no seeds, rather than skip it.
+    """
     ratings: dict[int, float] = {}
     rows: list[tuple[float, float, float, float]] = []
     index: list[int] = []
@@ -206,6 +217,9 @@ def play(results: pd.DataFrame, seeds: Seeds, s: EloSettings) -> EloRun:
             ratings[hc], ratings[ac] = rh + change, ra - change
             rows.append((rh, ra, rh + change, ra - change))
         index.extend(part.index)
+    if len(index) != len(results):
+        unseeded = sorted(set(results.season) - set(seeds))
+        raise EloError(f"{len(results) - len(index)} results in seasons with no seeds: {unseeded}")
     elo = pd.DataFrame(
         rows, index=index, dtype="float64",
         columns=["home_elo_before", "away_elo_before", "home_elo_after", "away_elo_after"],
@@ -254,8 +268,8 @@ def elo_ratings(season: str, as_of_gw: int, mode: str) -> pd.DataFrame:
     """Our Elo rating before and after every finished Premier League match.
 
     Covers `elo.start_season` onwards up to `season` at `as_of_gw`, each season seeded as in
-    the module docstring; `mode` goes to
-    `load_as_of`. Rows carry each season's own `team_id` (the `elo_ratings.csv` rows).
+    the module docstring; `mode` goes to `load_as_of`. Rows carry each season's own `team_id`
+    (the `elo_ratings.csv` rows).
     Raises `MissingSeedError` if a club of the run has no seed in the read.
     """
     history = load_history(season, as_of_gw, mode)

@@ -16,7 +16,7 @@ from elo_tables import (
     season_read,
     two_seasons,
 )
-from fpl.models.elo import EloError, run_elo, team_rows
+from fpl.models.elo import EloError, MissingSeedError, play, prepare, run_elo, team_rows
 
 # Season A's last-match upstream Elo per code (GW3); each differs from the club's first value.
 A_LAST = {31: 1620.0, 33: 1570.0, 32: 1520.0, 34: 1430.0}
@@ -68,6 +68,42 @@ def test_a_third_season_without_upstream_values_carries_every_rating() -> None:
 
 def test_a_promoted_club_is_seeded_from_its_first_value_in_the_new_season() -> None:
     assert first_before(rows(two_seasons()), "2026-2027")[2] == 1480.0  # code 35, new to the run
+
+
+def back_after_relegation(c: list[Fixture], codes_c: dict[int, int]) -> pd.DataFrame:
+    """Season A, season B (code 34 relegated; GW3 values null, so B's clubs carry), then
+    season C, in which code 34 comes back."""
+    b = FIXTURES_B[:4] + [(3, 1, 4, 1, 0, None, None), (3, 3, 2, 2, 2, None, None)]
+    return rows([two_seasons()[0], season_read("2026-2027", 3, CODES_B, b),
+                 season_read("2027-2028", 1, codes_c, c)])
+
+
+C_CODES = {1: 34, 2: 31, 3: 32, 4: 33}  # code 34 played season A, not season B
+
+
+def test_a_club_back_after_relegation_takes_its_first_value_in_the_new_season() -> None:
+    c: list[Fixture] = [(1, 1, 2, 2, 0, 1455.0, None), (1, 3, 4, 1, 1, None, None)]
+    assert first_before(back_after_relegation(c, C_CODES), "2027-2028")[1] == 1455.0
+
+
+def test_a_club_back_after_relegation_without_a_value_carries_its_old_rating() -> None:
+    c: list[Fixture] = [(1, 1, 2, 2, 0, None, None), (1, 3, 4, 1, 1, None, None)]
+    out = back_after_relegation(c, C_CODES)
+    assert first_before(out, "2027-2028")[1] == last_after(out, "2025-2026")[A_ID[34]]
+
+
+def test_a_club_new_to_the_run_without_a_value_raises_but_one_coming_back_does_not() -> None:
+    c: list[Fixture] = [(1, 1, 2, 2, 0, None, None), (1, 3, 4, 1, 1, None, None)]
+    with pytest.raises(MissingSeedError, match="Club36") as err:
+        back_after_relegation(c, {1: 34, 2: 36, 3: 32, 4: 33})
+    assert "Club34" not in str(err.value)
+
+
+def test_play_raises_rather_than_skip_a_season_with_no_seeds() -> None:
+    results, seeds = prepare(two_seasons(), PREM)
+    relabelled = results.assign(season=results.season.replace("2026-2027", "2026-27"))
+    with pytest.raises(EloError, match="no seeds: \\['2026-27'\\]"):
+        play(relabelled, seeds, SETTINGS)
 
 
 def test_reseeds_apply_from_the_season_start_before_a_club_has_played() -> None:

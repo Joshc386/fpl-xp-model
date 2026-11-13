@@ -1452,6 +1452,19 @@ test gaps are closed.
     configured season, judged by position in `pipeline.yaml`'s season list.
   - **Goals model at 2026/27 as-of 10 after the re-seed:** intercept 0.1760,
     gap 0.1331 per 100 points (0.1352 before), home 0.2283, 480 matches.
+- **Follow-ups after the second review (same day):**
+  - A club that didn't play the previous season is now seeded from its first
+    upstream value in the new season, whether it is new to the run or coming
+    back after a relegation, as brief data rule 12 says. One coming back with
+    no such value carries its old rating; one new to the run raises
+    `MissingSeedError`. This has no effect before 2027/28.
+  - `play()` raises `EloError` if any result's season has no seeds, instead of
+    skipping it.
+  - A three-season test covers the tuner's "after the run's first season"
+    clause on its own.
+  - Real data is unchanged: 960 rating rows and 100 fixture rows at 2026/27
+    as-of 10, Arsenal's 2026/27 GW1 `elo_before` 2063.76, and the tuner still
+    picks K 18, home advantage 30 and margin power 0.375.
 
 ### 2026-11-13: main - task 3 review decisions (Josh)
 The modeller's first report and Code Review's first pass on task 3. The main
