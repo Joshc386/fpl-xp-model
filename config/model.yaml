@@ -1,0 +1,34 @@
+# Model settings. Owned by the expected-points-modeller. Points values live in
+# scoring.yaml, pipeline settings in pipeline.yaml (read, never edited, by the model).
+
+# Gameweeks projected, starting at the next gameweek (brief section 6). No decay.
+max_horizon: 5
+
+# The Elo component (brief data rule 12): the model's own ratings, in one continuous run
+# over finished Premier League results, matched across seasons on team_code.
+elo:
+  start_season: "2025-2026"   # the run starts at this season's GW1 (decided 2026-11-12)
+  scale: 400                  # rating gap at which the expected score is 10:1 (ClubElo's scale)
+  # Tuned by `python -m fpl.models.elo_tune` on 2025/26 only (see docs/decisions.md).
+  k: 18                       # rating points at stake in a one-goal or drawn match
+  home_advantage: 30          # rating points added to the home club's expected score
+  margin_power: 0.375         # margin factor max(1, |goal difference|) ** margin_power
+  tuning:
+    season: "2025-2026"       # never 2026/27: it is the holdout
+    # Inclusive gameweek ranges where upstream Elo is a before-match rating (brief data rule
+    # 12): GW27-32 are stuck at GW26 and GW34-38 hold the end-of-season rating. GW1 is the seed.
+    target_gameweeks: [[2, 26], [33, 33]]
+    # Logged as a flag only; the model-validator owns the real check (brief section 7).
+    check_from_gw: 6
+    check_min_spearman: 0.9
+    grid:
+      k: [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 35, 40]
+      home_advantage: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+      margin_power: [0, 0.125, 0.25, 0.375, 0.5, 0.75, 1.0]
+
+# The Elo goals model (brief section 6.2): Poisson goals on the Elo gap and home advantage.
+goals_model:
+  pool_seasons: 2             # fit on this season and last
+  min_matches: 30             # below this many finished matches in the pool, raise (no fit)
+  newton_tol: 1.0e-10         # stop when every coefficient step is below this
+  newton_max_iter: 50

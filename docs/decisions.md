@@ -1309,6 +1309,150 @@ Josh took all eight recommendations.
   notes, component hand-offs); `CONTEXT.md` (Elo rating, Upstream Elo);
   `docs/plans/phase-1.md` (task 3).
 
+### 2026-11-13: model - Elo component v1
+Revised in the task 3 fix round (same day) to the review decisions logged
+after this note: each season is re-seeded from upstream, the tuning target
+drops GW34, the tuner reports an end-of-season comparison, and Code Review's
+test gaps are closed.
+- **Built on upstream `b6854dcdd88dca8b613687b0d83df5063d9b8428`** (2026-11-12
+  04:02 UTC), as-of 10 of 2026/27. Two components and a tuner:
+  - `models/elo.py`: `elo_ratings(season, as_of_gw, mode)` gives our Elo rating
+    before and after every finished Premier League match, from 2025/26 GW1 on
+    (the `elo_ratings.csv` rows).
+  - `models/team_goals.py`: `elo_goals(season, as_of_gw, mode)` is the Elo goals
+    model, giving fixture difficulty for each team's fixtures in the next
+    `max_horizon` gameweeks (the `fixture_difficulty.csv` rows).
+  - `models/elo_tune.py`: `python -m fpl.models.elo_tune` reruns the tuning. It
+    only logs (about 20 s) and writes nothing.
+  - Pure cores, for tests and the tuner: `run_elo(history, settings,
+    prem_tag)` and `goals_from_history(history, elo_settings, goals_settings,
+    prem_tag)`. `load_history(season, as_of_gw, mode)` does the reads: each
+    earlier season of the run at its last gameweek in backtest mode, then
+    `season` at `as_of_gw` in `mode`.
+- **Method (Elo):**
+  - E = 1 / (1 + 10^(-(r_home + home_advantage - r_away) / scale)), and the
+    home club gains k × max(1, |goal difference|)^margin_power × (result - E).
+    The away club loses the same amount, so every match is zero-sum.
+  - **Margin factor:** a power of the goal difference, counted from 1, so
+    draws and one-goal results weigh 1. Why: it has one parameter, and it nests
+    plain Elo (power 0), so the tuning could have rejected a margin factor
+    altogether; power 0.5 is the square-root form often used for football.
+    Rejected: eloratings.net's fixed steps (nothing to tune) and
+    FiveThirtyEight's autocorrelation term (a second parameter, for a bias
+    there is no evidence of here).
+  - Results are every finished Premier League fixture with `gw` <= as-of, in
+    kickoff order, whatever `stats_complete` says. Cup and European rows never
+    enter. Kickoff order equals gameweek order in both seasons (0 inversions),
+    so a run at as-of g is an exact prefix of a later run.
+  - **Clubs are keyed by `team_code`.** Seeds come only from Premier League
+    kickoff upstream Elo among the finished matches in the read. Each season's
+    seeds are set before its first match, so a re-seeded club's current rating
+    is right even before it has played (`prepare` and `play`):
+    - in 2025/26, the first season of the run, each club's first non-null
+      value (the 20 GW1 values);
+    - in a later season, a club with a value at its last Premier League match
+      of the previous season is re-seeded from it. That value comes from the
+      previous season's read, never the new season's rows. For 2026/27 it is
+      ClubElo's end-of-season 2025/26 rating, Arsenal (2063.76) included. A
+      club whose last-match value is null carries its own rating, even if an
+      earlier value exists; that is every club from 2027/28 if ClubElo stays
+      down;
+    - a club new to the run from its first non-null value in the new season:
+      Coventry 1661.48 (its GW2 value, also used for its GW1 match), Hull
+      1532.88 and Ipswich 1640.00.
+    - A club with no seed raises `MissingSeedError`, naming the club.
+    - At 2026/27 GW1 the re-seed moves the 17 continuing clubs by +16.8 points
+      on average against our own 2025/26 end ratings, from -20.4 (Man City) to
+      +47.8 (Aston Villa).
+- **Method (goals model):**
+  - log λ = intercept + gap × (own `elo_before` - opponent's) + home × is_home,
+    fitted by Newton's method in numpy.
+  - The pool is one row per team per finished Premier League match of the last
+    `pool_seasons` (2) seasons of the run, up to and including the as-of
+    gameweek.
+  - Every fixture with `gw` in (as-of, as-of + `max_horizon`] gets two rows,
+    each built from both clubs' current ratings. `lambda_against` is the
+    opponent's `lambda_for`, and `p_cs` = e^(-`lambda_against`).
+  - **Minimum sample:** `min_matches` 30. Below it the model raises
+    `InsufficientSampleError` and fits nothing. Only 2025/26 as-of 1-2 are
+    affected; as-of 0 already raises for seeds. Evidence from 2025/26 fits:
+    | As-of | Matches | Home coef | Gap coef per 100 pts | Home v away λ, equal clubs |
+    | --- | --- | --- | --- | --- |
+    | 1 | 10 | 0.72 | 0.29 | 1.55 v 0.76 |
+    | 2 | 20 | 0.41 | 0.32 | 1.43 v 0.95 |
+    | 3 | 30 | 0.26 | 0.21 | 1.42 v 1.10 |
+    | 10 | 100 | 0.33 | 0.17 | 1.51 v 1.09 |
+    | 38 | 380 | 0.22 | 0.14 | 1.49 v 1.19 |
+    - From 30 matches on, the coefficients sit in the full-season range.
+    - Rejected fallbacks: full-season coefficients, which would leak 2025/26
+      outcomes into its own early reads, and fixed league averages in config,
+      which would be invented numbers.
+- **Tuning (2025/26 only; nothing tuned on or compared with 2026/27):**
+  - **Grid:** K {10-30 in steps of 2, 35, 40} × home advantage {0-100 in steps
+    of 10} × margin power {0, 0.125, 0.25, 0.375, 0.5, 0.75, 1}, 1,001 points.
+    The objective is the mean absolute gap to upstream kickoff Elo at the
+    target gameweeks, GW2-26 and GW33, where upstream is a before-match rating.
+    (The first version also used GW34; dropping it changed nothing.)
+  - **Chosen:** K 18, home advantage 30, margin power 0.375.
+    - Mean gap 9.85 points; mean signed gap -7.29, so ours run lower.
+    - Match-result log-loss 0.6594 (expected score against the result, a draw
+      counting 1/2). Tuning stays on the gap (Josh).
+  - **Spearman** is computed per gameweek, at each club's first kickoff.
+    - Target gameweeks GW2-26: 0.982-1.000. GW33: 0.988. Lowest from GW6: 0.982.
+    - Not targets: GW27-32 0.956-0.979; GW34-38 0.908-0.977 (GW34, against
+      the end-of-season rating, is 0.908). GW1 is the seed (1.0).
+  - **End of season (reported only, never tuned on):** each club's rating
+    after its last 2025/26 match against upstream's value there (ClubElo's
+    end-of-season rating): Spearman 0.982, mean signed gap -18.0, mean gap
+    20.0, for 20 clubs.
+  - **The settings are in-sample for the development window,** which the brief
+    allows: these full-season 2025/26 values are used in every 2025/26 read.
+- **Inputs:**
+  - `fact_fixture`: `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`,
+    `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`,
+    `finished`, `home_goals`, `away_goals`.
+  - `dim_team`: `team_id`, `team_code`, `name`.
+  - `pipeline.yaml`: `seasons` and `premier_league_tag`, read only.
+- **Outputs:**
+  - Elo: `team_id`, `match_id`, `season`, `gw`, `kickoff_utc`, `elo_before`,
+    `elo_after`, home row first. 960 rows at 2026/27 as-of 10.
+  - Goals model: `team_id`, `match_id`, `gw`, `opponent_id`, `home`,
+    `lambda_for`, `lambda_against`, `p_cs`. 100 rows at 2026/27 as-of 10
+    (GW11-15).
+  - Both modes give identical output.
+- **Config keys added (new `config/model.yaml`):** `max_horizon`; `elo.
+  {start_season, scale, k, home_advantage, margin_power}`; `elo.tuning.{season,
+  target_gameweeks, check_from_gw, check_min_spearman, grid}`;
+  `goals_model.{pool_seasons, min_matches, newton_tol, newton_max_iter}`.
+- **Assumptions and known weaknesses:**
+  - **Reads that raise (the validator should skip them):** `MissingSeedError`
+    at 2025/26 as-of 0 and 2026/27 as-of 0-1; `InsufficientSampleError` at
+    2025/26 as-of 1-2.
+  - **GW34's upstream Elo is not a kickoff rating** (found in the first
+    version; settled in the review decisions). Every value from GW34 on equals
+    the club's final 2025/26 value, and it agrees best with our ratings after
+    GW38. So GW34 left the tuning target, with no change to the settings.
+  - **The gap objective barely identifies the home advantage:** 0-50 points are
+    all within 0.05 of the minimum.
+  - **The two tuning measures disagree on K.** Log-loss prefers K 35, home
+    advantage 50 and no margin factor (0.6538), which has a mean gap of 18.0.
+    Tracking ClubElo and predicting results pull K in different directions.
+  - The fixture window is chosen by gameweek, not `finished`, and seeds come
+    from finished matches in the read. The contract now says both.
+  - A club relegated and later promoted again, with no value at a last match
+    of the previous season, comes back with its old rating instead of being
+    re-seeded.
+  - The Elo home advantage (30 rating points) and the goals model's home term
+    (0.23 in log goals at 2026/27 as-of 10) are separate parameters.
+  - **Guards:** the kickoff sort is tested against rows out of kickoff order,
+    since upstream lists some GW33 doubles later match first. A Premier League
+    club missing from `dim_team` and a finished fixture with no score raise
+    `EloError`. `goals_model.pool_seasons` below 1 is rejected. The tuner
+    refuses any tuning season after the run's first season, and the newest
+    configured season, judged by position in `pipeline.yaml`'s season list.
+  - **Goals model at 2026/27 as-of 10 after the re-seed:** intercept 0.1760,
+    gap 0.1331 per 100 points (0.1352 before), home 0.2283, 480 matches.
+
 ### 2026-11-13: main - task 3 review decisions (Josh)
 The modeller's first report and Code Review's first pass on task 3. The main
 session rechecked the key evidence on upstream `b6854dc`. Josh decided all
