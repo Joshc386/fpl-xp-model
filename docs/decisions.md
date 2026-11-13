@@ -1581,3 +1581,15 @@ low-severity findings go to the modeller as follow-ups:
    code will. No effect before 2027/28.
 - **Updated:** `docs/data_contract.md` (Elo seed notes) and
   `docs/known_gaps.md`.
+
+### 2026-11-13: main - model-validator agent file fixed
+- Edited `.claude/agents/model-validator.md` with Josh's permission:
+  - **Frontmatter:** added the missing closing `---`, and quoted
+    `description`, whose "model code: report" is invalid in plain YAML.
+    Either fault kept the agent from loading; it was missing from the
+    session's agent list. All five project agent headers now parse.
+  - **Independence:** "Read first" told the validator to read the modeller's
+    hand-off notes in `docs/decisions.md`. Brief section 14, working rule 3,
+    and the `CLAUDE.md` hard rule keep the modeller's reasoning and
+    calibration numbers from the validator, so it now reads only the `main -`
+    and `data -` entries and takes interfaces from the contract.
