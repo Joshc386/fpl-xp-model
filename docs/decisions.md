@@ -1593,3 +1593,55 @@ low-severity findings go to the modeller as follow-ups:
     and the `CLAUDE.md` hard rule keep the modeller's reasoning and
     calibration numbers from the validator, so it now reads only the `main -`
     and `data -` entries and takes interfaces from the contract.
+
+### 2026-11-13: main - task 4 Elo check design settled before delegation (Josh)
+Brief section 7 leaves open how the Elo component check is scored. The main
+session checked the data on upstream `ac8be9ca` (2026-11-13 15:35 UTC) before
+writing task 4. Josh took all eight recommendations.
+- **Evidence:**
+  - **2026/27 to date is GW1-10.** All 100 fixtures are finished, and GW11
+    starts on 2026-11-21.
+  - **Team-fixtures from GW6:** 660 in 2025/26 (GW6-38) and 100 in 2026/27
+    (GW6-10), so 760 pooled. GW1-5 holds 100 in each season.
+  - **The upstream changes since `b6854dc`** only reorder cup rows in old
+    gameweek folders. No result changed.
+  - **An independence leak in the reading list:** the validator's agent file
+    sends it to every `main -` entry, and two of them ("task 3 review
+    decisions" and "task 3 second review", both 2026-11-13) quote the
+    modeller's own accuracy numbers.
+- **Decisions:**
+  1. **Score the next gameweek only.** For each target gameweek g, score GW
+     g's fixtures from `elo_goals(season, g−1, "backtest")`, so each
+     team-fixture counts once. Trade-off: says nothing about 2-5 gameweeks
+     out. Rejected: all five horizon gameweeks (each fixture counted up to 5
+     times).
+  2. **Pass marks on GW6 onwards of both seasons, pooled** (760
+     team-fixtures), with each season reported on its own. Trade-off:
+     2025/26 is 87% of the set. Rejected: a 2026/27-only verdict, which
+     passes trivially because 100 team-fixtures can't fill a bin to 100.
+  3. **Ratings compared at every team-kickoff,** pairing our `elo_before`
+     with upstream Elo at the same kickoff (2025/26; GW33's double gives 26
+     pairs). Trade-off: a club in a double counts twice that week. Rejected:
+     first kickoff per club only, which drops 6 genuine GW33 kickoffs.
+  4. **The baseline's league averages come from the Elo goals model's own
+     pool** at as-of g−1. Rejected: whole-season averages, which see later
+     results.
+  5. **Perturbation test** at 2025/26 as-of 5, 20 and 33 and 2026/27 as-of 3
+     and 9: corrupt every result after the as-of gameweek (scores, finished
+     flags, upstream Elo, xG), keep the schedule (backtests already see the
+     final schedule, `docs/known_gaps.md`). Any change in either function's
+     output is a fail. A planted-leak test proves the check catches one.
+  6. **The validator's reading list:** task 4's message names the
+     `decisions.md` entries to read and leaves out the two above; their
+     decisions are already in the brief and the contract. **From now on,
+     `main -` entries don't quote the modeller's accuracy numbers.** They
+     cite its `model -` entry instead.
+  7. **The settled points go into brief section 7 before delegating,** and
+     the holdout look (2026/27 GW3-10, upstream `ac8be9ca`) is logged here
+     when the report comes back.
+  8. **Scope:** only the Elo check, written to `backtest/` and its tests,
+     TDD, no commits. No `ep_next` baselines and no `latest.json` yet. Task 5
+     can run alongside.
+- **Code under test:** `190f63f`. The model code is unchanged since
+  `42c6809`.
+- **Updated:** brief section 7 ("How the check is run").

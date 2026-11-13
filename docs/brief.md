@@ -340,6 +340,15 @@ The model-validator judges the Elo component on its own walk-forward test over 2
 | Beats a no-skill baseline | Lower Poisson log-loss of goals than league-average home and away goals |
 | Early season | GW1–5 of each season reported separately, without pass marks |
 
+How the check is run (decided 2026-11-13):
+
+- **Goals and clean sheets:** for each target gameweek g, only GW g's fixtures are scored, from `elo_goals(season, g−1, "backtest")`, so each team-fixture is scored once. A fixture gives two team-fixtures, one per club. The later gameweeks in the horizon aren't scored.
+- **Ratings:** every team-kickoff in a gameweek counts, a double gameweek included. Our `elo_before` from `elo_ratings(season, g, "backtest")` is paired with upstream Elo at the same kickoff. 2025/26 only.
+- **Where the pass marks apply:** GW6 onwards of both seasons, pooled. Each season is also reported on its own, without a separate pass mark.
+- **The no-skill baseline:** league-average home and away goals over the same pool the Elo goals model fits on at as-of g−1 (this season and last, finished results up to and including that gameweek).
+- **Perturbation test:** at 2025/26 as-of 5, 20 and 33 and 2026/27 as-of 3 and 9, every result after the as-of gameweek is corrupted (scores, finished flags, upstream Elo, xG), and the schedule is kept. Any change in either function's output is a fail.
+- **Reads that raise by design** (`docs/data_contract.md`, Elo seed notes) are skipped and counted, not scored.
+
 - **A fail** returns the Elo component to the modeller with the findings. A second fail is Josh's cue for a separate Elo agent.
 - **Where upstream Elo is not a before-match rating or is missing** (2025/26 GW27–32, 2025/26 GW34 onwards and all of 2026/27), Josh compares our ratings with an outside Elo source himself: beyondELO's per-match before-match ratings (beyondelo.com, through its API; CC BY 4.0, credit "beyondELO (https://beyondelo.com)"; decided 2026-11-13). Its scale differs from ClubElo's and it doesn't rate the Championship, so it is a check, not a seed. The test there is ranking agreement and predictive log-loss, not raw rating levels. His verdict gates the phase 2 Dixon-Coles work.
 
