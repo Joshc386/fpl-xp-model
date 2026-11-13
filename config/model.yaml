@@ -1,6 +1,10 @@
 # Model settings. Owned by the expected-points-modeller. Points values live in
 # scoring.yaml, pipeline settings in pipeline.yaml (read, never edited, by the model).
 
+# Stamped on every run in meta.csv. Bump it with any change that alters the outputs
+# (decided 2026-11-13).
+model_version: "0.1.0-elo"
+
 # Gameweeks projected, starting at the next gameweek (brief section 6). No decay.
 max_horizon: 5
 

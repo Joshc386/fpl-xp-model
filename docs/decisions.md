@@ -1645,3 +1645,18 @@ writing task 4. Josh took all eight recommendations.
 - **Code under test:** `190f63f`. The model code is unchanged since
   `42c6809`.
 - **Updated:** brief section 7 ("How the check is run").
+
+### 2026-11-13: main - model_version set (Josh)
+Task 5 needs `meta.model_version`. The contract's example value was
+`0.1.0-elo`, but nothing set it.
+- **Decision:** `model_version: "0.1.0-elo"` goes in `config/model.yaml`,
+  added by the main session with Josh's permission. `export.py` reads it from
+  there, and the modeller bumps it with any change that alters the outputs.
+  `meta.csv` carries it for every CSV the run publishes, which is how brief
+  section 6's "stamp every output" now reads. Trade-off: a CSV copied out on
+  its own loses the version. Rejected: the git commit, which already
+  identifies the code but means nothing at a glance in the workbook.
+- **No model setting changed.** The file's hash changes, so the task 4
+  validator records the commit it ran on.
+- **Updated:** `config/model.yaml`, brief section 6, `docs/data_contract.md`
+  (the `meta.csv` note).

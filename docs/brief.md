@@ -294,7 +294,7 @@ E[\text{goals}_{i,f}] = \lambda^{np}_{f} \cdot \text{share}_i \cdot \frac{m_{i,f
 - Report xP for each of the next 5 gameweeks (`max_horizon` in config). Horizon xP is a plain sum over the first h gameweeks, with h = 1–5 chosen once for the whole workbook. There is no decay or weighting (decided 2026-11-09).
 - **Early season:** blend last season (joined on `player_code`) with this one. The current-season weight is n / (n + k), with n the matches played.
 - **New arrivals from outside the league:** use the position-and-team prior and set `low_confidence` to true.
-- Stamp every output with `model_version`.
+- Stamp every run with `model_version` (from `config/model.yaml`) in `meta.csv`, which covers every CSV the run publishes.
 
 ## Validation
 

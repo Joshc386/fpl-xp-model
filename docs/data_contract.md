@@ -197,7 +197,8 @@ CSV in `outputs/`, committed, read by Excel.
   `export.py` writes it.
 - **`meta.csv`:** `current_gw` is the as-of gameweek. `max_horizon` is the
   number of gameweeks projected (5, from `config/model.yaml`).
-  `model_version` is filled from phase 1, for example `0.1.0-elo`.
+  `model_version` comes from `config/model.yaml` (`0.1.0-elo` in phase 1)
+  and stamps every CSV the run publishes.
 - **Gameweeks:** the next gameweek is the first gameweek whose deadline is
   after the run time. A gameweek whose deadline has passed never appears in
   the outputs (`CONTEXT.md`).
