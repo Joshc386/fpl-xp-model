@@ -79,6 +79,7 @@ Update this list as each piece is built.
 * `FPL_FULL_SWEEP=1 .venv/Scripts/python -m pytest tests/test_loader_real.py`: the full real-data leakage sweep (every as-of gameweek of 2025/26)
 * `.venv/Scripts/ruff check .`: lint
 * `.venv/Scripts/python -m fpl.run\_pipeline`: build the processed tables in `data/processed/` from the local upstream checkout (`data/raw/upstream/repo`; pull it first). Ingest, validate and clean only, so far
+* `.venv/Scripts/python -m fpl.models.elo\_tune`: re-tune the Elo settings on 2025/26 (logs only; about 20 s)
 * `python backtest/run\_backtest.py`: run the backtest
 * `python excel/build\_workbook.py`: build the workbook (Windows, Excel installed)
 

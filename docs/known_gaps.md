@@ -24,12 +24,24 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     missing. That happens at 2025/26 as-of 0 (every GW1 value is still
     schedule only) and 2026/27 as-of 0-1 (Coventry's first value is at GW2).
     Upstream Elo is null from 2026/27 GW3, so if ClubElo stays down, no club
-    promoted for 2027/28 will have a seed at all.
+    promoted for 2027/28 will have a seed at all, and every other club will
+    carry its own rating instead of being re-seeded. A club relegated and
+    later promoted again would come back with its old rating.
   - **Effect:** no team goals or fixture difficulty from those reads, and
     none for 2027/28 until this is fixed.
   - **Fix before:** 2027/28 GW1.
   - **Idea:** seed a promoted club from the average final rating of the
-    relegated clubs, or from an outside Elo source if one becomes usable.
+    relegated clubs, or from an outside source that rates the Championship
+    (beyondELO doesn't).
+- **No fixture difficulty at 2025/26 as-of 1-2** (2026-11-13).
+  - **Gap:** the Elo goals model needs at least `goals_model.min_matches`
+    (30) finished matches in its pool and raises below that. With no earlier
+    season loaded, 2025/26 has 10 at as-of 1 and 20 at as-of 2. At as-of 1 a
+    fit would give an equal home side about twice the away side's goals,
+    against about 1.25 times over the full season.
+  - **Effect:** backtests have no team goals for 2025/26 GW2-3, which carry
+    no pass marks. Live runs always have last season in the pool.
+  - **Idea:** load 2024/25 results as a prior pool.
 
 ## Data timing
 
@@ -102,9 +114,11 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     lost.
 
 - **Elo counts Premier League matches only** (2026-11-09; 2026-11-12).
-  - **Gap:** ClubElo also counts cup and European matches. Our ratings
-    don't, and since 2026-11-12 they run on across seasons, so any drift
-    builds up.
+  - **Gap:** ClubElo also counts cup and European matches, and ours don't. By
+    the end of 2025/26 ours sat 18 points below ClubElo's end-of-season
+    rating on average (Aston Villa 48 below, Arsenal 36 below). Re-seeding
+    from ClubElo each season resets this, but without upstream values (from
+    2027/28 if ClubElo stays down) it builds up across seasons.
   - **Effect:** clubs in Europe can drift from their true strength.
   - **Idea:** include cup and European matches between two Premier League
     clubs, or re-anchor to an outside source each summer.

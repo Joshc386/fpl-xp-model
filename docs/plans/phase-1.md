@@ -39,7 +39,7 @@ committed to `main` and pushed. Josh approved pushes for phase 1 on
 | --- | --- | --- | --- | --- |
 | 1 | data-engineer | **Ingestion and processed tables.** Python 3.13 project setup with pinned dependencies, `config/pipeline.yaml`, `ingest.py` (2025/26 and 2026/27, recording the upstream commit), `validate.py` input checks (brief section 11, step 4, plus the rule 15 guards), and `clean.py` building the five processed tables with every phase 0 rule. Upstream Elo passes through as `upstream_elo`. | None | Tables built for both seasons. Row counts reconcile. Tests cover schemas, join row counts and each cleaning rule. |
 | 2 | data-engineer | **Point-in-time loader.** `load_as_of(season, as_of_gw, mode)` in backtest and live modes; the next-gameweek and as-of-gameweek logic from the deadline clock; generic features (recent minutes and starts). | 1 | Leakage tests prove three things: no match after `as_of_gw`; master files are never opened in backtest mode; the two modes are identical apart from the overlaid fields. Deadline-boundary tests cover the cases either side of a deadline. |
-| 3 | expected-points-modeller | **Elo component.** `models/elo.py` (one continuous run from 2025/26 GW1, seeded from upstream Elo, settings in `config/model.yaml`, tuned on 2025/26 where upstream Elo moves) and the Elo goals model in `models/team_goals.py` (Poisson on the rating gap plus home advantage, fitted only on results up to the as-of gameweek). Both return DataFrames; `export.py` writes the CSVs in task 5. Data is read through `load_as_of`. | 2 | Tests pass. The modeller reports its own calibration numbers, which go to Josh, never to the validator. |
+| 3 | expected-points-modeller | **Elo component.** `models/elo.py` (from 2025/26 GW1, each season seeded from upstream Elo, settings in `config/model.yaml`, tuned on 2025/26 where upstream Elo is a before-match rating) and the Elo goals model in `models/team_goals.py` (Poisson on the rating gap plus home advantage, fitted only on results up to the as-of gameweek). Both return DataFrames; `export.py` writes the CSVs in task 5. Data is read through `load_as_of`. | 2 | Tests pass. The modeller reports its own calibration numbers, which go to Josh, never to the validator. |
 | 4 | model-validator | **Elo component check.** An independent walk-forward test against brief section 7's Elo pass marks. Report in `backtest/reports/`. | 3 | Pass or fail with numbers. A fail returns to task 3. Can run alongside task 5. |
 | 5 | data-engineer | **Thin-slice outputs.** `export.py` writes `players.csv` (metrics as defined in `CONTEXT.md`), `fixture_difficulty.csv` (team × fixture, from the Elo goals model), `elo_ratings.csv` and `meta.csv`, plus the output checks from brief section 11, step 8. | 3 | Outputs match the contract and pass validation on the latest snapshot. |
 | 6 | data-engineer | **Workflows.** `update.yml` (08:00 and 18:00 UTC plus manual runs; checks out 2025/26 and 2026/27; skips if the upstream commit hasn't changed; publishes `outputs/` only after validation passes) and `ci.yml` (tests and lint). | 5 | A manual run on `main` passes and publishes. |
@@ -48,8 +48,10 @@ committed to `main` and pushed. Josh approved pushes for phase 1 on
 | 9 | main session | **Go-live check.** Confirm two consecutive scheduled runs each published a new upstream commit. | 6 | Both runs green. |
 
 **In parallel, outside the gates:** once `elo_ratings.csv` is published
-(task 5), Josh compares our Elo ratings with an outside Elo source. His
-verdict gates only the phase 2 Dixon-Coles work. The minutes model can start
+(task 5), Josh compares our Elo ratings with an outside Elo source:
+beyondELO's per-match ratings, pulled through its API by a small
+data-engineer task (decided 2026-11-13). His verdict gates only the phase 2
+Dixon-Coles work. The minutes model can start
 as soon as phase 1 is signed off.
 
 ## Settled in the plan review (2026-11-09)
@@ -90,4 +92,6 @@ as soon as phase 1 is signed off.
 ## Steps for Josh
 - Task 7 needs Windows Excel on this machine.
 - Hand-test refresh-on-open in task 8.
-- Run the outside-source Elo comparison once `elo_ratings.csv` is published.
+- Create a free beyondELO API key (it goes in an environment variable, never
+  in code), and run the outside-source Elo comparison once `elo_ratings.csv`
+  is published.

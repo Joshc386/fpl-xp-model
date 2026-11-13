@@ -78,17 +78,20 @@ _Avoid_: weighted xP, decayed xP, total xP
 
 **Elo rating**:
 The model's own strength rating for a club, updated after every Premier
-League result in one continuous run from 2025/26 GW1. Each 2025/26 club is
-seeded from its 2025/26 GW1 upstream Elo, and each club promoted into 2026/27
-from its 2026/27 GW1-2 upstream Elo.
+League result from 2025/26 GW1 on. Each season starts from upstream Elo where
+there is one: 2025/26 from each club's GW1 value, and 2026/27 from ClubElo's
+end-of-season 2025/26 rating (promoted clubs from their 2026/27 GW1-2 value).
+A club with no upstream value carries its own rating into the next season.
 _Avoid_: ClubElo, strength, Elo (unqualified)
 
 **Upstream Elo**:
-ClubElo's rating at kickoff, as published by upstream. It moves only in
-2025/26 GW1-26 and GW33-34. It is frozen in GW27-32 and from GW35, its
-2026/27 GW1-2 values repeat the frozen 2025/26 ones, and it is null from
-2026/27 GW3. It is used only for seeds and, where it moves, as the target the
-Elo rating is tuned and checked against.
+ClubElo's rating at kickoff, as published by upstream. It is a genuine
+before-match rating only in 2025/26 GW1-26 and GW33. In GW27-32 it is stuck
+at the GW26 value. From GW34 it is ClubElo's end-of-season rating, which
+already includes later results. The 2026/27 GW1-2 values repeat that
+end-of-season rating, and it is null from 2026/27 GW3. It is used only for
+seeds and, where it is a before-match rating, as the target the Elo rating is
+tuned and checked against.
 _Avoid_: Elo (unqualified), ClubElo rating
 
 **Fixture difficulty**:

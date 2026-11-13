@@ -1308,3 +1308,96 @@ Josh took all eight recommendations.
   (Upstream Elo source note, `elo_ratings.csv` and `fixture_difficulty.csv`
   notes, component hand-offs); `CONTEXT.md` (Elo rating, Upstream Elo);
   `docs/plans/phase-1.md` (task 3).
+
+### 2026-11-13: main - task 3 review decisions (Josh)
+The modeller's first report and Code Review's first pass on task 3. The main
+session rechecked the key evidence on upstream `b6854dc`. Josh decided all
+five items.
+- **Evidence (main session, confirming the modeller's finding):**
+  - **Upstream's GW34-38 Elo is ClubElo's end-of-season rating, not a
+    kickoff rating.** All 96 kickoff values from GW34 to GW38 equal each
+    club's final 2025/26 value. The six clubs that "move" at GW35 are the
+    six with no GW34 fixture. Each club's jump from its GW33 value to that
+    final value correlates 0.794 with its points in GW34-38, and only 0.17
+    with its points in GW33. So the GW34 pass-mark comparison set our
+    before-match ratings against a value that already included later
+    results (Spearman 0.908 there).
+  - **GW33 is a genuine kickoff value.** The jump from GW26 to GW33
+    correlates 0.509 with points in GW26-32, and 0.061 with points in
+    GW33-38.
+  - **Correction to 2026-11-12:** the main session said the 2026/27 GW1-2
+    values were stale 2025/26 ratings missing GW35-38. That was wrong. They
+    are the same end-of-season rating, taken after GW38.
+  - **Our ratings against ClubElo's end-of-season rating:** after GW38 ours
+    sit 18.0 points below it on average (mean absolute 20.0, from 47.8 below
+    for Aston Villa to 20.4 above for Man City), with Spearman 0.982. The
+    in-season mean gap is 7.7 below. The difference builds up from cup and
+    European results, which ClubElo counts and ours don't. Promoted clubs
+    are seeded on ClubElo's scale, so with one continuous run they would
+    start about 18 points too strong relative to the rest.
+  - **Fixture rows aren't in kickoff order** (Code Review, confirmed): 126
+    out-of-order steps in 2025/26 and 63 in 2026/27. In the 2025/26 GW33
+    double gameweek, three clubs have their 22 April match listed before
+    their 18 or 19 April one. The Elo code sorts by kickoff, but no test
+    covered it.
+- **Decisions:**
+  1. **Tune and judge only where upstream Elo is a before-match rating:**
+     GW2-26 and GW33 for tuning, and the pass mark at GW6-26 and GW33. The
+     tuned settings don't change without GW34 (gap 9.85). The modeller's
+     tuner also reports our ratings after GW38 against ClubElo's
+     end-of-season rating, without tuning on it: no K can make up for
+     matches the model doesn't count.
+     - Rejected (Josh asked): filling GW27-38 with ratings from our own
+       model fitted on GW1-26 and tuning on the full season. The filled
+       weeks would be the model's own output, so tuning on them adds nothing
+       and only flatters the fit.
+  2. **Re-seed 2026/27 from ClubElo's end-of-season ratings** (reverses
+     2026-11-12 decision 2, back to the brief's original rule). Each club
+     with an upstream value at its last Premier League match of the previous
+     season is re-seeded from it, Arsenal included; promoted clubs from
+     their first 2026/27 value; a club with no such value carries its own
+     rating. Why: all 20 clubs start on one scale and keep ClubElo's
+     cup and European information. Trade-off: 2026/27 restarts from ClubElo
+     instead of continuing our tuned run (same method and settings).
+  3. **Keep tuning on the gap to ClubElo** (Josh), though match-result
+     log-loss alone would pick K 35, home advantage 50 and no margin factor
+     (0.6538 against 0.6594, under 1% better, at a gap of 18.3).
+  4. **The goals model's 30-match minimum stays.** Below it the model raises
+     `InsufficientSampleError`; that happens only at 2025/26 as-of 1-2.
+     Equal-club home multiples by pool size: ×2.05 at 10 matches, ×1.51 at
+     20, ×1.29 at 30, ×1.25 over the full season.
+  5. **Contract wording:** seeds come from finished matches in the read, and
+     horizon fixtures are chosen by gameweek, not by `finished`. Both match
+     the code and give identical results on real data.
+- **Outside Elo source: beyondELO** (Josh suggested it; the main session
+  checked its site, terms, API and data on 2026-11-13).
+  - Its API gives each club's rating before and after every match, including
+    all of 2025/26 and 2026/27 to date. The API data is CC BY 4.0 with the
+    credit "beyondELO (https://beyondelo.com)", and a free key allows 100
+    requests a day.
+  - It doesn't rate the Championship: West Ham, Wolves and Burnley's last
+    rated match is 24 May 2026, and Leicester and Southampton's 25 May 2025.
+    So a promoted club's rating is from its last Premier League spell
+    (Coventry's was 2000/01). Its scale also differs: it adds about 240
+    points for English clubs, learns a home advantage per club and weights
+    results by uncertainty.
+  - It names no operator. Its terms page (personal, non-commercial, no
+    scraping) and API page (CC BY 4.0) differ; use through the official API
+    with credit is covered by both.
+  - **Decision (Josh):** ClubElo stays the seed and tuning source. beyondELO
+    becomes the source for Josh's outside-source check after task 5 (ranking
+    agreement and predictive log-loss, which don't depend on scale),
+    covering 2025/26 GW27-38 and 2026/27 from GW3. A small data-engineer task
+    pulls it through the API; Josh creates the key.
+- **Code Review's first pass:** approve with non-blocking findings. All 12
+  listed protections fail a test when broken; its independent provenance
+  check passed at 2025/26 as-of 5 and 20 and 2026/27 as-of 3 and 10. Seven
+  extra mutants survived, all test gaps, sent to the modeller with these
+  decisions: the kickoff sort, the tuner's own loads, two unexercised input
+  guards, the `min_matches` boundary, `pool_seasons` below 1, and three
+  missing docstrings.
+- **Updated:** brief data rule 12 and sections 5 and 7; `docs/data_contract.md`
+  (Upstream Elo source note, `elo_ratings.csv` note, component hand-offs and
+  the seed notes); `CONTEXT.md` (Elo rating, Upstream Elo);
+  `docs/plans/phase-1.md` (task 3, the outside-source check, steps for Josh);
+  `docs/known_gaps.md`; `CLAUDE.md` (the tuner command).
