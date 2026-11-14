@@ -57,8 +57,11 @@ def _appearances(tables: dict[str, pd.DataFrame], gw: pd.DataFrame, as_of_gw: in
 
     One window for points and appearances: a gameweek counts only once his club has finished
     all its fixtures (the row exists). In each, the larger of his appearances in complete
-    Premier League matches (a double gameweek can give two) and 1 if FPL credits him minutes,
-    which covers a finished match that is not complete or a dropped player-match row.
+    Premier League matches (a double gameweek can give two) and 1 if FPL credits him minutes.
+    The 1 covers a single finished match that is not complete, or a dropped player-match row.
+    It undercounts a double gameweek with both matches finished but only one complete: the
+    gameweek counts once, so a player who played both gets 4.5 where the definition gives
+    3.6, until the second match's stats load. Accepted as transient.
     """
     ok = _complete_prem(tables, as_of_gw, prem_tag)
     pm = tables["fact_player_match"]

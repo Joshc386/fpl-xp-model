@@ -1,6 +1,7 @@
 """Output validation (brief section 11, step 8) for the files `export` writes.
 
-`output_problems` gathers every problem and never raises; `check_outputs` raises one
+`output_problems` gathers every problem (it raises only on input malformed beyond the schema,
+such as an unparseable `kickoff_utc`); `check_outputs` raises one
 `ValidationError` listing them all, so a failed check stops the run before anything is written.
 """
 

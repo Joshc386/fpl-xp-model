@@ -1,6 +1,7 @@
 """Output checks for the two model-built files: fixture_difficulty.csv and elo_ratings.csv.
 
-Each function returns a list of problems and never raises (see `output_checks`).
+Each function returns a list of problems rather than raising, except on input malformed
+beyond the schema (see `output_checks`).
 """
 
 from __future__ import annotations

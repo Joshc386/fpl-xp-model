@@ -12,6 +12,7 @@ import pytest
 from export_outputs import BOUNDS, RUN
 from export_tables import AS_OF, PREM, SEASON, tables
 from fpl.export import build_outputs, publish
+from fpl.ingest import ROOT, load_config
 from fpl.models.elo import SeasonRead
 from fpl.output_checks import check_outputs
 from fpl.output_schema import output_columns
@@ -20,12 +21,10 @@ from fpl.validate import ValidationError
 SCORES = {"m1": (2, 0, 1600.0, 1500.0), "m2": (1, 1, None, None), "m3": (0, 1, None, None),
           "m4": (3, 1, None, None)}
 COMMIT = "ac8be9caa3bce7aa6c2b73d5a33a9f5c0b2f0e41"
-MCFG = {
-    "model_version": "9.9.9-test", "max_horizon": 5,
-    "elo": {"k": 20, "home_advantage": 50, "margin_power": 0.5, "scale": 400},
-    "goals_model": {"pool_seasons": 2, "min_matches": 3, "newton_tol": 1e-10,
-                    "newton_max_iter": 50},
-}
+# The modeller's real settings, with only what this tiny synthetic season needs overridden.
+REAL_MCFG = load_config(ROOT / "config" / "model.yaml")
+MCFG = {**REAL_MCFG, "model_version": "9.9.9-test",
+        "goals_model": {**REAL_MCFG["goals_model"], "min_matches": 3}}
 PCFG = {"premier_league_tag": PREM, "validation": {"now_cost_m": BOUNDS["now_cost_m"]},
         "position_map": dict(zip(["Goalkeeper", "Defender", "Midfielder", "Forward"],
                                  BOUNDS["positions"], strict=True)),

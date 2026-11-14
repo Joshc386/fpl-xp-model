@@ -5,8 +5,9 @@ the main guard against leakage:
 
 * **backtest** builds the processed tables from the `GW{as_of_gw}` snapshot and earlier
   folders only. It never opens a master file. Matches in later gameweeks are schedule only.
-* **live** is the same, then overlays status, news, chance of playing and price from the
-  master playerstats, so projections see the latest team news.
+* **live** is the same, then overlays the current-state fields of `dim_player` (status, news,
+  chance of playing, price, and the price-change and transfer counts) from the master
+  playerstats, so projections see the latest team news.
 """
 
 from __future__ import annotations
@@ -47,7 +48,8 @@ def use_data_copy(data_dir: Path) -> Iterator[None]:
     block, `load_as_of`, `live_deadlines` and `live_gameweeks` take their data from it, also
     when called by the model's public functions, which pass no `root` or `cfg`. A call given
     its own `root` or `cfg` is unaffected. The previous setting is restored on exit, including
-    after an exception. Blocks nest, and each thread or task has its own setting.
+    after an exception. Blocks nest. The setting is per thread or task: a worker thread
+    started inside the block does not see it and reads the real checkout.
     """
     token = _DATA_COPY.set(Path(data_dir))
     try:
@@ -90,9 +92,9 @@ def load_as_of(
     snapshot and never opens a master file. Later Premier League fixtures are schedule only
     (`finished` and `stats_complete` false, results, xG and Elo null); later cup and European
     matches are left out. Upstream Elo exists for Premier League matches only. Live is
-    identical, except that `dim_player` status, news, `chance_next` and `price_tenths` come
-    from the master playerstats. `as_of_gw` may be ahead of the newest folder with data;
-    what exists is returned.
+    identical, except that `dim_player` status, news, `chance_next`, `price_tenths` and the
+    four price-change and transfer counts (`overlay.OVERLAID`) come from the master playerstats.
+    `as_of_gw` may be ahead of the newest folder with data; what exists is returned.
     Raises `ValueError` for a bad mode, season or gameweek, and the validation errors of a
     failed check.
     """

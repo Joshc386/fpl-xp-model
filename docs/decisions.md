@@ -1887,3 +1887,21 @@ on 2025/26.
   `use_data_copy` not reaching worker threads) and `docs/known_gaps.md`
   (transfer columns just after a deadline, `ppg` in a double gameweek with
   one match still loading, players missing from a snapshot).
+
+### 2026-11-14: data - task 5 review follow-ups
+Code Review's second pass on `eb5a9bd`; all non-blocking.
+- **No copied model values in tests:** `test_export_build.py` builds its model settings from
+  `config/model.yaml`, overriding only `model_version` (a test value) and
+  `goals_model.min_matches` (the synthetic season has 4 matches). `test_export_real.py` and
+  `export_outputs.py` read `model_version` from the config. The export tests pass with HEAD's
+  model files and with the modeller's uncommitted ones (`0.1.1-elo`, the prior settings).
+- **`ppg` docstring:** now says the "1 if FPL minutes > 0" fallback covers a single finished
+  match that is not complete or a dropped row, and undercounts a double gameweek with both
+  matches finished but one complete (4.5 against 3.6) until the second match's stats load.
+  Accepted as transient.
+- **`use_data_copy` docstring:** says the setting is per thread or task, so a worker thread
+  started inside the block reads the real checkout.
+- **`run_export`** calls `live_deadlines(season)` without `cfg`, so its deadlines follow
+  `use_data_copy` like the tables (test added).
+- **Stale docstrings** in `features.py` (module and `load_as_of`) now list all the overlaid
+  fields; `output_checks.py` and `output_checks_model.py` say what they raise on.

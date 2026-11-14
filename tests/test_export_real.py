@@ -79,7 +79,8 @@ def test_elo_and_difficulty_equal_the_public_functions(real: dict) -> None:
 def test_meta_and_row_counts_on_the_latest_snapshot(real: dict) -> None:
     meta = read(real["out10"], "meta").iloc[0]
     assert (meta.current_gw, meta.next_gw, meta.max_horizon) == (10, 11, 5)
-    assert meta.model_version == "0.1.0-elo" and meta.status == "ok"
+    version = load_config(ROOT / "config" / "model.yaml")["model_version"]
+    assert meta.model_version == version and meta.status == "ok"
     assert pd.isna(meta.backtest_mae_model) and len(meta.upstream_commit) == 40
     dim = real["load"](SEASON, 10, "live")["dim_player"]
     assert len(read(real["out10"], "players")) == len(dim)

@@ -102,3 +102,18 @@ def test_a_patched_private_config_still_works(seen: list[Path], monkeypatch: pyt
     monkeypatch.setattr(features, "_config", lambda c, r: c if c is not None else cfg)
     live_deadlines(SEASON)
     assert seen == [ROOT / "patched" / "data" / SEASON]
+
+
+def test_the_export_takes_its_deadlines_from_the_copy_too(
+    seen: list[Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from fpl import export
+
+    def stop(*args: object, **kwargs: object) -> None:
+        raise Stop
+
+    monkeypatch.setattr(export, "load_history", stop)
+    monkeypatch.setattr(export, "read_upstream_commit", lambda checkout: "abc1234")
+    with use_data_copy(COPY), pytest.raises(Stop):
+        export.run_export(tmp_path, datetime(2026, 9, 1, tzinfo=UTC))
+    assert seen == [COPY / SEASON]

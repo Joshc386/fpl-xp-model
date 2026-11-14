@@ -148,7 +148,7 @@ def run_export(out_dir: Path, run_utc: datetime | None = None) -> dict[str, Path
     run = pd.Timestamp(run_utc or datetime.now(UTC)).floor("s")
     run = run.tz_localize("UTC") if run.tzinfo is None else run.tz_convert("UTC")
     season = str(pcfg["current_season"])
-    deadlines = live_deadlines(season, cfg=pcfg)
+    deadlines = live_deadlines(season)
     next_gw, as_of_gw = next_gameweek(deadlines, run), as_of_gameweek(deadlines, run)
     log.info("run %s: next gameweek %d, as-of gameweek %d", run.strftime(TIME_FORMAT), next_gw,
              as_of_gw)

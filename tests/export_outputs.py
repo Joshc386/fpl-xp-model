@@ -12,11 +12,13 @@ import math
 import pandas as pd
 
 from export_tables import AS_OF, PREM, SEASON, tables
+from fpl.ingest import ROOT, load_config
 from fpl.output_checks import CheckContext
 from fpl.output_schema import OUTPUT_SCHEMA
 from fpl.player_metrics import player_metrics
 from fpl.schema import expected_dtype
 
+MODEL_VERSION = load_config(ROOT / "config" / "model.yaml")["model_version"]
 RUN = pd.Timestamp("2026-09-03T20:00:00Z")
 BOUNDS = {
     "now_cost_m": [3.0, 20.0], "positions": ["GKP", "DEF", "MID", "FWD"],
@@ -53,7 +55,7 @@ def meta() -> pd.DataFrame:
         "run_utc": "2026-09-03T20:00:00Z",
         "upstream_commit": "ac8be9caa3bce7aa6c2b73d5a33a9f5c0b2f0e41",
         "current_gw": 3, "next_gw": 4, "next_deadline_utc": "2026-09-04T12:00:00Z",
-        "model_version": "0.1.0-elo", "max_horizon": 5, "backtest_mae_model": None,
+        "model_version": MODEL_VERSION, "max_horizon": 5, "backtest_mae_model": None,
         "backtest_mae_ep_next": None, "status": "ok",
     }
     return typed("meta", pd.DataFrame([row]))
