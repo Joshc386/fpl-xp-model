@@ -335,8 +335,8 @@ The model-validator judges the Elo component on its own walk-forward test over 2
 | Check | Pass mark |
 | --- | --- |
 | Ratings track upstream Elo (2025/26) | Spearman rank correlation ≥ 0.9 at every gameweek from GW6 at which upstream Elo is a before-match rating: GW6–26 and GW33 (data rule 12). GW27–32 (upstream stuck at GW26) and GW34–38 (upstream's end-of-season rating) are reported without a pass mark. The mean rating gap is reported |
-| Goals are calibrated | Bins of predicted goals (0–0.75, 0.75–1.25, 1.25–1.75, 1.75+): actual within ±0.1 goals of predicted in every bin with ≥100 team-fixtures |
-| Clean sheets are calibrated | Bins of predicted `p_cs` in steps of 0.1: actual rate within ±5 percentage points in every bin with ≥100 team-fixtures |
+| Goals are calibrated | Bins of predicted goals (0–0.75, 0.75–1.25, 1.25–1.75, 1.75+), in every bin with ≥100 team-fixtures: a bin fails only if actual misses predicted by more than both 0.1 goals and two standard errors of the bin mean (√Σλ ÷ n, from the model's own rates) |
+| Clean sheets are calibrated | Bins of predicted `p_cs` in steps of 0.1, in every bin with ≥100 team-fixtures: a bin fails only if the actual rate misses predicted by more than both 5 percentage points and two standard errors (√Σp(1−p) ÷ n) |
 | Beats a no-skill baseline | Lower Poisson log-loss of goals than league-average home and away goals |
 | Early season | GW1–5 of each season reported separately, without pass marks |
 
@@ -348,6 +348,7 @@ How the check is run (decided 2026-11-13):
 - **The no-skill baseline:** league-average home and away goals over the same pool the Elo goals model fits on at as-of g−1 (this season and last, finished results up to and including that gameweek).
 - **Perturbation test:** at 2025/26 as-of 5, 20 and 33 and 2026/27 as-of 3 and 9, every result after the as-of gameweek is corrupted (scores, finished flags, upstream Elo, xG), and the schedule is kept. Any change in either function's output is a fail.
 - **Reads that raise by design** (`docs/data_contract.md`, Elo seed notes) are skipped and counted, not scored.
+- **Why the two-standard-error floor** (decided 2026-11-14, from the re-check on): in a bin of about 100 team-fixtures, sampling noise alone is larger than ±0.1 goals, so a perfectly calibrated model failed the original goals rule 57% of the time and the clean-sheet rule 22%. The first check (2026-11-13) fails under both rules.
 
 - **A fail** returns the Elo component to the modeller with the findings. A second fail is Josh's cue for a separate Elo agent.
 - **Where upstream Elo is not a before-match rating or is missing** (2025/26 GW27–32, 2025/26 GW34 onwards and all of 2026/27), Josh compares our ratings with an outside Elo source himself: beyondELO's per-match before-match ratings (beyondelo.com, through its API; CC BY 4.0, credit "beyondELO (https://beyondelo.com)"; decided 2026-11-13). Its scale differs from ClubElo's and it doesn't rate the Championship, so it is a check, not a seed. The test there is ranking agreement and predictive log-loss, not raw rating levels. His verdict gates the phase 2 Dixon-Coles work.

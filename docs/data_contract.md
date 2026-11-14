@@ -198,7 +198,8 @@ CSV in `outputs/`, committed, read by Excel.
   dash where there are none. `team` and `opponent` are the clubs'
   `dim_team.short_name`, so the workbook needs no join (decided 2026-11-14).
 - **`players.csv`:** `net_transfers_gw`, `price_change_gw` and
-  `price_change_start` come from `dim_player` and are never null.
+  `price_change_start` come from `dim_player` and are never null. `team` is
+  the club's `dim_team.short_name`, as in `fixture_difficulty.csv`.
 - **`projections.csv`:** in a double gameweek, `opponent` lists both
   opponents.
 - **`elo_ratings.csv`:** an analysis output for Josh's comparison with an
@@ -298,6 +299,11 @@ guard against leakage.
 - **Live gameweeks:** `live_gameweeks(season, run_utc)` returns the next and
   as-of gameweeks, and `live_deadlines(season)` every gameweek's deadline,
   both from the master `gameweek_summaries.csv`.
+- **Another data copy (tests and the backtest harness only):** a context
+  manager in `fpl.features` under which every loader read that isn't given
+  its own `root` or `cfg` takes upstream data from a given directory instead
+  of the checkout named in `config/pipeline.yaml`. Code outside the loader
+  never patches its private functions (decided 2026-11-14).
 - **Next and as-of gameweek (live only):** the next gameweek is the first
   whose `deadline_time` in the master `gameweek_summaries.csv` is strictly
   after the run time. A run at the exact deadline treats it as passed. The

@@ -123,7 +123,9 @@ appearance.
 
 **xG90 / xA90**:
 Σ xG (or xA) ÷ Σ minutes × 90, using the match-data xG and xA that the model
-uses, not FPL's `expected_goals`. 0 when minutes are 0. Unit: per 90 minutes.
+uses, not FPL's `expected_goals`. The minutes are `minutes_played` in the same
+complete matches as the xG, not FPL's minutes, so a match whose xG isn't loaded
+yet counts in neither. 0 when minutes are 0. Unit: per 90 minutes.
 
 **DC90**:
 Σ FPL defensive-contribution count ÷ Σ minutes × 90. The count is CBIT for

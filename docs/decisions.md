@@ -1716,3 +1716,40 @@ proposals, and the contract changes go in before the fix round's code.
 - **Updated:** `docs/data_contract.md` (`dim_player` and its source note,
   live mode, live gameweeks, and the `fixture_difficulty.csv`, `players.csv`
   and `meta.csv` notes) and brief section 5.
+
+### 2026-11-14: main - task 4 verdict decisions (Josh)
+Josh took the six remaining recommendations from the task 4 verdict and the
+task 5 review. The numbers are the ones he answered.
+1. **The FAIL stands.** The Elo goals model (`src/fpl/models/team_goals.py`)
+   goes back to the modeller with the findings. This is fail one of two. The
+   ratings passed and aren't changed.
+2. **The calibration tolerance accounts for sample size, from the re-check
+   on.** A goals or clean-sheet bin fails only if it misses by more than
+   both the written tolerance (0.1 goals, 5 percentage points) and two
+   standard errors of the bin mean under the model's own rates.
+   - Why: a perfectly calibrated model failed the original goals rule 57% of
+     the time and the clean-sheet rule 22%, so a second fail, which triggers
+     a rebuild, would often be chance. The first check fails under both
+     rules (miss 0.281, limit 0.279), so the change doesn't rescue it.
+   - Trade-off: a real bias of about 0.25 goals in a 100-fixture bin can
+     pass. Rejected: a higher minimum count, which would excuse the failing
+     bin after the fact.
+   - The xP gate's calibration rule (±0.3 in bins of at least 200) should be
+     checked the same way before phase 3. It isn't changed now.
+3. **The modeller works on 2025/26 only.** Its task carries the 2025/26
+   findings, not the 2026/27 breakdowns, and it doesn't read
+   `backtest/reports/`. The public signatures and output columns stay the
+   same, and the fix bumps `model_version`.
+4. **A supported way to point the loader at another data copy,** so the
+   harness stops patching `fpl.features._config`. It is added to task 5's
+   fix round, and the validator switches to it in the re-check.
+8. **xG90 and xA90 divide by `minutes_played` in the same complete matches**
+   (`CONTEXT.md`). Trade-off: 2026/27's `minutes_played` reads about 1
+   minute high for substituted starters, so the rates run about 1% low.
+   Rejected: FPL minutes, which count matches whose xG isn't loaded yet.
+9. **`team` in `players.csv` is the short name,** as in
+   `fixture_difficulty.csv`, so one column name means one thing. Trade-off:
+   the Player Database shows "ARS", not "Arsenal".
+- **Updated:** brief section 7 (the goals and clean-sheet pass marks, and
+  why), `docs/data_contract.md` (the `players.csv` note and the loader
+  section) and `CONTEXT.md` (xG90 / xA90).
