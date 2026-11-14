@@ -2133,3 +2133,27 @@ only, at upstream `ac8be9ca`; nothing in 2026/27 was fitted, scored or looked at
   must read the corrupted copy (`copy_reached`). If either fails, the
   leakage checks can't be trusted, so under brief section 7's "every leakage
   check passes" the verdict is FAIL.
+
+### 2026-11-14: main - task 4 re-check: PASS, and the second holdout look
+- **Holdout look (brief section 7):** the validator's re-check on 2026-11-14
+  read 2026/27 GW1-10 at upstream `ac8be9ca`, on `ff6d43d` (`model_version`
+  `0.1.1-elo`). The main session's recompute read the same data, with the
+  same model, to verify it. Report: `backtest/reports/2026-11-14.md`.
+- **Verdict: PASS** on every criterion: ratings (lowest Spearman 0.982),
+  goals and clean-sheet calibration, log-loss (1.4456 against the
+  baseline's 1.4688), and every leakage check, including the planted leak
+  and the copy control. The main session's own script, sharing no code
+  with the harness, reproduces every pass-marked bin and the log-loss.
+- **Caveats for sign-off:**
+  - **The bin that failed last time carries no mark this time.** The 1.75+
+    goals bin shrank from 103 to 91 team-fixtures, below the 100 that carry
+    a mark. It would still pass the two-standard-error rule (miss 0.231,
+    limit 0.294), but it would fail the original ±0.1.
+  - **On the holdout alone,** 2026/27 GW6-10 with 100 team-fixtures, the
+    model beats the baseline by 0.0124, against 0.0132 for v1. The fix's
+    gain is on the season it was tuned on, and the holdout difference is
+    within noise.
+  - **Clean sheets run slightly high** in every scored bin. The closest to
+    its limit is 0.2-0.3, at −0.034 against 0.050.
+- **This is the phase 1 Elo component check** (plan, task 4). Josh signs
+  it off.
