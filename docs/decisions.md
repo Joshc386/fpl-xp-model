@@ -1660,3 +1660,25 @@ Task 5 needs `meta.model_version`. The contract's example value was
   validator records the commit it ran on.
 - **Updated:** `config/model.yaml`, brief section 6, `docs/data_contract.md`
   (the `meta.csv` note).
+
+### 2026-11-14: main - task 4 Elo check: FAIL, and the holdout look
+- **Holdout look (brief section 7):** the model-validator's Elo check on
+  2026-11-13 read 2026/27 GW1-10 at upstream `ac8be9ca`. Goals and clean
+  sheets were scored for GW3-10, and ratings read at as-of 2-10 for the
+  stability check. 2026/27 is 100 of the 760 pass-mark team-fixtures.
+- **Verdict: FAIL** on goals calibration. In the 1.75+ bin, 103
+  team-fixtures had 1.999 goals predicted and 1.718 actual, against a
+  tolerance of 0.1. Every other check passes: ratings (lowest Spearman
+  0.982), clean sheets, log-loss (1.4461 against the baseline's 1.4688) and
+  every leakage check. Report: `backtest/reports/2026-11-13.md`.
+- **Rechecked:** the main session's own script, sharing no code with the
+  harness, gives the same bin (103, 1.9990, 1.7184) and log-loss. Code
+  Review's independent spot check matches too.
+- **The gate itself:** simulating a perfectly calibrated model on this run's
+  own predictions (20,000 draws), it fails the goals check 57% of the time
+  and the clean-sheet check 22%. Put to Josh with the verdict; decision
+  pending.
+- **Code Review:** approved the harness with non-blocking findings. 31 of 39
+  mutants die. The 8 survivors are test gaps in the verdict's leak controls,
+  the baseline's call site and the config, and go back to the validator as
+  follow-ups.

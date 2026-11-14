@@ -1,0 +1,92 @@
+# Settings for the Elo component check (brief section 7, "Elo component check" and
+# "How the check is run"). Owned by the model-validator. The pass marks are Josh's starting
+# thresholds: change them only on his decision, never to make a run pass.
+
+mode: backtest
+
+# Seasons in run order, each with the target gameweeks scored. 2026/27 to date is GW1-10
+# (all 100 fixtures finished; GW11 starts 2026-11-21).
+seasons:
+  - id: "2025-2026"
+    target_gameweeks: [1, 38]
+  - id: "2026-2027"
+    target_gameweeks: [1, 10]
+
+# The Elo goals model fits on this season and last (brief 6.2); the no-skill baseline uses
+# the same pool: finished Premier League results of these seasons up to and including g-1.
+baseline_pool_seasons: 2
+
+# Pass marks apply from this gameweek, both seasons pooled. GW1 to pass_from_gw - 1 of each
+# season is reported separately without pass marks.
+pass_from_gw: 6
+
+goals:
+  bin_edges: [0.0, 0.75, 1.25, 1.75]   # lower edges; the last bin is open-ended (1.75+)
+  tolerance: 0.1                       # goals
+clean_sheets:
+  bin_width: 0.1                       # bins [0, 0.1), [0.1, 0.2) ... [0.9, 1.0]
+  tolerance: 0.05                      # 5 percentage points
+min_bin_count: 100                     # a bin carries a pass mark from this many team-fixtures
+# An unscored bin (fewer than min_bin_count) off by more than its tolerance is listed under
+# Concerns once it holds this many team-fixtures.
+concern_min_count: 25
+# Differences are rounded to this many decimals before comparing with a tolerance, so that a
+# gap of exactly the tolerance passes despite floating-point error.
+compare_decimals: 9
+
+ratings:
+  season: "2025-2026"
+  min_spearman: 0.9
+  # Inclusive gameweek ranges where upstream Elo is a before-match rating and the pass mark
+  # applies (brief data rule 12).
+  pass_gameweeks: [[6, 26], [33, 33]]
+  # Gameweeks reported without a pass mark, and why.
+  unscored:
+    - range: [1, 5]
+      why: "early season (GW1 is the seed itself)"
+    - range: [27, 32]
+      why: "upstream Elo stuck at its GW26 value"
+    - range: [34, 38]
+      why: "upstream Elo is ClubElo's end-of-season rating"
+
+# Reads that raise by design (docs/data_contract.md, Elo seed notes): function -> season ->
+# as-of -> the exception's class name. Any other exception, or one of these elsewhere, stops
+# the run. The goals model runs the Elo component first, so it raises the seed error too.
+expected_skips:
+  elo_ratings:
+    "2025-2026": {0: MissingSeedError}
+    "2026-2027": {0: MissingSeedError, 1: MissingSeedError}
+  elo_goals:
+    "2025-2026": {0: MissingSeedError, 1: InsufficientSampleError, 2: InsufficientSampleError}
+    "2026-2027": {0: MissingSeedError, 1: MissingSeedError}
+
+# Perturbation test: every result after the as-of gameweek is corrupted in a scratch copy of
+# the upstream checkout (scores, finished flags, upstream Elo, xG), the schedule is kept, and
+# both public functions are re-run. Any change in any output value is a leak.
+perturbation:
+  seed: 20261113
+  cases:
+    - {season: "2025-2026", as_of: 5}
+    - {season: "2025-2026", as_of: 20}
+    - {season: "2025-2026", as_of: 33}
+    - {season: "2026-2027", as_of: 3}
+    - {season: "2026-2027", as_of: 9}
+  # Within a gameweek: at as-of g, the results of GW g fixtures kicking off at or after the
+  # gameweek's middle kickoff time (and everything later) are corrupted, with `finished` kept.
+  # elo_before at every kickoff up to that time must not change. GW33 of 2025/26 is a double.
+  within_gameweek:
+    - {season: "2025-2026", gw: 33}
+    - {season: "2026-2027", gw: 9}
+  score_range: [0, 9]          # corrupted scores are drawn from here, never the true score
+  elo_range: [1200.0, 2200.0]
+  xg_range: [0.0, 4.0]
+
+# Files copied into the scratch upstream copy (the loader reads only these in backtest mode;
+# the master files are deliberately not copied).
+upstream_files: [fixtures, matches, players, teams, playerstats, playermatchstats,
+                 player_gameweek_stats]
+
+weakest:
+  top_n: 3                     # how many clubs, gameweeks and bins to list
+
+report_dir: backtest/reports
