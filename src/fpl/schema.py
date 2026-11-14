@@ -34,7 +34,8 @@ RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
         "num": [
             "id", "gw", "chance_of_playing_next_round", "now_cost", "selected_by_percent",
             "penalties_order", "direct_freekicks_order",
-            "corners_and_indirect_freekicks_order", "ep_next",
+            "corners_and_indirect_freekicks_order", "ep_next", "cost_change_start",
+            "cost_change_event", "transfers_in_event", "transfers_out_event",
         ],
     },
     "playermatchstats": {
@@ -78,6 +79,8 @@ PROCESSED_SCHEMA: dict[str, list[Col]] = {
         ("status", "str", False), ("chance_next", "int", True), ("news", "str", True),
         ("selected_pct", "float", False), ("pen_order", "int", True),
         ("fk_order", "int", True), ("corner_order", "int", True), ("ep_next", "float", True),
+        ("price_change_start_tenths", "int", False), ("price_change_gw_tenths", "int", False),
+        ("transfers_in_gw", "int", False), ("transfers_out_gw", "int", False),
     ],
     "dim_team": [
         ("team_id", "int", False), ("team_code", "int", False), ("name", "str", False),
@@ -180,7 +183,11 @@ def _dtype_ok(series: pd.Series, kind: str, nullable: bool) -> bool:
 
 def check_table_schema(df: pd.DataFrame, table: str) -> list[str]:
     """Problems with a processed table's columns, dtypes and nulls; empty if it is fine."""
-    spec = PROCESSED_SCHEMA[table]
+    return check_schema(df, table, PROCESSED_SCHEMA[table])
+
+
+def check_schema(df: pd.DataFrame, table: str, spec: list[tuple[str, str, bool]]) -> list[str]:
+    """Problems with `df` against `spec` (column, kind, nullable), in order; empty if fine."""
     names = [c for c, _, _ in spec]
     if list(df.columns) != names:
         return [f"{table}: columns {list(df.columns)} differ from the contract {names}"]

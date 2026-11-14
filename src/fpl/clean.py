@@ -142,6 +142,10 @@ def build_dim_player(
         "selected_pct": df.selected_by_percent,
         "pen_order": nint("penalties_order"), "fk_order": nint("direct_freekicks_order"),
         "corner_order": nint("corners_and_indirect_freekicks_order"), "ep_next": df.ep_next,
+        "price_change_start_tenths": to_int(df.cost_change_start, "cost_change_start"),
+        "price_change_gw_tenths": to_int(df.cost_change_event, "cost_change_event"),
+        "transfers_in_gw": to_int(df.transfers_in_event, "transfers_in_event"),
+        "transfers_out_gw": to_int(df.transfers_out_event, "transfers_out_event"),
     })
     return out, dropped
 

@@ -1661,6 +1661,65 @@ Task 5 needs `meta.model_version`. The contract's example value was
 - **Updated:** `config/model.yaml`, brief section 6, `docs/data_contract.md`
   (the `meta.csv` note).
 
+### 2026-11-13: data - task 5 thin-slice outputs (export.py)
+`python -m fpl.export --out-dir DIR [--run-utc ISO]` writes `players.csv`,
+`fixture_difficulty.csv`, `elo_ratings.csv` and `meta.csv`. About 5 s on the latest
+snapshot (upstream `ac8be9ca`). Every check runs before anything is written; a failed
+check raises `ValidationError` (non-zero exit) and leaves `DIR` untouched. Files are
+written under temporary names and renamed together.
+
+- **Code:** `export.py` (reads, orchestration, writes), `player_metrics.py` (pure
+  players.csv), `output_checks.py` and `output_checks_model.py` (step 8 checks),
+  `output_schema.py` (the four schemas). `features.py` gains `live_deadlines`, which
+  `live_gameweeks` now uses. `schema.check_table_schema` delegates to a new
+  `check_schema(df, name, spec)`. `config/pipeline.yaml` gains `current_season` and
+  `output_validation` (Elo rating range, `lambda_max`, float tolerance).
+- **One read per season:** `load_history` once, then `run_elo` and `goals_from_history`
+  (the pure cores). `players.csv` uses the same live read of the current season. A real-data
+  test counts the loader calls (2025/26 backtest at 38 and 2026/27 live at as-of: two) and
+  asserts the outputs equal `elo_ratings` and `elo_goals` exactly.
+- **Metric rules (CONTEXT.md, plus the points it leaves open):**
+  - `minutes`, `starts`, `total_points`: sums of `fact_player_gw` up to the as-of gameweek.
+  - `ppg` appearances = complete Premier League matches with `minutes` > 0 in
+    `fact_player_match`, not gameweeks. Evidence: 2025/26 GW38, which has doubles, gives 1
+    mismatch of 841 against FPL's `points_per_game` by match and 112 by gameweek.
+    Fallback: `max(match appearances, gameweeks with minutes > 0)`. Reason: 7 player-match
+    rows are dropped as `player_not_in_snapshot` (Mfuni, J.Angulo, Tutierov at GW10), which
+    left 19 points over 0 appearances. A double gameweek can only raise the match count.
+  - `xg90`, `xa90`: Σ xG (xA) ÷ Σ `minutes_played` over the same complete Premier League
+    matches, so numerator and denominator cover the same matches. `dc90`: FPL's
+    `defensive_contribution` ÷ FPL `minutes`, both from `fact_player_gw`. All are 0 at 0
+    minutes. Players whose rows were dropped (above) have xG 0.
+  - `pen_taker`: `pen_order` = 1. `price_m`: `dim_player.price_tenths` / 10, which in live
+    mode is the master price.
+  - `net_transfers_gw`: row g's `transfers_in` - `transfers_out` (rule 8: row g is the run-up
+    to g+1). `price_change_gw`: `dim_player.price_tenths` less row g-1's `price_tenths`
+    (the price at GW g's deadline). Null for a player missing the row it needs (a club's
+    gameweek not finished, or a player new that gameweek).
+  - `team` is `dim_team.name`.
+- **Left out:** `price_change_start`. No processed table holds the start-of-season price.
+- **Checks:** schema and dtypes against the contract; unique keys; no NaN or infinity outside
+  the null-by-design columns; `lambda_for`/`lambda_against` in (0, `lambda_max`);
+  `p_cs` = exp(-`lambda_against`) and in [0, 1]; fixture_difficulty gameweeks inside
+  next..next+`max_horizon`-1, each with a deadline after `run_utc`; its rows equal
+  `fact_fixture`'s Premier League fixtures in that range (one per side, so a double has two
+  rows and a blank none) with matching gw, opponent and home, and mirrored lambdas; every
+  team id in that season's `dim_team`; Elo rows two per match, zero-sum, in range, covering
+  exactly each season's finished Premier League matches, none after the as-of gameweek, none
+  kicking off after `run_utc`; players set equals `dim_player`, price, position, team,
+  percentage and non-negative checks; meta values equal the context (`current_gw` = next - 1,
+  deadline from the master file and after `run_utc`, commit hash, `max_horizon`).
+- **`meta.status`:** `ok` is the only value, because a run that fails a check publishes
+  nothing (brief section 11). Proposal, not in the contract.
+- **Effect downstream:** the workflows (task 6) call the one command with `--out-dir`. The
+  `kickoff_utc <= run_utc` check means a run pinned in the past is valid only while the data
+  on disk is not newer than the pin; a pin just before the next deadline is fine.
+- **Real-data reconciliation (GW10, 672 players):** `total_points`, `minutes` and `starts`
+  equal FPL's `playerstats` for all; `net_transfers_gw` equals `transfers_in_event` -
+  `transfers_out_event` for all; `price_change_gw` equals `cost_change_event` / 10 for all
+  670 non-null; `price_m` equals `now_cost`; `ppg` is within FPL's 0.1 rounding;
+  `dc90` x minutes / 90 equals FPL's `defensive_contribution`.
+
 ### 2026-11-14: main - task 4 Elo check: FAIL, and the holdout look
 - **Holdout look (brief section 7):** the model-validator's Elo check on
   2026-11-13 read 2026/27 GW1-10 at upstream `ac8be9ca`. Goals and clean
@@ -1716,6 +1775,57 @@ proposals, and the contract changes go in before the fix round's code.
 - **Updated:** `docs/data_contract.md` (`dim_player` and its source note,
   live mode, live gameweeks, and the `fixture_difficulty.csv`, `players.csv`
   and `meta.csv` notes) and brief section 5.
+
+### 2026-11-14: data - task 5 fix round
+Applied the three approved contract changes (commit `37b6824`) and the Code Review findings.
+
+- **`dim_player` carries four more columns** (`price_change_start_tenths`,
+  `price_change_gw_tenths`, `transfers_in_gw`, `transfers_out_gw`) from upstream
+  `cost_change_start`, `cost_change_event`, `transfers_in_event` and `transfers_out_event`.
+  Schema, cleaning (`to_int`, so a null or fractional value fails the build), the raw-column
+  requirement and the live overlay (all four are in `OVERLAID`; a null in a player's latest
+  master row raises `ValidationError`) are updated. Loader tests check the snapshot values in
+  backtest mode and the poisoned master values in live mode.
+- **`players.csv`:** `price_change_start` added. `net_transfers_gw`, `price_change_gw` and
+  `price_change_start` come from `dim_player` and are never null; the null checks are strict
+  again and the `fact_player_gw` route is gone.
+- **`fixture_difficulty.csv`:** `team` and `opponent` (`dim_team.short_name`) added by checked
+  joins; a check compares them with the ids.
+- **`ppg` (blocking finding):** appearances are now counted only in gameweeks that have a
+  released `fact_player_gw` row, the same window as the points. Per gameweek the larger of
+  complete-match appearances and 1 if FPL minutes > 0, summed. This gives 18 / 4 for the
+  shipped fixture (a finished match that is not complete), 16 / 3 for a half-played double
+  gameweek, and counts both matches of a complete double. Mutants "gameweek appearances
+  only" and "match appearances only" now fail a test each.
+- **Checks added or tightened:** `dc90` is 0 for every goalkeeper; every message is asserted
+  exactly. Tests now kill these mutants: finished filter dropped from the Elo cover check,
+  `>` to `>=` on the meta deadline, the `current_gw` = `next_gw` - 1 check dropped, the
+  exact-deadline boundary, the lambda bounds made inclusive, the lambda upper bound dropped,
+  and the previously unrun players checks.
+- **`publish`:** the renames are atomic per file, not as a set. A failed rename now removes
+  the temporary files and raises; the docstring says what really happens. A test forces the
+  third rename to fail.
+- **Small:** `run_export` reads the deadlines once and derives the next and as-of gameweeks
+  with `clock.next_gameweek` and `clock.as_of_gameweek` (what `live_gameweeks` does).
+  `output_problems`' docstring now says it raises only on malformed input.
+  The real-data tests compare current-state columns with the master file, and derive row
+  counts from the fixtures, so the next pull does not break them.
+- **`players.csv` `team` is `dim_team.short_name`** (approved 2026-11-14), like
+  `fixture_difficulty.csv`. The check compares each player's `team` with the short name of his
+  own `dim_player.team_id`, not just any club.
+- **Another data copy:** `fpl.features.use_data_copy(data_dir)` is a context manager (a
+  `ContextVar`, so exception-safe and per thread or task). `data_dir` is the folder holding the
+  season folders. Inside it `load_as_of`, `live_deadlines` and `live_gameweeks` read from it
+  when called with no `root` or `cfg`, including inside `elo_ratings` and `elo_goals`. An
+  explicit `root` or `cfg` wins. The loader functions' `root` default changed from `ROOT` to
+  `None` (same behaviour). `features._config` is untouched and still patchable, which a test
+  confirms. Tests: `tests/test_data_copy.py` (recorders: inside, outside, after an exception,
+  nested, explicit root or cfg, patched `_config`) and `tests/test_data_copy_real.py` (a copy
+  with one GW10 score changed to 9-0; `elo_ratings` inside the block shows the copy, outside
+  it equals the checkout).
+- **Not changed:** the `xg90`/`xa90` denominator stays `minutes_played` over the same
+  complete matches (undecided when this round started; Josh settled it on 2026-11-14, see
+  "main - task 4 verdict decisions").
 
 ### 2026-11-14: main - task 4 verdict decisions (Josh)
 Josh took the six remaining recommendations from the task 4 verdict and the

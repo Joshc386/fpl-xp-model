@@ -16,7 +16,12 @@ from fpl.validate import ValidationError
 
 log = logging.getLogger(__name__)
 
-OVERLAID = ["status", "news", "chance_next", "price_tenths"]
+# upstream master column -> dim_player column, for the integer fields that are never null.
+COUNT_FIELDS = {
+    "cost_change_start": "price_change_start_tenths", "cost_change_event": "price_change_gw_tenths",
+    "transfers_in_event": "transfers_in_gw", "transfers_out_event": "transfers_out_gw",
+}
+OVERLAID = ["status", "news", "chance_next", "price_tenths", *COUNT_FIELDS.values()]
 
 
 def _check_master(master: pd.DataFrame, price_bounds: list[float]) -> list[str]:
@@ -39,8 +44,8 @@ def _check_master(master: pd.DataFrame, price_bounds: list[float]) -> list[str]:
 def overlay_current_state(
     dim_player: pd.DataFrame, master: pd.DataFrame, price_bounds: list[float]
 ) -> pd.DataFrame:
-    """dim_player with status, news, chance_next and price_tenths from each player's latest
-    master row (highest `gw`).
+    """dim_player with `OVERLAID` (status, news, chance_next, price_tenths and the four
+    price-change and transfer counts) from each player's latest master row (highest `gw`).
 
     A player with no master row keeps his snapshot values (logged). Master rows for players
     not in dim_player are ignored. Raises `ValidationError` on a malformed master file.
@@ -52,10 +57,15 @@ def overlay_current_state(
     if ids.duplicated().any():
         raise ValidationError(["dim_player: duplicate player_id before the overlay"])
     latest = master.sort_values("gw").drop_duplicates("id", keep="last")
+    empty = [f"master playerstats.{c}: {int(latest[c].isna().sum())} null values in latest rows"
+             for c in COUNT_FIELDS if latest[c].isna().any()]
+    if empty:
+        raise ValidationError(empty)
     state = pd.DataFrame({
         "status": latest.status, "news": latest.news,
         "chance_next": to_int(latest.chance_of_playing_next_round, "chance", nullable=True),
         "price_tenths": tenths(latest.now_cost, "now_cost"),
+        **{new: to_int(latest[old], old) for old, new in COUNT_FIELDS.items()},
     }).set_axis(to_int(latest.id, "id"))
     seen = ids.isin(state.index)
     if not seen.all():

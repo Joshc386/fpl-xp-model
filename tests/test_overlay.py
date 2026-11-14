@@ -26,12 +26,17 @@ def dim_player() -> pd.DataFrame:
         "fk_order": pd.array([None] * 3, dtype="Int64"),
         "corner_order": pd.array([None] * 3, dtype="Int64"),
         "ep_next": [4.0, 3.0, 2.0],
+        "price_change_start_tenths": pd.array([1, 2, 3], dtype="int64"),
+        "price_change_gw_tenths": pd.array([0, 0, 0], dtype="int64"),
+        "transfers_in_gw": pd.array([10, 20, 30], dtype="int64"),
+        "transfers_out_gw": pd.array([1, 2, 3], dtype="int64"),
     })
 
 
 def master(rows: list[dict]) -> pd.DataFrame:
     base = {"gw": 10.0, "status": "a", "news": np.nan, "chance_of_playing_next_round": np.nan,
-            "now_cost": 5.0}
+            "now_cost": 5.0, "cost_change_start": 0.0, "cost_change_event": 0.0,
+            "transfers_in_event": 0.0, "transfers_out_event": 0.0}
     return pd.DataFrame([{**base, **r} for r in rows])
 
 
@@ -39,12 +44,13 @@ def test_the_four_fields_are_overlaid_and_nothing_else_changes() -> None:
     dim = dim_player()
     rows = master([
         {"id": 1.0, "status": "i", "news": "Hamstring", "chance_of_playing_next_round": 0.0,
-         "now_cost": 5.4},
+         "now_cost": 5.4, "cost_change_start": 4.0, "cost_change_event": 1.0,
+         "transfers_in_event": 500.0, "transfers_out_event": 120.0},
         {"id": 2.0, "now_cost": 6.0},
         {"id": 3.0, "now_cost": 6.9},
     ])
     out = overlay_current_state(dim, rows, BOUNDS)
-    assert out.loc[0, OVERLAID].tolist() == ["i", "Hamstring", 0, 54]
+    assert out.loc[0, OVERLAID].tolist() == ["i", "Hamstring", 0, 54, 4, 1, 500, 120]
     assert out.price_tenths.tolist() == [54, 60, 69]
     pd.testing.assert_frame_equal(out.drop(columns=OVERLAID), dim.drop(columns=OVERLAID))
     assert check_table_schema(out, "dim_player") == []
@@ -95,6 +101,8 @@ def test_inputs_are_not_modified() -> None:
         ({"now_cost": 54.0}, "now_cost"),
         ({"now_cost": np.nan}, "now_cost"),
         ({"status": None}, "status"),
+        ({"transfers_in_event": np.nan}, "transfers_in_event"),
+        ({"cost_change_start": np.nan}, "cost_change_start"),
     ],
 )
 def test_a_malformed_master_row_fails(change: dict, text: str) -> None:

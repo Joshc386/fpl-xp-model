@@ -19,6 +19,9 @@ seasons:
     gameweeks: 38
     tackles_column: tackles_won
 
+# The season the published outputs describe (players.csv, fixture_difficulty.csv, meta.csv).
+current_season: 2026-2027
+
 # Upstream's tournament tag for the Premier League.
 premier_league_tag: prem
 
@@ -74,3 +77,10 @@ validation:
     always_allowed: 5
   # fact_player_match rows per complete match, after the drops (real minimum 25).
   fact_player_match_rows_per_complete_match_min: 15
+
+# Output validation bounds (brief section 11, step 8). Price and position bounds are shared with
+# `validation.now_cost_m` and `position_map`.
+output_validation:
+  elo_rating_range: [1000, 2500]   # our Elo ratings; real values sit near 1500-2000
+  lambda_max: 10                   # expected goals for or against in one fixture
+  tolerance: 1.0e-9                # float tolerance for p_cs = exp(-lambda_against) and zero-sum Elo

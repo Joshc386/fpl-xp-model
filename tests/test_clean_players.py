@@ -32,6 +32,8 @@ def playerstats_frame(rows: list[dict]) -> pd.DataFrame:
         "status": "a", "news": None, "chance_of_playing_next_round": np.nan, "now_cost": 15.8,
         "selected_by_percent": 12.3, "penalties_order": np.nan, "direct_freekicks_order": 2.0,
         "corners_and_indirect_freekicks_order": np.nan, "ep_next": 4.5,
+        "cost_change_start": 3, "cost_change_event": -1, "transfers_in_event": 100,
+        "transfers_out_event": 40,
     }
     return blank_frame("playerstats", [{**base, **r} for r in rows])
 
@@ -52,6 +54,9 @@ def test_dim_player_maps_position_price_team_and_nullable_fields() -> None:
     assert out.pen_order.isna().all() and out.fk_order.tolist() == [2, 2]
     assert out.news.tolist()[0] == "Knock" and out.news.isna().tolist()[1]
     assert dropped == {"no_playerstats_row": 0}
+    assert out.price_change_start_tenths.tolist() == [3, 3]
+    assert out.price_change_gw_tenths.tolist() == [-1, -1]
+    assert out.transfers_in_gw.tolist() == [100, 100] and out.transfers_out_gw.tolist() == [40, 40]
     assert check_table_schema(out, "dim_player") == []
 
 
@@ -66,6 +71,14 @@ def test_dim_player_rejects_an_unknown_position() -> None:
     players = players_frame([player_row(10, 3, position="Manager")])
     with pytest.raises(CleanError, match="position"):
         build_dim_player(players, playerstats_frame([{"id": 10}]), SWAPPED, POSITIONS)
+
+
+@pytest.mark.parametrize("col", ["cost_change_start", "cost_change_event", "transfers_in_event",
+                                 "transfers_out_event"])
+def test_dim_player_rejects_a_null_price_change_or_transfer_count(col: str) -> None:
+    stats = playerstats_frame([{"id": 10, col: np.nan}])
+    with pytest.raises(CleanError, match=col):
+        build_dim_player(players_frame([player_row(10, 3)]), stats, SWAPPED, POSITIONS)
 
 
 # ---- fact_player_match --------------------------------------------------------------------------

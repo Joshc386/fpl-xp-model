@@ -127,6 +127,8 @@ def _state_rows(gw: int) -> list[dict]:
         "now_cost": (50 + p + gw) / 10, "selected_by_percent": 1.5 + p / 10,
         "penalties_order": 1.0 if p == 1 else np.nan, "direct_freekicks_order": np.nan,
         "corners_and_indirect_freekicks_order": np.nan, "ep_next": gw + p / 10,
+        "cost_change_start": p, "cost_change_event": gw % 2, "transfers_in_event": 10 * gw + p,
+        "transfers_out_event": p,
     } for p in PLAYER_CLUB]
 
 
@@ -163,6 +165,8 @@ def _write_master(base: Path) -> None:
     poisoned = pd.DataFrame(_state_rows(N_GW)).assign(
         status=POISON["status"], news=POISON["news"],
         chance_of_playing_next_round=POISON["chance"], now_cost=POISON["now_cost"],
+        cost_change_start=77, cost_change_event=-7, transfers_in_event=7777,
+        transfers_out_event=7,
     )
     _write(pd.concat([pd.DataFrame(_state_rows(N_GW - 1)), poisoned]), base / "playerstats.csv")
     _write(pd.DataFrame([{"player_id": p} for p in PLAYER_CLUB]), base / "players.csv")

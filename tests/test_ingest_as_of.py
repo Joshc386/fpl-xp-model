@@ -132,8 +132,9 @@ def test_master_readers_return_the_required_columns(tmp_path: Path) -> None:
     )
     (tmp_path / "playerstats.csv").write_text(
         "id,gw,status,news,now_cost,chance_of_playing_next_round,selected_by_percent,"
-        "penalties_order,direct_freekicks_order,corners_and_indirect_freekicks_order,ep_next\n"
-        "5,3,a,,5.5,,1.0,,,,2.0\n", encoding="utf-8",
+        "penalties_order,direct_freekicks_order,corners_and_indirect_freekicks_order,ep_next,"
+        "cost_change_start,cost_change_event,transfers_in_event,transfers_out_event\n"
+        "5,3,a,,5.5,,1.0,,,,2.0,1,0,5,6\n", encoding="utf-8",
     )
     assert read_deadlines(tmp_path).to_dict("records") == [
         {"deadline_time": "2026-08-21T17:30:00+00:00", "id": 1.0}

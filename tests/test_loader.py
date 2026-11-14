@@ -137,6 +137,23 @@ def test_snapshot_fields_come_from_the_as_of_folder(env: dict, as_of: int) -> No
     assert (dim.status == "a").all() and dim.loc[3, "news"] == "Knock"
 
 
+@pytest.mark.parametrize("as_of", [1, 12, 38])
+def test_price_change_and_transfer_columns_come_from_the_as_of_folder(
+    env: dict, as_of: int
+) -> None:
+    dim = load(env, as_of)["dim_player"].set_index("player_id")
+    assert dim.price_change_start_tenths.to_dict() == {p: p for p in synth.PLAYER_CLUB}
+    assert (dim.price_change_gw_tenths == as_of % 2).all()
+    assert dim.transfers_in_gw.to_dict() == {p: 10 * as_of + p for p in synth.PLAYER_CLUB}
+    assert dim.transfers_out_gw.to_dict() == {p: p for p in synth.PLAYER_CLUB}
+
+
+def test_live_mode_overlays_the_price_change_and_transfer_columns(env: dict) -> None:
+    dim = load(env, 20, "live")["dim_player"]
+    assert (dim.price_change_start_tenths == 77).all() and (dim.price_change_gw_tenths == -7).all()
+    assert (dim.transfers_in_gw == 7777).all() and (dim.transfers_out_gw == 7).all()
+
+
 @pytest.mark.parametrize(("as_of", "want"), [
     (0, {}),
     (1, {1: 1511.0, 2: 1521.0, 3: 1531.0, 4: 1541.0}),

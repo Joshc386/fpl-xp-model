@@ -12,7 +12,9 @@ the main guard against leakage:
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 
@@ -32,8 +34,42 @@ log = logging.getLogger(__name__)
 MODES = ("backtest", "live")
 
 
+# The upstream data folder (the one holding the season folders) that `use_data_copy` sets.
+_DATA_COPY: ContextVar[Path | None] = ContextVar("fpl_data_copy", default=None)
+
+
+@contextmanager
+def use_data_copy(data_dir: Path) -> Iterator[None]:
+    """Read upstream data from `data_dir` instead of the configured checkout (tests and the
+    backtest harness only).
+
+    `data_dir` is the folder that holds the season folders (the checkout's `data/`). Inside the
+    block, `load_as_of`, `live_deadlines` and `live_gameweeks` take their data from it, also
+    when called by the model's public functions, which pass no `root` or `cfg`. A call given
+    its own `root` or `cfg` is unaffected. The previous setting is restored on exit, including
+    after an exception. Blocks nest, and each thread or task has its own setting.
+    """
+    token = _DATA_COPY.set(Path(data_dir))
+    try:
+        yield
+    finally:
+        _DATA_COPY.reset(token)
+
+
 def _config(cfg: dict | None, root: Path) -> dict:
     return cfg if cfg is not None else load_config(root / "config" / "pipeline.yaml")
+
+
+def _resolve(cfg: dict | None, root: Path | None) -> tuple[dict, Path]:
+    """The pipeline config and the upstream data folder for one loader call.
+
+    An explicit `root` or `cfg` always means the checkout it names; otherwise the data copy of
+    `use_data_copy` applies if there is one.
+    """
+    copy = _DATA_COPY.get() if cfg is None and root is None else None
+    root = ROOT if root is None else root
+    cfg = _config(cfg, root)
+    return cfg, copy if copy is not None else upstream_data_dir(cfg, root)
 
 
 def _season_config(cfg: dict, season: str) -> dict:
@@ -44,7 +80,7 @@ def _season_config(cfg: dict, season: str) -> dict:
 
 
 def load_as_of(
-    season: str, as_of_gw: int, mode: str, *, cfg: dict | None = None, root: Path = ROOT
+    season: str, as_of_gw: int, mode: str, *, cfg: dict | None = None, root: Path | None = None
 ) -> dict[str, pd.DataFrame]:
     """The five processed tables as they stood at the end of `GW{as_of_gw}`.
 
@@ -60,13 +96,12 @@ def load_as_of(
     Raises `ValueError` for a bad mode, season or gameweek, and the validation errors of a
     failed check.
     """
-    cfg = _config(cfg, root)
+    cfg, data_dir = _resolve(cfg, root)
     scfg = _season_config(cfg, season)
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
     if not 0 <= as_of_gw <= int(scfg["gameweeks"]):
         raise ValueError(f"as_of_gw must be 0..{scfg['gameweeks']}, got {as_of_gw}")
-    data_dir = upstream_data_dir(cfg, root)
     raw = read_season(
         data_dir, scfg, commit="as-of", as_of_gw=as_of_gw, prem_tag=cfg["premier_league_tag"],
         offset_minutes=cfg["loader"]["deadline_offset_minutes"],
@@ -82,14 +117,21 @@ def load_as_of(
     return tables
 
 
+def live_deadlines(
+    season: str, *, cfg: dict | None = None, root: Path | None = None
+) -> pd.Series:
+    """Every gameweek's deadline (UTC timestamps, by gameweek), from the master deadlines."""
+    cfg, data_dir = _resolve(cfg, root)
+    scfg = _season_config(cfg, season)
+    summaries = read_deadlines(data_dir / season)
+    return parse_deadlines(summaries, n_gw=int(scfg["gameweeks"]))
+
+
 def live_gameweeks(
-    season: str, run_utc: datetime, *, cfg: dict | None = None, root: Path = ROOT
+    season: str, run_utc: datetime, *, cfg: dict | None = None, root: Path | None = None
 ) -> tuple[int, int]:
     """(next gameweek, as-of gameweek) at `run_utc`, from the master deadlines (live only)."""
-    cfg = _config(cfg, root)
-    scfg = _season_config(cfg, season)
-    summaries = read_deadlines(upstream_data_dir(cfg, root) / season)
-    deadlines = parse_deadlines(summaries, n_gw=int(scfg["gameweeks"]))
+    deadlines = live_deadlines(season, cfg=cfg, root=root)
     return next_gameweek(deadlines, run_utc), as_of_gameweek(deadlines, run_utc)
 
 
