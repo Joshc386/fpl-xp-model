@@ -38,8 +38,10 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
   - **Gap:** the Elo goals model needs at least `goals_model.min_matches`
     (30) finished matches in its pool and raises below that. With no earlier
     season loaded, 2025/26 has 10 at as-of 1 and 20 at as-of 2. At as-of 1 a
-    fit would give an equal home side about twice the away side's goals,
-    against about 1.25 times over the full season.
+    fit without priors would give an equal home side about twice the away
+    side's goals, against about 1.25 times over the full season. With the
+    goals priors added on 2026-11-14 it gives about 1.1 times, so the
+    minimum now guards against less than it did.
   - **Effect:** backtests have no team goals for 2025/26 GW2-3, which carry
     no pass marks. Live runs always have last season in the pool.
   - **Idea:** load 2024/25 results as a prior pool.
@@ -147,6 +149,21 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
   - **Effect:** clubs in Europe can drift from their true strength.
   - **Idea:** include cup and European matches between two Premier League
     clubs, or re-anchor to an outside source each summer.
+
+## Model
+
+- **Home advantage shrunk towards zero in small pools** (2026-11-14).
+  - **Gap:** the Elo goals model's prior on the home coefficient is centred
+    on zero, although home advantage is known to be positive. The intercept
+    is free, so the shrinkage moves goals from home sides to away sides. It
+    is strongest in small pools early in a season and fades as the pool
+    grows.
+  - **Effect:** early in a season, home sides' expected goals run slightly
+    low and away sides' slightly high, so home clean-sheet chances run
+    slightly low and away ones slightly high.
+  - **Idea:** centre the home prior on last season's home effect, or on a
+    fixed league-wide value. Phase 2's Dixon-Coles model replaces this one
+    for fixture difficulty.
 
 ## Engineering
 

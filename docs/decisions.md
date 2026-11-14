@@ -2111,3 +2111,25 @@ only, at upstream `ac8be9ca`; nothing in 2026/27 was fitted, scored or looked at
       above points the same way.
     - The early-season level, the clean-sheet over-prediction it causes and Liverpool's
       rating error (all above) remain. The validator's log-linear claims check holds again.
+
+### 2026-11-14: main - Elo goals fix reviewed and committed
+- **Committed as `eed7c22`:** the log-linear Elo goals model with priors on
+  the gap and home coefficients, as Josh chose. The main session reproduced
+  the modeller's 2025/26 numbers, and the fix passes with the committed
+  harness.
+- **Code Review:** approved with non-blocking findings. Its own fitter
+  matches the model's coefficients on 2025/26, and every code mutant dies.
+  - **Follow-up, after the re-check:** the prior-sd search isn't in the repo,
+    so the setting can't be re-tuned from it, and a units slip in
+    `goals_model.prior_sd_gap` (per 100 points instead of per point) would go
+    unnoticed. The modeller adds a tuning command, like `elo_tune`, and a
+    guard. Both wait until after the re-check, so that `config/model.yaml`
+    doesn't change while the validator runs.
+  - **Logged in `docs/known_gaps.md`:** the zero-centred home prior shrinks
+    home advantage towards zero in small pools. The as-of 1 note in the
+    `min_matches` entry is updated for the priors.
+- **Two leakage self-checks become verdict criteria** in the harness: the
+  planted leak must be caught (`planted_leak_caught`), and both functions
+  must read the corrupted copy (`copy_reached`). If either fails, the
+  leakage checks can't be trusted, so under brief section 7's "every leakage
+  check passes" the verdict is FAIL.
