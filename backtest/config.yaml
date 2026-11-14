@@ -27,6 +27,10 @@ clean_sheets:
   bin_width: 0.1                       # bins [0, 0.1), [0.1, 0.2) ... [0.9, 1.0]
   tolerance: 0.05                      # 5 percentage points
 min_bin_count: 100                     # a bin carries a pass mark from this many team-fixtures
+# A scored bin fails only if it misses by more than both its tolerance and this many standard
+# errors of the bin mean under the model's own rates: sqrt(sum lambda) / n for goals,
+# sqrt(sum p(1-p)) / n for clean sheets (brief section 7, decided 2026-11-14).
+calibration_k: 2
 # An unscored bin (fewer than min_bin_count) off by more than its tolerance is listed under
 # Concerns once it holds this many team-fixtures.
 concern_min_count: 25
@@ -85,6 +89,12 @@ perturbation:
 # the master files are deliberately not copied).
 upstream_files: [fixtures, matches, players, teams, playerstats, playermatchstats,
                  player_gameweek_stats]
+
+# Report thresholds (not gate criteria). In the form-free goals check (brief 6.2), a rate
+# that moves by no more than shape_tolerance counts as not moving. Pass-mark gameweeks whose
+# Spearman is within concern_spearman_margin of the threshold are listed under Concerns.
+shape_tolerance: 1.0e-12
+concern_spearman_margin: 0.03
 
 weakest:
   top_n: 3                     # how many clubs, gameweeks and bins to list

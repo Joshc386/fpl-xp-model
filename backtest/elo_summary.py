@@ -8,28 +8,45 @@ from backtest.elo_metrics import calibration, calibration_ok, gap_summary, step_
 
 # The criteria the verdict needs, in report order (brief section 7, Elo component check).
 CRITERIA = ["ratings", "goals", "clean_sheets", "log_loss", "perturbation",
-            "planted_leak_caught", "within_gameweek", "read_stability"]
+            "planted_leak_caught", "copy_reached", "within_gameweek", "read_stability"]
 
 
-def split_groups(df: pd.DataFrame, s: dict) -> dict[str, pd.DataFrame]:
-    """The scored team-fixtures by reporting group: pooled from `pass_from_gw`, then each
-    season from it, then each season's early gameweeks. Only the first carries pass marks."""
+# A reporting group's key: (scope, season). Scope is "pooled" (every season from
+# `pass_from_gw`; the only group with pass marks), "late" (one season from it) or "early"
+# (one season before it).
+GroupKey = tuple[str, str | None]
+POOLED: GroupKey = ("pooled", None)
+
+
+def split_groups(df: pd.DataFrame, s: dict) -> dict[GroupKey, pd.DataFrame]:
+    """The scored team-fixtures by reporting group, pooled first, then late, then early."""
     cut = int(s["pass_from_gw"])
     seasons = [x["id"] for x in s["seasons"]]
-    out = {f"Pooled, GW{cut} on": df[df.gw >= cut]}
-    out |= {f"{x}, GW{cut} on": df[(df.season == x) & (df.gw >= cut)] for x in seasons}
-    out |= {f"{x}, GW1-{cut - 1}": df[(df.season == x) & (df.gw < cut)] for x in seasons}
+    out: dict[GroupKey, pd.DataFrame] = {POOLED: df[df.gw >= cut]}
+    out |= {("late", x): df[(df.season == x) & (df.gw >= cut)] for x in seasons}
+    out |= {("early", x): df[(df.season == x) & (df.gw < cut)] for x in seasons}
     return out
+
+
+def group_label(key: GroupKey, s: dict) -> str:
+    """A group's display name, for example "Pooled, GW6 on" or "2025-2026, GW1-5"."""
+    cut = int(s["pass_from_gw"])
+    scope, season = key
+    if scope == "pooled":
+        return f"Pooled, GW{cut} on"
+    return f"{season}, GW{cut} on" if scope == "late" else f"{season}, GW1-{cut - 1}"
 
 
 def group_summary(df: pd.DataFrame, s: dict) -> dict:
     """Goals and clean-sheet calibration tables and both log-losses for one group."""
-    n_min, dec = int(s["min_bin_count"]), int(s["compare_decimals"])
+    common = {"min_count": int(s["min_bin_count"]), "decimals": int(s["compare_decimals"]),
+              "k": float(s["calibration_k"])}
     goals = calibration(df.lambda_for, df.goals_for, s["goals"]["bin_edges"],
-                        float(s["goals"]["tolerance"]), n_min, dec)
+                        tol=float(s["goals"]["tolerance"]), var=df.lambda_for, **common)
     cs = calibration(df.p_cs, df.clean_sheet.astype(float),
                      step_edges(float(s["clean_sheets"]["bin_width"])),
-                     float(s["clean_sheets"]["tolerance"]), n_min, dec)
+                     tol=float(s["clean_sheets"]["tolerance"]), var=df.p_cs * (1 - df.p_cs),
+                     **common)
     model, base = float(df.nll_model.mean()), float(df.nll_base.mean())
     return {"n": int(len(df)), "goals": goals, "cs": cs, "nll_model": model, "nll_base": base,
             "beats_baseline": bool(model < base), "goals_ok": calibration_ok(goals),

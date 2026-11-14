@@ -5,36 +5,48 @@ from __future__ import annotations
 import pandas as pd
 
 from backtest.elo_report_leak import auto_concerns, leakage_section, skips_section
-from backtest.elo_summary import CRITERIA, weakest_bins, weakest_clubs, weakest_gameweeks
+from backtest.elo_summary import (
+    CRITERIA,
+    POOLED,
+    group_label,
+    weakest_bins,
+    weakest_clubs,
+    weakest_gameweeks,
+)
 from backtest.md import table
 
 LABELS = {
     "ratings": "Ratings track upstream Elo (Spearman >= {min_sp} at {sp_gws})",
-    "goals": "Goals calibrated (within {g_tol} in every bin with >= {n} team-fixtures)",
-    "clean_sheets": "Clean sheets calibrated (within {cs_pp} pp in every bin with >= {n})",
+    "goals": "Goals calibrated: no bin with >= {n} team-fixtures misses by more than both "
+             "{g_tol} and {k} SE",
+    "clean_sheets": "Clean sheets calibrated: no bin with >= {n} misses by more than both "
+                    "{cs_pp} pp and {k} SE",
     "log_loss": "Lower Poisson log-loss than the league-average home/away baseline",
     "perturbation": "Perturbation test: no output value changes",
     "planted_leak_caught": "Positive control: the planted leak is caught at every case",
+    "copy_reached": "Copy control: both functions' output moves when results up to the as-of "
+                    "change in the copy",
     "within_gameweek": "Within a gameweek: elo_before ignores its own and later results",
     "read_stability": "elo_before at a kickoff unchanged across every later as-of read",
 }
 
 
 def calib_table(t: pd.DataFrame, nd: int = 3) -> str:
-    """A calibration table: every bin, with its count, means, gap and result."""
-    rows = [[r.bin, r.count, r.mean_pred, r.mean_actual, r.diff,
+    """A calibration table: every bin, with its count, means, gap, SE, limit and result."""
+    rows = [[r.bin, r.count, r.mean_pred, r.mean_actual, r.diff, r.se, r.limit,
              r.passed if r.scored else "no mark (< min count)" if r.count else "empty"]
             for r in t.itertuples()]
     return table(["Bin", "Team-fixtures", "Mean predicted", "Mean actual", "Actual - predicted",
-                  "Result"], rows, nd)
+                  "SE", "Limit applied", "Result"], rows, nd)
 
 
 def verdict_section(res: dict) -> list[str]:
+    """The verdict line and one row per gate criterion, labelled from the settings."""
     s = res["settings"]
     sp_gws = " and ".join(f"GW{lo}" if lo == hi else f"GW{lo}-{hi}"
                           for lo, hi in s["ratings"]["pass_gameweeks"])
     fill = {"min_sp": s["ratings"]["min_spearman"], "sp_gws": sp_gws,
-            "g_tol": s["goals"]["tolerance"],
+            "g_tol": s["goals"]["tolerance"], "k": s["calibration_k"],
             "cs_pp": round(100 * s["clean_sheets"]["tolerance"]), "n": s["min_bin_count"]}
     head = "PASS" if res["passed"] else "FAIL"
     missed = ", ".join(res["missed"]) or "none"
@@ -45,17 +57,22 @@ def verdict_section(res: dict) -> list[str]:
 
 
 def code_section(info: dict) -> list[str]:
+    """The code and data under test (`provenance.run_info`)."""
     rows = [["Repo commit", info["commit"]],
-            ["src/fpl and config/ match that commit (tracked files)", info["code_clean"]],
+            ["src/fpl and config/ match that commit", info["code_clean"]],
+            ["backtest/ (the harness) matches that commit", info["harness_clean"]],
             ["model_version", info["model_version"]],
             ["Upstream commit", f"{info['upstream_commit']} ({info['upstream_time']})"],
+            ["Upstream checkout matches that commit", info["upstream_clean"]],
             ["config/model.yaml sha256", info["model_yaml_sha256"]],
             ["backtest/config.yaml sha256", info["settings_sha256"]],
+            ["Harness code and settings sha256", info["harness_sha256"]],
             ["Command", "`.venv/Scripts/python -m backtest.elo_check`"]]
     return ["## Code under test\n", table(["Item", "Value"], rows)]
 
 
 def ratings_section(res: dict) -> list[str]:
+    """The per-gameweek ratings table, with the lowest pass-mark Spearman."""
     rt = res["ratings"]
     marked = rt[rt.mark == "pass mark"]
     worst = marked.loc[marked.spearman.idxmin()] if len(marked) else None
@@ -73,59 +90,63 @@ def ratings_section(res: dict) -> list[str]:
     return lines
 
 
-def group_lines(name: str, g: dict, marks: bool) -> list[str]:
-    note = "" if marks else " (reported without pass marks)"
-    return [f"### {name}{note}\n",
+def group_lines(name: str, g: dict) -> list[str]:
+    """One group without pass marks: its size, both log-losses and both calibration tables."""
+    return [f"### {name} (reported without pass marks)\n",
             f"{g['n']} team-fixtures. Log-loss: model {g['nll_model']:.4f}, baseline "
             f"{g['nll_base']:.4f} (model - baseline {g['nll_model'] - g['nll_base']:+.4f}).\n",
             "Goals:\n", calib_table(g["goals"]), "\nClean sheets:\n", calib_table(g["cs"]), ""]
 
 
 def pooled_sections(res: dict) -> list[str]:
-    name, g = next(iter(res["groups"].items()))
+    """The pass-mark sections: pooled goals and clean-sheet calibration, and every log-loss."""
+    s, g = res["settings"], res["groups"][POOLED]
+    name = group_label(POOLED, s)
+    rule = (f"A bin's limit is the larger of its tolerance and {s['calibration_k']} standard "
+            "errors of the bin mean under the model's own rates.")
     return [f"## Goals calibration\n\n{name}, every season pooled; pass marks apply. Each "
             "GW g fixture scored once, from `elo_goals(season, g-1)`; predicted is `lambda_for`, "
-            "actual the club's goals.\n", calib_table(g["goals"]),
+            f"actual the club's goals; SE is sqrt(sum lambda) / n. {rule}\n",
+            calib_table(g["goals"]),
             f"\n## Clean-sheet calibration\n\n{name}, every season pooled; pass marks apply. "
-            "Predicted `p_cs`; actual is 1 when "
-            "the opponent scored 0.\n", calib_table(g["cs"]),
+            "Predicted `p_cs`; actual is 1 when the opponent scored 0; SE is "
+            f"sqrt(sum p(1-p)) / n. {rule}\n", calib_table(g["cs"]),
             "\n## Log-loss against the baseline\n",
             "Mean Poisson negative log-likelihood of each club's actual goals. The baseline "
             "predicts the league-average home goals for home sides and away goals for away "
             "sides, over finished league results of this season and last up to g-1.\n",
             table(["Group", "Team-fixtures", "Model", "Baseline", "Model - baseline", "Lower"],
-                  [[k, v["n"], v["nll_model"], v["nll_base"], v["nll_model"] - v["nll_base"],
-                    "model" if v["beats_baseline"] else "baseline"]
+                  [[group_label(k, s), v["n"], v["nll_model"], v["nll_base"],
+                    v["nll_model"] - v["nll_base"], "model" if v["beats_baseline"] else "baseline"]
                    for k, v in res["groups"].items()], 4)]
 
 
 def season_sections(res: dict) -> list[str]:
-    items = list(res["groups"].items())[1:]
-    cut = res["settings"]["pass_from_gw"]
-    late = [(k, v) for k, v in items if k.endswith(f"GW{cut} on")]
-    early = [(k, v) for k, v in items if not k.endswith(f"GW{cut} on")]
+    """Each season from the pass-mark gameweek, then each season's early gameweeks."""
+    s, groups = res["settings"], res["groups"]
     lines = ["## Per season\n"]
-    for k, v in late:
-        lines += group_lines(k, v, marks=False)
+    for key in (k for k in groups if k[0] == "late"):
+        lines += group_lines(group_label(key, s), groups[key])
     lines.append("## Early season\n")
     skipped = sorted({(sk.season, sk.as_of + 1) for sk in res["skips"].skips
                       if sk.function == "elo_goals"})
     lines.append("Target gameweeks with no goals prediction (skipped reads): "
                  + (", ".join(f"{x} GW{g}" for x, g in skipped) or "none") + ".\n")
-    for k, v in early:
-        lines += group_lines(k, v, marks=False)
+    for key in (k for k in groups if k[0] == "early"):
+        lines += group_lines(group_label(key, s), groups[key])
     return lines
 
 
 def weakest_section(res: dict) -> list[str]:
-    n = int(res["settings"]["weakest"]["top_n"])
-    pooled_summary = next(iter(res["groups"].values()))
-    pooled = res["goals"][res["goals"].gw >= res["settings"]["pass_from_gw"]]
+    """Where the component is furthest off: clubs, gameweeks and bins, pooled."""
+    s = res["settings"]
+    n = int(s["weakest"]["top_n"])
+    pooled = res["goals"][res["goals"].gw >= s["pass_from_gw"]]
     rt = res["ratings"]
     marked = rt[rt.mark == "pass mark"].nsmallest(n, "spearman")
-    pass_gws = set(rt.gw[rt.mark == "pass mark"])
-    pr = res["pairs"][res["pairs"].gw.isin(pass_gws)]
-    lines = ["## Weakest areas\n", "Pooled from GW6. Actual minus predicted.\n"]
+    pr = res["pairs"][res["pairs"].gw.isin(set(rt.gw[rt.mark == "pass mark"]))]
+    lines = ["## Weakest areas\n",
+             f"Pooled from GW{s['pass_from_gw']}. Actual minus predicted.\n"]
     for title, pred, act in (("Clubs, goals for", "lambda_for", "goals_for"),
                              ("Clubs, goals against", "lambda_against", "goals_against")):
         w = weakest_clubs(pooled, pred, act, n)
@@ -143,11 +164,11 @@ def weakest_section(res: dict) -> list[str]:
               table(["GW", "Pairs", "Spearman", "Mean gap"],
                     [[int(r.gw), int(r.n), r.spearman, r.mean_gap] for r in marked.itertuples()]),
               ""]
-    b = weakest_bins(pooled_summary, n)
+    b = weakest_bins(res["groups"][POOLED], n)
     lines += ["Bins furthest from calibration (pooled, any count):\n",
-              table(["Kind", "Bin", "Count", "Mean predicted", "Mean actual", "Gap"],
-                    b[["kind", "bin", "count", "mean_pred", "mean_actual",
-                       "diff"]].values.tolist())]
+              table(["Kind", "Bin", "Count", "Mean predicted", "Mean actual", "Gap", "Limit"],
+                    b[["kind", "bin", "count", "mean_pred", "mean_actual", "diff",
+                       "limit"]].values.tolist())]
     return lines
 
 

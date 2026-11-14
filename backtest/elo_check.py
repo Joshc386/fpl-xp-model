@@ -9,9 +9,7 @@ backtest/reports/{date}.md. Exits non-zero, without a report, on any unexpected 
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import subprocess
 import sys
 import tempfile
 import time
@@ -27,6 +25,7 @@ from backtest.elo_data import (
     ModelFn,
     SkipLog,
     baseline_pool,
+    goals_shape,
     implied_coefficients,
     match_results,
     rating_pairs,
@@ -37,8 +36,9 @@ from backtest.elo_data import (
 from backtest.elo_leakage import after_as_of_case, peeking_goals, within_gameweek_case
 from backtest.elo_metrics import league_means, poisson_nll
 from backtest.elo_report import render
-from backtest.elo_summary import group_summary, ratings_table, split_groups, verdict
-from backtest.perturb import Corruption, copy_upstream
+from backtest.elo_summary import POOLED, group_summary, ratings_table, split_groups, verdict
+from backtest.perturb import Corruption, Redirect, copy_upstream, redirect
+from backtest.provenance import SETTINGS, report_path, run_info
 from fpl.features import load_as_of
 from fpl.ingest import ROOT, load_config, upstream_data_dir
 from fpl.models.elo import MissingSeedError, elo_ratings
@@ -46,7 +46,6 @@ from fpl.models.team_goals import InsufficientSampleError, elo_goals
 
 log = logging.getLogger(__name__)
 
-SETTINGS = Path(__file__).with_name("config.yaml")
 ERRORS: dict[str, type[Exception]] = {"MissingSeedError": MissingSeedError,
                                       "InsufficientSampleError": InsufficientSampleError}
 
@@ -84,6 +83,12 @@ def final_tables(s: dict) -> dict[str, dict[str, pd.DataFrame]]:
 
 def _score_season(s: dict, models: Models, skips: SkipLog, finals: dict, season: str,
                   gws: range, prem: str, pools: dict) -> tuple[list, dict]:
+    """Score one season's target gameweeks: each GW g's fixtures from `elo_goals(g - 1)`.
+
+    Returns the scored team-fixtures per gameweek, each with its club name and the baseline
+    rate (league-average home or away goals over the pool up to g - 1), and the raw
+    predictions keyed by (season, as-of). Skipped reads are left out.
+    """
     fx = finals[season]["fact_fixture"]
     results = team_results(fx, prem)
     names = finals[season]["dim_team"].set_index("team_id").name
@@ -138,15 +143,22 @@ def collect_ratings(s: dict, models: Models, skips: SkipLog, finals: dict,
     return pairs.assign(team_name=pairs.team_id.map(names)), reads, non_league
 
 
-def claims_table(goal_reads: dict, rating_reads: dict) -> pd.DataFrame:
-    """Brief 6.2's claims, checked at every as-of with both a goals and a ratings read."""
-    rows = [{"season": x, "as_of": a, **implied_coefficients(p, rating_reads[x][a], x)}
+def goal_checks(goal_reads: dict, rating_reads: dict, tol: float) -> pd.DataFrame:
+    """At every as-of with both a goals and a ratings read: brief 6.2's shape, assuming no
+    form (`goals_shape`), and the log-linear fit as information (`implied_coefficients`)."""
+    rows = [{"season": x, "as_of": a, **implied_coefficients(p, rating_reads[x][a], x),
+             **goals_shape(p, rating_reads[x][a], x, tol)}
             for (x, a), p in sorted(goal_reads.items()) if a in rating_reads.get(x, {})]
     return pd.DataFrame(rows)
 
 
-def run_leakage(s: dict, models: Models, pcfg: dict, src: Path) -> dict:
-    """The perturbation and within-gameweek cases on a scratch copy of the upstream data."""
+def run_leakage(s: dict, models: Models, pcfg: dict, src: Path,
+                point: Redirect = redirect) -> dict:
+    """The perturbation and within-gameweek cases on a scratch copy of the upstream data.
+
+    `point(data_dir)` points the loader at the copy: the loader's `use_data_copy` in the real
+    run; tests pass a double for the synthetic season.
+    """
     p = s["perturbation"]
     c = Corruption(tuple(p["score_range"]), tuple(p["elo_range"]), tuple(p["xg_range"]),
                    pcfg["premier_league_tag"], int(pcfg["loader"]["deadline_offset_minutes"]))
@@ -156,11 +168,11 @@ def run_leakage(s: dict, models: Models, pcfg: dict, src: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix="elo_check_") as tmp:
         dst = Path(tmp) / "data"
         copy_upstream(src, dst, [x for x, _, _ in _seasons(s)], s["upstream_files"])
-        cfg = {**pcfg, "upstream": {**pcfg["upstream"], "checkout_path": tmp, "data_dir": "data"}}
-        after = [after_as_of_case(fns, k["season"], int(k["as_of"]), src, dst, cfg, rng, c,
-                                  s["mode"]) for k in p["cases"]]
+        after = [after_as_of_case(fns, k["season"], int(k["as_of"]), src, dst, point, rng, c,
+                                  s["mode"], controls=["elo_ratings", "elo_goals"])
+                 for k in p["cases"]]
         within = [within_gameweek_case(models.elo_ratings, k["season"], int(k["gw"]), src, dst,
-                                       cfg, rng, c, s["mode"]) for k in p["within_gameweek"]]
+                                       point, rng, c, s["mode"]) for k in p["within_gameweek"]]
     return {"after": after, "within": within}
 
 
@@ -177,6 +189,8 @@ def criteria(rt: pd.DataFrame, pooled: dict, leak: dict, stability: dict, s: dic
         "perturbation": all(n == 0 for n in honest),
         "planted_leak_caught": all(c["functions"]["planted_leak"]["changed"] > 0
                                    for c in leak["after"]),
+        "copy_reached": all(c["control"][fn]["changed"] > 0 for c in leak["after"]
+                            for fn in ("elo_ratings", "elo_goals")),
         "within_gameweek": all(w["changed"] == 0 and w["control_changed"] > 0
                                for w in leak["within"]),
         "read_stability": all(v["changed"] == v["missing"] == v["extra"] == 0
@@ -184,46 +198,25 @@ def criteria(rt: pd.DataFrame, pooled: dict, leak: dict, stability: dict, s: dic
     }
 
 
-def run_check(s: dict, models: Models, pcfg: dict, src: Path) -> dict:
-    """The whole check; returns everything the report needs."""
+def run_check(s: dict, models: Models, pcfg: dict, src: Path,
+              point: Redirect = redirect) -> dict:
+    """The whole check; returns everything the report needs. `point`: see `run_leakage`."""
     prem = pcfg["premier_league_tag"]
     skips = SkipLog(expected_skips(s))
     finals = final_tables(s)
     goals, goal_reads = collect_goals(s, models, skips, finals, prem)
     pairs, rating_reads, non_league = collect_ratings(s, models, skips, finals, prem)
     stability = {x: read_stability(r, x) for x, r in rating_reads.items() if r}
-    leak = run_leakage(s, models, pcfg, src)
+    leak = run_leakage(s, models, pcfg, src, point)
     groups = {k: group_summary(v, s) for k, v in split_groups(goals, s).items() if len(v)}
     rt = ratings_table(pairs, s)
-    met = criteria(rt, groups[f"Pooled, GW{int(s['pass_from_gw'])} on"], leak, stability, s)
+    met = criteria(rt, groups[POOLED], leak, stability, s)
     ok, missed = verdict(met)
     return {"settings": s, "goals": goals, "pairs": pairs, "ratings": rt, "groups": groups,
-            "claims": claims_table(goal_reads, rating_reads), "stability": stability,
+            "goal_checks": goal_checks(goal_reads, rating_reads, float(s["shape_tolerance"])),
+            "stability": stability,
             "leakage": leak, "skips": skips, "non_league_rows": non_league, "met": met,
             "passed": ok, "missed": missed}
-
-
-def _git(*args: str) -> str:
-    res = subprocess.run(["git", *args], capture_output=True, text=True, check=True)
-    return res.stdout.strip()
-
-
-def run_info(pcfg: dict, root: Path = ROOT) -> dict[str, str]:
-    """The code and data under test: commits, model-path cleanliness and config hashes."""
-    checkout = root / pcfg["upstream"]["checkout_path"]
-    model_yaml = root / "config" / "model.yaml"
-    version = (yaml.safe_load(model_yaml.read_text(encoding="utf-8")) or {}).get("model_version")
-    dirty = _git("-C", str(root), "status", "--porcelain", "--untracked-files=no", "--",
-                 "src/fpl", "config")
-    return {
-        "commit": _git("-C", str(root), "rev-parse", "HEAD"),
-        "code_clean": "yes" if not dirty else f"no: {dirty}",
-        "model_version": str(version) if version else "unset",
-        "upstream_commit": _git("-C", str(checkout), "rev-parse", "HEAD"),
-        "upstream_time": _git("-C", str(checkout), "log", "-1", "--format=%cI"),
-        "model_yaml_sha256": hashlib.sha256(model_yaml.read_bytes()).hexdigest(),
-        "settings_sha256": hashlib.sha256(SETTINGS.read_bytes()).hexdigest(),
-    }
 
 
 def main() -> int:
@@ -234,8 +227,9 @@ def main() -> int:
     pcfg = load_config(ROOT / "config" / "pipeline.yaml")
     info = run_info(pcfg) | {"date": f"{datetime.now(UTC):%Y-%m-%d}"}
     results = run_check(s, Models(), pcfg, upstream_data_dir(pcfg, ROOT))
-    out = ROOT / s["report_dir"] / f"{info['date']}.md"
-    out.parent.mkdir(parents=True, exist_ok=True)
+    folder = ROOT / s["report_dir"]
+    folder.mkdir(parents=True, exist_ok=True)
+    out = report_path(folder, info["date"])
     out.write_text(render(results, info), encoding="utf-8")
     log.info("verdict %s; report %s; %.0f s", "PASS" if results["passed"] else "FAIL", out,
              time.monotonic() - start)

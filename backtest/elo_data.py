@@ -134,18 +134,23 @@ def score_gameweek(preds: pd.DataFrame, results: pd.DataFrame, fx: pd.DataFrame,
 def rating_pairs(ratings: pd.DataFrame, fx: pd.DataFrame, gw: int, prem_tag: str) -> pd.DataFrame:
     """Our `elo_before` at every GW `gw` team-kickoff, paired with upstream Elo at it.
 
-    Raises `HarnessError` if the ratings don't cover every GW `gw` team-kickoff exactly once.
-    Pairs whose upstream Elo is null are dropped (none are expected in 2025/26).
+    Only rows of the fixtures' season count (a read also holds earlier seasons, whose gameweek
+    numbers repeat). Raises `HarnessError` unless each GW `gw` fixture has exactly one row for
+    each of its two clubs and no other row. Pairs whose upstream Elo is null are dropped (none
+    are expected in 2025/26).
     """
     _check_columns(ratings, RATINGS_COLUMNS, "elo_ratings")
-    r = ratings[ratings.gw == gw]
     league = fx[(fx.tournament == prem_tag) & (fx.gw == gw)]
+    r = ratings[(ratings.gw == gw) & ratings.season.isin(set(league.season))]
+    want = sorted([(m, int(t)) for m, h, a in zip(league.match_id, league.home_team_id,
+                                                  league.away_team_id, strict=True)
+                   for t in (h, a)])
+    if sorted(zip(r.match_id, r.team_id.astype(int), strict=True)) != want:
+        raise HarnessError(f"GW{gw}: {len(r)} rating rows don't match the {len(league)} "
+                           "fixtures' clubs one row each")
     m = r.merge(league[["match_id", "home_team_id", "away_team_id", "home_upstream_elo",
                         "away_upstream_elo"]], on="match_id", how="inner", validate="many_to_one")
     home = m.team_id == m.home_team_id
-    sides_ok = (home | (m.team_id == m.away_team_id)).all()
-    if len(m) != len(r) or len(r) != 2 * len(league) or not sides_ok:
-        raise HarnessError(f"GW{gw}: {len(r)} rating rows for {len(league)} fixtures")
     m["upstream_elo"] = m.home_upstream_elo.where(home, m.away_upstream_elo)
     keep = ["season", "gw", "match_id", "kickoff_utc", "team_id", "elo_before", "upstream_elo"]
     return m.loc[m.upstream_elo.notna(), keep].reset_index(drop=True)
@@ -197,11 +202,12 @@ def _current_ratings(ratings: pd.DataFrame, season: str) -> pd.Series:
 
 def implied_coefficients(preds: pd.DataFrame, ratings: pd.DataFrame,
                          season: str) -> dict[str, float]:
-    """Check brief 6.2's claims from the outputs of the two public functions alone.
+    """The log-linear fit of the goals output: information about the current model's form.
 
     Regresses log `lambda_for` on (1, rating gap, home), with each club's current rating its
-    last `elo_after` in `ratings` (the same as-of read). If the code is the Poisson on the Elo
-    gap and home advantage it claims, the residual is zero. Also returns the largest error of
+    last `elo_after` in `ratings` (the same as-of read). The residual is zero if the output is
+    log-linear (the form chosen on 2026-11-14); brief 6.2 doesn't require that form, so this is
+    never a pass mark (`goals_shape` is the form-free check). Also returns the largest error of
     `p_cs` against exp(-`lambda_against`) and of `lambda_against` against the opponent's
     `lambda_for`, and how many rows had a club with no rating.
     """
@@ -219,3 +225,38 @@ def implied_coefficients(preds: pd.DataFrame, ratings: pd.DataFrame,
             "unrated": int((~ok).sum()),
             "p_cs_err": float(np.abs(preds.p_cs - np.exp(-preds.lambda_against)).max()),
             "mirror_err": float(np.nanmax(np.abs(mirror)))}
+
+
+def _steps(side: pd.DataFrame, tol: float) -> tuple[int, int]:
+    """(adjacent steps up in gap where lambda doesn't rise, equal gaps with different lambda)."""
+    g = side.sort_values(["gap", "lam"], kind="stable")
+    dg, dl = np.diff(g.gap.to_numpy()), np.diff(g.lam.to_numpy())
+    return int(((dg > 0) & (dl <= tol)).sum()), int(((dg == 0) & (np.abs(dl) > tol)).sum())
+
+
+def goals_shape(preds: pd.DataFrame, ratings: pd.DataFrame, season: str,
+                tol: float) -> dict[str, float]:
+    """Check brief 6.2 without assuming a functional form: within one read, `lambda_for`
+    depends only on the clubs' current rating gap and home, and rises with the gap.
+
+    Each club's current rating is its last `elo_after` in `ratings` (the same as-of read).
+    Home and away rows are checked separately, sorted by gap: `not_rising` counts adjacent
+    steps up in gap where lambda doesn't rise by more than `tol` (a rate that depends on
+    anything else, such as the club, shows up here or as a tie), and `tie_mismatch` equal gaps
+    whose lambdas differ. `home_above` is the share of home rows whose lambda is above the away
+    rows' curve at the same gap (linear interpolation, gaps inside the away range only; NaN
+    if no home gap is inside it).
+    """
+    cur = _current_ratings(ratings, season)
+    gap = preds.team_id.map(cur) - preds.opponent_id.map(cur)
+    ok = gap.notna()
+    df = pd.DataFrame({"gap": gap[ok], "home": preds.home[ok].astype(bool),
+                       "lam": preds.lambda_for[ok].astype("float64")})
+    home, away = df[df.home], df[~df.home].sort_values("gap", kind="stable")
+    steps = [_steps(side, tol) for side in (home, away)]
+    inside = home[home.gap.between(away.gap.min(), away.gap.max())]
+    curve = np.interp(inside.gap, away.gap, away.lam)
+    share = float((inside.lam.to_numpy() > curve + tol).mean()) if len(inside) else float("nan")
+    return {"n": int(ok.sum()), "unrated": int((~ok).sum()),
+            "not_rising": sum(s[0] for s in steps), "tie_mismatch": sum(s[1] for s in steps),
+            "home_above": share}

@@ -5,6 +5,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 from backtest.elo_summary import (
+    POOLED,
+    group_label,
     group_summary,
     ratings_table,
     split_groups,
@@ -15,7 +17,7 @@ from backtest.elo_summary import (
 
 SETTINGS = {
     "seasons": [{"id": "A", "target_gameweeks": [1, 10]}, {"id": "B", "target_gameweeks": [1, 8]}],
-    "pass_from_gw": 6, "min_bin_count": 2, "compare_decimals": 9,
+    "pass_from_gw": 6, "min_bin_count": 2, "compare_decimals": 9, "calibration_k": 2.0,
     "goals": {"bin_edges": [0.0, 0.75, 1.25, 1.75], "tolerance": 0.1},
     "clean_sheets": {"bin_width": 0.1, "tolerance": 0.05},
     "ratings": {"season": "A", "min_spearman": 0.9, "pass_gameweeks": [[6, 7], [9, 9]],
@@ -42,8 +44,10 @@ DF = scored([
 
 def test_split_groups_pool_gw6_on_and_split_seasons_and_early_weeks() -> None:
     g = split_groups(DF, SETTINGS)
-    assert list(g) == ["Pooled, GW6 on", "A, GW6 on", "B, GW6 on", "A, GW1-5", "B, GW1-5"]
+    assert list(g) == [POOLED, ("late", "A"), ("late", "B"), ("early", "A"), ("early", "B")]
     assert [len(v) for v in g.values()] == [3, 2, 1, 1, 1]
+    assert [group_label(k, SETTINGS) for k in g] == [
+        "Pooled, GW6 on", "A, GW6 on", "B, GW6 on", "A, GW1-5", "B, GW1-5"]
 
 
 def test_group_summary_has_both_calibrations_and_both_log_losses() -> None:
@@ -56,6 +60,10 @@ def test_group_summary_has_both_calibrations_and_both_log_losses() -> None:
     assert goals.loc["0.75-1.25", "count"] == 2 and goals.loc["0.75-1.25", "mean_actual"] == 1.0
     cs = out["cs"].set_index("bin")
     assert cs.loc["0.4-0.5", "count"] == 2 and cs.loc["0.4-0.5", "mean_actual"] == 0.5
+    # Goals SE from the rates (Poisson), clean-sheet SE from p(1-p); limit = max(tol, 2 SE).
+    assert goals.loc["0.75-1.25", "se"] == pytest.approx(2 ** 0.5 / 2)
+    assert goals.loc["0.75-1.25", "limit"] == pytest.approx(2 ** 0.5)
+    assert cs.loc["0.4-0.5", "se"] == pytest.approx((0.4 * 0.6 + 0.45 * 0.55) ** 0.5 / 2)
 
 
 def pairs(gw: int, ours: list[float], theirs: list[float]) -> pd.DataFrame:
@@ -75,7 +83,8 @@ def test_ratings_table_marks_only_the_pass_gameweeks() -> None:
 
 def criteria(**over: bool) -> dict:
     base = {"ratings": True, "goals": True, "clean_sheets": True, "log_loss": True,
-            "perturbation": True, "planted_leak_caught": True, "within_gameweek": True,
+            "perturbation": True, "planted_leak_caught": True, "copy_reached": True,
+            "within_gameweek": True,
             "read_stability": True}
     return base | over
 
@@ -104,3 +113,16 @@ def test_weakest_gameweeks_rank_by_model_minus_baseline_log_loss() -> None:
     out = weakest_gameweeks(DF, top_n=2)
     assert list(zip(out.season, out.gw, strict=True)) == [("B", 6), ("B", 5)]
     assert out.excess.tolist() == pytest.approx([0.2, 0.1])
+
+
+def test_group_summary_uses_the_rates_for_the_se_and_passes_k_through() -> None:  # N07, N09
+    # Sum of rates 2.1 differs from the 3 goals scored; k = 3, not the default 2.
+    df = scored([("A", 6, "X", 1.0, 3, 0.3, True, 1.0, 1.0),
+                 ("A", 7, "Y", 1.1, 0, 0.35, False, 1.0, 1.0)])
+    out = group_summary(df, SETTINGS | {"calibration_k": 3.0})
+    goals = out["goals"].set_index("bin").loc["0.75-1.25"]
+    assert goals.se == pytest.approx(2.1 ** 0.5 / 2)
+    assert goals.limit == pytest.approx(3 * 2.1 ** 0.5 / 2)
+    cs = out["cs"].set_index("bin").loc["0.3-0.4"]
+    assert cs.se == pytest.approx((0.3 * 0.7 + 0.35 * 0.65) ** 0.5 / 2)
+    assert cs.limit == pytest.approx(3 * (0.3 * 0.7 + 0.35 * 0.65) ** 0.5 / 2)

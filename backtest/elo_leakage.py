@@ -7,13 +7,20 @@ again and compares. The copy is restored afterwards, whatever happens.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from backtest.perturb import Corruption, corrupt_after, corrupt_within, redirect, restore_season
+from backtest.perturb import (
+    Corruption,
+    Redirect,
+    corrupt_after,
+    corrupt_up_to,
+    corrupt_within,
+    restore_season,
+)
 from fpl.features import load_as_of
 from fpl.models.team_goals import elo_goals
 
@@ -44,22 +51,46 @@ def peeking_goals(season: str, as_of_gw: int, mode: str) -> pd.DataFrame:
     return out.assign(lambda_for=out.lambda_for * (1.0 + 1e-3 * peek))
 
 
-def after_as_of_case(fns: dict[str, ModelFn], season: str, as_of: int, src: Path, dst: Path,
-                     cfg: dict, rng: np.random.Generator, c: Corruption,
-                     mode: str) -> dict:
-    """Corrupt every result after `as_of` and count changed output values per function."""
-    with redirect(cfg):
-        clean = {name: fn(season, as_of, mode) for name, fn in fns.items()}
+def _corrupted_run(fns: dict[str, ModelFn], names: Sequence[str], corrupt: Callable[[], int],
+                   season: str, as_of: int, ctx: tuple[Path, Path, Redirect, str]
+                   ) -> tuple[int, dict]:
+    """Corrupt the copy, run the named functions on it, and always restore it."""
+    src, dst, point, mode = ctx
     try:
-        cells = corrupt_after(dst, season, as_of, rng, c)
-        with redirect(cfg):
-            dirty = {name: fn(season, as_of, mode) for name, fn in fns.items()}
+        cells = corrupt()
+        with point(dst):
+            out = {name: fns[name](season, as_of, mode) for name in names}
     finally:
         restore_season(src, dst, season)
-    funcs = {name: {"rows": len(clean[name]), "changed": changed_values(clean[name], dirty[name])}
-             for name in fns}
-    log.info("perturbation %s as-of %d: %s", season, as_of, funcs)
-    return {"season": season, "as_of": as_of, "corrupted_cells": cells, "functions": funcs}
+    return cells, out
+
+
+def after_as_of_case(fns: dict[str, ModelFn], season: str, as_of: int, src: Path, dst: Path,
+                     point: Redirect, rng: np.random.Generator, c: Corruption, mode: str,
+                     controls: Sequence[str] = ()) -> dict:
+    """Corrupt every result after `as_of` and count changed output values per function.
+
+    The functions in `controls` are also run with every result up to `as_of` corrupted
+    instead: their output must change, which shows they read the copy at all. `point(dst)`
+    points the loader at the copy (`perturb.redirect` in the real run).
+    """
+    ctx = (src, dst, point, mode)
+    with point(dst):
+        clean = {name: fn(season, as_of, mode) for name, fn in fns.items()}
+    cells, dirty = _corrupted_run(fns, list(fns), lambda: corrupt_after(dst, season, as_of, rng, c),
+                                  season, as_of, ctx)
+    _, moved = _corrupted_run(fns, controls, lambda: corrupt_up_to(dst, season, as_of, rng, c),
+                              season, as_of, ctx)
+
+    def diff(other: dict) -> dict:
+        return {n: {"rows": len(clean[n]), "changed": changed_values(clean[n], other[n])}
+                for n in other}
+
+    out = {"season": season, "as_of": as_of, "corrupted_cells": cells, "functions": diff(dirty),
+           "control": diff(moved)}
+    log.info("perturbation %s as-of %d: %s; control %s", season, as_of, out["functions"],
+             out["control"])
+    return out
 
 
 def _middle_kickoff(ratings: pd.DataFrame, season: str, gw: int) -> str:
@@ -72,6 +103,12 @@ def _middle_kickoff(ratings: pd.DataFrame, season: str, gw: int) -> str:
 
 def _compare_within(clean: pd.DataFrame, dirty: pd.DataFrame, split: pd.Timestamp,
                     season: str, gw: int) -> dict[str, int]:
+    """Count the changes the within-gameweek test forbids, and the control's changes.
+
+    Forbidden: `elo_before` at any kickoff up to `split`, or `elo_after` before it. Control:
+    GW `gw` rows of `season` from the split on whose `elo_after` changed. A row missing from
+    the corrupted run counts as changed.
+    """
     m = clean.merge(dirty, on=KEYS, how="left", suffixes=("", "_dirty"))
     kick = pd.to_datetime(m.kickoff_utc, utc=True)
     up_to, before = kick <= split, kick < split
@@ -84,22 +121,23 @@ def _compare_within(clean: pd.DataFrame, dirty: pd.DataFrame, split: pd.Timestam
             "control_changed": int((target & after_changed).sum())}
 
 
-def within_gameweek_case(fn: ModelFn, season: str, gw: int, src: Path, dst: Path, cfg: dict,
-                         rng: np.random.Generator, c: Corruption, mode: str) -> dict:
+def within_gameweek_case(fn: ModelFn, season: str, gw: int, src: Path, dst: Path,
+                         point: Redirect, rng: np.random.Generator, c: Corruption,
+                         mode: str) -> dict:
     """At as-of `gw`, corrupt GW `gw` results from its middle kickoff on, and everything later.
 
     `elo_before` at every kickoff up to the split, and `elo_after` before it, must not
     change. The control counts GW `gw` rows from the split on whose `elo_after` did change,
     which shows the corruption reached the ratings.
     """
-    with redirect(cfg):
+    with point(dst):
         clean = fn(season, gw, mode)
     split_text = _middle_kickoff(clean, season, gw)
     split = pd.Timestamp(split_text)
     try:
         cells = corrupt_after(dst, season, gw, rng, c)
         cells += corrupt_within(dst, season, gw, split, rng, c)
-        with redirect(cfg):
+        with point(dst):
             dirty = fn(season, gw, mode)
     finally:
         restore_season(src, dst, season)

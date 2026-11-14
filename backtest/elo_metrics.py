@@ -20,16 +20,21 @@ def _labels(edges: Sequence[float]) -> list[str]:
     return inner + [f"{edges[-1]:g}+"]
 
 
-def calibration(pred: Sequence[float], actual: Sequence[float], edges: Sequence[float],
-                tol: float, min_count: int, decimals: int) -> pd.DataFrame:
+def calibration(pred: Sequence[float], actual: Sequence[float], edges: Sequence[float], *,
+                tol: float, min_count: int, decimals: int, k: float,
+                var: Sequence[float]) -> pd.DataFrame:
     """Mean predicted against mean actual in each bin of `pred`.
 
     `edges` are lower edges; a value on an edge goes in the upper bin, and the last bin is
-    open-ended. Every bin is listed, empty ones with null means. A bin is `scored` from
-    `min_count` rows, and a scored bin `passed` if |mean actual - mean predicted| is at most
-    `tol` after rounding to `decimals`; `passed` is null for unscored bins.
+    open-ended. Every bin is listed, empty ones with null means. `var` is each row's outcome
+    variance under the model (the rate for Poisson goals, p(1-p) for a clean sheet), so a bin's
+    standard error is sqrt(sum var) / n. Its `limit` is the larger of `tol` and `k` standard
+    errors (brief section 7: a bin fails only if it misses by more than both). A bin is
+    `scored` from `min_count` rows, and a scored bin `passed` if |mean actual - mean predicted|,
+    rounded to `decimals`, is at most its limit; `passed` is null for unscored bins.
     """
     p, a = np.asarray(pred, dtype="float64"), np.asarray(actual, dtype="float64")
+    v = np.asarray(var, dtype="float64")
     idx = np.searchsorted(np.asarray(edges, dtype="float64"), p, side="right") - 1
     if (idx < 0).any():
         raise ValueError(f"a prediction is below the lowest bin edge {edges[0]}")
@@ -39,11 +44,14 @@ def calibration(pred: Sequence[float], actual: Sequence[float], edges: Sequence[
         n = int(hit.sum())
         mp = float(p[hit].mean()) if n else math.nan
         ma = float(a[hit].mean()) if n else math.nan
+        se = math.sqrt(float(v[hit].sum())) / n if n else math.nan
+        limit = max(tol, k * se) if n else math.nan
         diff = ma - mp
         scored = n >= min_count
-        passed = bool(round(abs(diff), decimals) <= tol) if scored else None
+        passed = bool(round(abs(diff), decimals) <= limit) if scored else None
         rows.append({"bin": label, "count": n, "mean_pred": mp, "mean_actual": ma,
-                     "diff": diff, "scored": scored, "passed": passed})
+                     "diff": diff, "se": se, "limit": limit, "scored": scored,
+                     "passed": passed})
     return pd.DataFrame(rows).astype({"passed": "object"})
 
 

@@ -2,7 +2,8 @@
 
 The real checkout under data/ is only ever read. `copy_upstream` copies the gameweek folders'
 files to a scratch directory; `corrupt_after` and `corrupt_within` rewrite that copy's
-`matches.csv` files; `redirect` points every `load_as_of` call at the copy. Files are read
+`matches.csv` and `fixtures.csv` files (both carry result columns upstream); `redirect`
+points every `load_as_of` call at the copy through the loader's `use_data_copy`. Files are read
 and written as text, so every cell that isn't corrupted is kept exactly.
 """
 
@@ -10,16 +11,15 @@ from __future__ import annotations
 
 import logging
 import shutil
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
-from unittest import mock
 
 import numpy as np
 import pandas as pd
 
-import fpl.features
+from fpl.features import use_data_copy
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +28,8 @@ SCORES = ["home_score", "away_score"]
 ELO = ["home_team_elo", "away_team_elo"]
 XG = [("home_expected_goals_xg", "home_non_penalty_xg"),
       ("away_expected_goals_xg", "away_non_penalty_xg")]
+RESULT_FILES = ("matches", "fixtures")
+Selector = Callable[[int, pd.DataFrame], pd.Series]  # (folder gameweek, matches) -> rows
 
 
 @dataclass(frozen=True)
@@ -59,9 +61,12 @@ def copy_upstream(src: Path, dst: Path, seasons: list[str], files: list[str]) ->
 
 
 def restore_season(src: Path, dst: Path, season: str) -> None:
-    """Copy every `matches.csv` of `season` back from `src`, undoing a corruption."""
+    """Copy every `matches.csv` and `fixtures.csv` of `season` back from `src`."""
     for gw, folder in _folders(src / season).items():
-        shutil.copy2(folder / "matches.csv", dst / season / GAMEWEEKS / f"GW{gw}" / "matches.csv")
+        for name in RESULT_FILES:
+            path = folder / f"{name}.csv"
+            if path.exists():
+                shutil.copy2(path, dst / season / GAMEWEEKS / f"GW{gw}" / path.name)
 
 
 def _read(path: Path) -> pd.DataFrame:
@@ -86,23 +91,52 @@ def _new_scores(old: pd.Series, rng: np.random.Generator, c: Corruption) -> list
 
 def _corrupt_rows(df: pd.DataFrame, rows: pd.Series, rng: np.random.Generator, c: Corruption,
                   keep_finished: bool) -> int:
-    """Corrupt scores, upstream Elo and xG (and `finished`, unless kept) on `rows`."""
+    """Corrupt scores, upstream Elo and xG (and `finished`, unless kept) on `rows`.
+
+    Only the columns present are touched; returns the number of cells rewritten.
+    """
     n = int(rows.sum())
     if n == 0:
         return 0
-    for col in SCORES:
+    have = set(df.columns)
+    cells = 0
+    for col in (x for x in SCORES if x in have):
         df.loc[rows, col] = _new_scores(df.loc[rows, col], rng, c)
-    for col in ELO:
+        cells += n
+    for col in (x for x in ELO if x in have):
         df.loc[rows, col] = [f"{v:.2f}" for v in rng.uniform(*c.elo, n)]
+        cells += n
     for xg, npxg in XG:
         total = rng.uniform(*c.xg, n)
-        df.loc[rows, xg] = [f"{v:.2f}" for v in total]
-        df.loc[rows, npxg] = [f"{v:.2f}" for v in total * rng.uniform(0.0, 1.0, n)]
-    cols = SCORES + ELO + [c for pair in XG for c in pair]
-    if not keep_finished:
+        for col, vals in ((xg, total), (npxg, total * rng.uniform(0.0, 1.0, n))):
+            if col in have:
+                df.loc[rows, col] = [f"{v:.2f}" for v in vals]
+                cells += n
+    if not keep_finished and "finished" in have:
         df.loc[rows, "finished"] = np.where(rng.random(n) < 0.5, "True", "False")
-        cols.append("finished")
-    return n * len(cols)
+        cells += n
+    return cells
+
+
+def _rewrite(folders: dict[int, Path], select: Selector, rng: np.random.Generator,
+             c: Corruption, keep_finished: bool) -> int:
+    """Corrupt the selected matches in each folder's `matches.csv`, and the same match ids in
+    its `fixtures.csv`; returns the number of cells rewritten."""
+    total = 0
+    for gw, folder in sorted(folders.items()):
+        matches = _read(folder / "matches.csv")
+        rows = select(gw, matches)
+        if not rows.any():
+            continue
+        ids = set(matches.match_id[rows])
+        total += _corrupt_rows(matches, rows, rng, c, keep_finished)
+        matches.to_csv(folder / "matches.csv", index=False)
+        path = folder / "fixtures.csv"
+        if path.exists():
+            fixtures = _read(path)
+            total += _corrupt_rows(fixtures, fixtures.match_id.isin(ids), rng, c, keep_finished)
+            fixtures.to_csv(path, index=False)
+    return total
 
 
 def _deadline_after(folders: dict[int, Path], as_of: int, c: Corruption) -> pd.Timestamp | None:
@@ -125,20 +159,28 @@ def corrupt_after(data_dir: Path, season: str, as_of: int, rng: np.random.Genera
     """
     folders = _folders(data_dir / season)
     deadline = _deadline_after(folders, as_of, c)
-    total = 0
-    for gw, folder in sorted(folders.items()):
-        path = folder / "matches.csv"
-        df = _read(path)
+
+    def select(gw: int, df: pd.DataFrame) -> pd.Series:
         prem = df.tournament == c.prem_tag
         kick = _kick(df)
         late_cup = ~prem & (kick >= deadline if deadline is not None else False)
         undated_cup = ~prem & kick.isna() & (gw > as_of)
-        rows = (prem & (gw > as_of)) | late_cup | undated_cup
-        if rows.any():
-            total += _corrupt_rows(df, rows, rng, c, keep_finished=False)
-            df.to_csv(path, index=False)
+        return (prem & (gw > as_of)) | late_cup | undated_cup
+
+    total = _rewrite(folders, select, rng, c, keep_finished=False)
     log.info("%s: corrupted %d cells after as-of %d", season, total, as_of)
     return total
+
+
+def corrupt_up_to(data_dir: Path, season: str, as_of: int, rng: np.random.Generator,
+                  c: Corruption) -> int:
+    """Corrupt every Premier League result up to as-of gameweek `as_of`, with `finished` kept.
+
+    The control: a function that reads the copy must change its output.
+    """
+    folders = {g: f for g, f in _folders(data_dir / season).items() if g <= as_of}
+    return _rewrite(folders, lambda gw, df: df.tournament == c.prem_tag, rng, c,
+                    keep_finished=True)
 
 
 def corrupt_within(data_dir: Path, season: str, gw: int, split: pd.Timestamp,
@@ -147,26 +189,18 @@ def corrupt_within(data_dir: Path, season: str, gw: int, split: pd.Timestamp,
 
     `finished` is kept, so the matches stay in the read with wrong scores.
     """
-    path = data_dir / season / GAMEWEEKS / f"GW{gw}" / "matches.csv"
-    df = _read(path)
-    rows = (df.tournament == c.prem_tag) & (_kick(df) >= split)
-    n = _corrupt_rows(df, rows, rng, c, keep_finished=True)
-    df.to_csv(path, index=False)
-    return n
+    folders = {gw: data_dir / season / GAMEWEEKS / f"GW{gw}"}
+    return _rewrite(folders, lambda g, df: (df.tournament == c.prem_tag) & (_kick(df) >= split),
+                    rng, c, keep_finished=True)
 
 
-@contextmanager
-def redirect(cfg: dict) -> Iterator[None]:
-    """Make every `load_as_of` call that passes no config use `cfg` (a scratch checkout).
+Redirect = Callable[[Path], AbstractContextManager[None]]
 
-    Patches the loader's config lookup, so it reaches the model's calls whatever name they
-    imported `load_as_of` under. The model's own `config/pipeline.yaml` reads are untouched.
+
+def redirect(data_dir: Path) -> AbstractContextManager[None]:
+    """Point every `load_as_of` call that names no `root` or `cfg` at the data copy `data_dir`.
+
+    This is the loader's supported override, `fpl.features.use_data_copy`, so it reaches the
+    model's public functions without patching anything. It doesn't reach worker threads.
     """
-    real = fpl.features._config
-
-    def pointed(given: dict | None, root: Path) -> dict:
-        return given if given is not None else cfg
-
-    with mock.patch.object(fpl.features, "_config", pointed):
-        yield
-    assert fpl.features._config is real
+    return use_data_copy(data_dir)
