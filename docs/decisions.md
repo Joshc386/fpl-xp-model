@@ -1863,3 +1863,27 @@ task 5 review. The numbers are the ones he answered.
 - **Updated:** brief section 7 (the goals and clean-sheet pass marks, and
   why), `docs/data_contract.md` (the `players.csv` note and the loader
   section) and `CONTEXT.md` (xG90 / xA90).
+
+### 2026-11-14: main - Elo goals fix: log-linear form plus priors (Josh)
+The modeller's fix round proposed two changes to the Elo goals model:
+priors on the gap and home coefficients, and a new form with a fixed
+expected total per match. Its evidence and numbers are in its
+`model - Elo goals fix round` entry, and the main session reproduced them
+on 2025/26.
+- **Decision (Josh): keep the log-linear form and add the priors.**
+  - Why: the priors address the main cause the modeller found. One season
+    can't separate flat match totals from the log-linear form's modest rise
+    with the rating gap, and betting markets price higher totals for bigger
+    mismatches. It is also the smaller change, and it stays in the same
+    family as the phase 2 Dixon-Coles model it benchmarks.
+  - Trade-off: on 2025/26 it scores slightly worse than the fixed-total
+    form, within noise.
+  - Rejected: the fixed-total form.
+- **Caveat for the re-check:** most of the pooled pass-mark set (GW6 on,
+  both seasons) is 2025/26, the development window the fix was tuned on.
+  Only 2026/27's team-fixtures are out of sample, so the main session reads
+  them on their own as well.
+- **Also:** `docs/data_contract.md` (the `meta.csv` version example, and
+  `use_data_copy` not reaching worker threads) and `docs/known_gaps.md`
+  (transfer columns just after a deadline, `ppg` in a double gameweek with
+  one match still loading, players missing from a snapshot).

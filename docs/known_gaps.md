@@ -59,6 +59,22 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     did so for a while (unused substitutes and European per-player stats).
   - **Idea:** a consistency check, such as summed player xG against team xG
     or minutes per club, that holds a match back until it settles.
+- **Transfer and price-change columns just after a deadline** (2026-11-14).
+  - **Gap:** `players.csv` takes `net_transfers_gw` and `price_change_gw`
+    from the master file's newest row. A run between a deadline and
+    upstream's first write after it publishes the previous window's figures,
+    still labelled "since the last deadline".
+  - **Effect:** for a few hours after a deadline, the workbook can show the
+    last window's transfers and price changes.
+  - **Idea:** compare the master's newest `gw` with the as-of gameweek, and
+    flag or hold the run when they disagree.
+- **`ppg` in a double gameweek with one match still loading** (2026-11-14).
+  - **Gap:** when both of a club's matches in a gameweek are finished but
+    only one is complete, that gameweek counts as one appearance, not two.
+  - **Effect:** `ppg` reads high for those players until the second match's
+    stats load, usually within hours.
+  - **Idea:** count appearances from FPL's per-match minutes, if upstream
+    ever publishes them.
 - **Backtests see the final fixture schedule** (2026-11-11).
   - **Gap:** later fixtures' gameweeks and kickoffs come from the final
     folders.
@@ -108,6 +124,14 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
   - **Idea:** look the club up in later snapshots up to the as-of gameweek.
     The catch is that an as-of read would then no longer equal the full
     build for those rows.
+- **Players missing from a snapshot** (2026-11-13).
+  - **Gap:** 7 Premier League player-match rows in 2026/27 are dropped as
+    `player_not_in_snapshot` (Mfuni, J.Angulo and Tutierov), so their xG and
+    xA from those matches are lost.
+  - **Effect:** none on today's outputs, because those rows carry no xG or
+    xA, but a missing player's xG90 and xA90 could read low.
+  - **Idea:** the same as for cup appearances: look the player up in later
+    snapshots up to the as-of gameweek.
 - **Per-match goals conceded** (2026-11-10).
   - **Gap:** upstream's per-match figure is unreliable, so FPL's
     per-gameweek `goals_conceded` is used.

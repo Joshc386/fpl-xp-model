@@ -210,7 +210,7 @@ CSV in `outputs/`, committed, read by Excel.
   `export.py` writes it.
 - **`meta.csv`:** `current_gw` is the as-of gameweek. `max_horizon` is the
   number of gameweeks projected (5, from `config/model.yaml`).
-  `model_version` comes from `config/model.yaml` (`0.1.0-elo` in phase 1)
+  `model_version` comes from `config/model.yaml` (for example `0.1.1-elo`)
   and stamps every CSV the run publishes. `status` is always `ok`, because
   a failed run publishes nothing (brief section 11).
 - **Gameweeks:** the next gameweek is the first gameweek whose deadline is
@@ -303,7 +303,9 @@ guard against leakage.
   manager in `fpl.features` under which every loader read that isn't given
   its own `root` or `cfg` takes upstream data from a given directory instead
   of the checkout named in `config/pipeline.yaml`. Code outside the loader
-  never patches its private functions (decided 2026-11-14).
+  never patches its private functions (decided 2026-11-14). It doesn't
+  reach worker threads or processes started inside it: they read the
+  checkout.
 - **Next and as-of gameweek (live only):** the next gameweek is the first
   whose `deadline_time` in the master `gameweek_summaries.csv` is strictly
   after the run time. A run at the exact deadline treats it as passed. The
