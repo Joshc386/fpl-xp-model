@@ -1,11 +1,16 @@
 """The Elo goals model (brief section 6.2): Poisson goals on the Elo gap and home advantage.
 
 A team's goals in a match are Poisson with
-    log lambda = intercept + gap * (own elo_before - opponent's elo_before) + home * is_home,
-fitted by maximum likelihood (Newton's method, numpy only) on one row per team per finished
-Premier League match of this season and last, up to and including the as-of gameweek, using
-our own ratings at kickoff. Future fixtures use each club's current rating. Below
-`goals_model.min_matches` finished matches in the pool there is no fit: the model raises
+    log lambda = intercept + gap * (own elo_before - opponent's elo_before) + home * is_home.
+The gap and home coefficients carry zero-centred Gaussian priors (`goals_model.prior_sd_gap`,
+`prior_sd_home`), which pull small pools towards league-average goals; the intercept carries
+none, so the fitted total always equals the pool's. Why the priors: docs/decisions.md,
+"model - Elo goals fix round".
+
+It is fitted by penalised maximum likelihood (Newton's method, numpy only) on one row per team
+per finished Premier League match of this season and last, up to and including the as-of
+gameweek, using our own ratings at kickoff. Future fixtures use each club's current rating.
+Below `goals_model.min_matches` finished matches in the pool there is no fit: the model raises
 `InsufficientSampleError` rather than invent coefficients.
 
 It supplies `fixture_difficulty.csv` in phase 1: per team per unfinished Premier League fixture
@@ -48,23 +53,40 @@ class InsufficientSampleError(GoalsModelError):
 
 @dataclass(frozen=True)
 class GoalsSettings:
-    """The goals model's settings (`goals_model` and `max_horizon` in config/model.yaml)."""
+    """The goals model's settings (`goals_model` and `max_horizon` in config/model.yaml).
+
+    `prior_sd_gap` is in log goals per rating point and `prior_sd_home` in log goals.
+    """
 
     pool_seasons: int
     min_matches: int
     tol: float
     max_iter: int
     max_horizon: int
+    prior_sd_gap: float
+    prior_sd_home: float
 
     @classmethod
     def from_config(cls, cfg: dict) -> GoalsSettings:
-        """The settings in the parsed config/model.yaml; `pool_seasons` must be at least 1."""
+        """The settings in the parsed config/model.yaml.
+
+        `pool_seasons` must be at least 1 and both prior standard deviations positive.
+        """
         g = cfg["goals_model"]
         pool_seasons = int(g["pool_seasons"])
         if pool_seasons < 1:
             raise ValueError(f"goals_model.pool_seasons must be at least 1, got {pool_seasons}")
+        for key in ("prior_sd_gap", "prior_sd_home"):
+            if not float(g[key]) > 0:
+                raise ValueError(f"goals_model.{key} must be positive, got {g[key]}")
         return cls(pool_seasons, int(g["min_matches"]), float(g["newton_tol"]),
-                   int(g["newton_max_iter"]), int(cfg["max_horizon"]))
+                   int(g["newton_max_iter"]), int(cfg["max_horizon"]),
+                   float(g["prior_sd_gap"]), float(g["prior_sd_home"]))
+
+    @property
+    def precision(self) -> np.ndarray:
+        """Prior precisions of (intercept, gap, home): none on the intercept."""
+        return np.array([0.0, self.prior_sd_gap**-2, self.prior_sd_home**-2])
 
 
 @dataclass(frozen=True)
@@ -88,12 +110,15 @@ def clean_sheet_probability(lambda_against: np.ndarray) -> np.ndarray:
     return np.exp(-np.asarray(lambda_against, dtype="float64"))
 
 
-def poisson_fit(x: np.ndarray, y: np.ndarray, tol: float, max_iter: int) -> np.ndarray:
-    """Maximum-likelihood coefficients of a log-link Poisson regression, by Newton's method.
+def poisson_fit(x: np.ndarray, y: np.ndarray, precision: np.ndarray, tol: float,
+                max_iter: int) -> np.ndarray:
+    """Penalised maximum-likelihood coefficients of a log-link Poisson, by Newton's method.
 
+    Maximises the Poisson log-likelihood minus sum(precision * beta ** 2) / 2, so each
+    coefficient has a zero-centred Gaussian prior with variance 1 / precision (0: no prior).
     Column 0 of `x` must be the intercept. Starts from the intercept-only solution and stops
     when every coefficient's step is below `tol`. Raises `GoalsModelError` if there are no
-    goals, the design is singular, or it does not converge in `max_iter` steps.
+    goals, the system is singular, or it does not converge in `max_iter` steps.
     """
     if y.sum() <= 0:
         raise GoalsModelError("the training pool has no goals")
@@ -102,7 +127,8 @@ def poisson_fit(x: np.ndarray, y: np.ndarray, tol: float, max_iter: int) -> np.n
     for _ in range(max_iter):
         mu = np.exp(x @ beta)
         try:
-            step = np.linalg.solve(x.T @ (x * mu[:, None]), x.T @ (y - mu))
+            step = np.linalg.solve(x.T @ (x * mu[:, None]) + np.diag(precision),
+                                   x.T @ (y - mu) - precision * beta)
         except np.linalg.LinAlgError as exc:
             raise GoalsModelError(f"singular design in the Poisson fit: {exc}") from exc
         beta = beta + step
@@ -132,7 +158,8 @@ def fit_goals_model(pool: pd.DataFrame, s: GoalsSettings) -> GoalsFit:
             f"({s.min_matches}); no Elo goals model is fitted"
         )
     x = np.column_stack([np.ones(len(pool)), pool.gap, pool.home])
-    b0, b1, b2 = poisson_fit(x, pool.goals.to_numpy(dtype="float64"), s.tol, s.max_iter)
+    b0, b1, b2 = poisson_fit(x, pool.goals.to_numpy(dtype="float64"), s.precision, s.tol,
+                             s.max_iter)
     return GoalsFit(float(b0), float(b1), float(b2), n_matches, float(pool.goals.mean()))
 
 

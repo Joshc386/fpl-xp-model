@@ -1905,3 +1905,209 @@ Code Review's second pass on `eb5a9bd`; all non-blocking.
   `use_data_copy` like the tables (test added).
 - **Stale docstrings** in `features.py` (module and `load_as_of`) now list all the overlaid
   fields; `output_checks.py` and `output_checks_model.py` say what they raise on.
+
+### 2026-11-14: model - Elo goals fix round
+Task 4 failed the Elo goals model on goals calibration (fail one of two). Worked on 2025/26
+only, at upstream `ac8be9ca`; nothing in 2026/27 was fitted, scored or looked at, and
+`backtest/reports/` was not read. The Elo ratings are unchanged. `model_version` is now
+`0.1.1-elo`.
+- **Scoring (my own, walk-forward as in brief section 7):** each 2025/26 GW g fixture
+  (GW6-38, 660 team-fixtures) is scored once, from `elo_goals("2025-2026", g-1, "backtest")`.
+  The before numbers reproduce the validator's exactly.
+- **Diagnosis: two causes of about equal size behind the top bin's -0.280.**
+  1. **Small-pool noise in the coefficients.** 2025/26 has no earlier season in its pool, so
+     the fits up to GW20 see 50-200 matches. Through mid-season they have a steeper gap
+     (0.20 per 100 points at as-of 5, 0.16 at as-of 12) and a bigger home term (0.26-0.36)
+     than the full-season fit (0.143, 0.224), which over-predicts strong home sides. The
+     calibration slope (Poisson regression of actual goals on log predicted) is 0.811 (se
+     0.129) walk-forward against 0.957 in-sample. Scoring the walk-forward fixtures with
+     full-season coefficients (a leak, as a diagnostic only) gives a slope of 0.956 and moves
+     the top bin from -0.280 to -0.148. The rating spread is flat all season (std 94-101), so
+     the ratings aren't widening.
+  2. **The log-linear form.** log lambda = a + b gap + h home makes a fixture's expected total
+     e^a (e^(h + b gap) + e^(-b gap)) rise with the gap. In 2025/26 actual match totals are
+     flat in |gap|: a Poisson slope of -0.013 (se 0.038) per 100 points, where the fitted model
+     implies +0.030. The split of goals between the two sides is modelled well at every gap.
+     Even in-sample (full-season fit, GW6+), the top bin misses by -0.149. Half of that is
+     Liverpool and Aston Villa, whose ratings ran ahead of their results (rating error, out of
+     scope). Without them the old form still over-predicts both tails: favourites -0.082
+     (65 team-fixtures, lambda 1.75+) and underdogs -0.085 (55, lambda below 1.0).
+  - The early weeks also run low (GW6-12: predicted 1.311, actual 1.443), because GW1-5 of
+    2025/26 scored 2.48 goals a match against about 2.78 later. Without an earlier season in
+    the pool, nothing driven by the gap and home can fix this. It drives most of the
+    middle-bin shortfall and the 2-4 point clean-sheet over-prediction.
+- **Changed (still brief 6.2: Poisson goals driven by the Elo gap and home advantage):**
+  - **Form:** lambda_for = 2 exp(a) x sigmoid(b x gap + h x side), with side +1 at home and
+    -1 away. A fixture's expected total is 2 exp(a) whatever the ratings, and the gap and home
+    advantage set the split. Equal clubs on neutral ground each expect exp(a). There are still
+    three coefficients. Why: it matches the flat totals, and in-sample it brings the tails to
+    favourites -0.012 and underdogs -0.009 (without Liverpool and Villa), with a better
+    log-likelihood than the old form (1.4393 against 1.4405 per team-fixture, GW6+).
+  - **Priors:** zero-centred Gaussian priors on b and h, both sd 0.2 on the share's logit
+    scale (b per 100 rating points). The fit is penalised maximum likelihood by Fisher
+    scoring, still numpy only. The intercept has no prior, so the fitted total always equals
+    the pool's. Why: the priors pull a small pool towards league-average goals, and their pull
+    fades as the pool grows. At 370 matches (as-of 37) they shrink b from 0.310 to 0.293 per
+    100 points and h from 0.230 to 0.207. With 2026/27's two-season pool they matter less
+    still.
+  - **Tuning:** one value for both priors, by walk-forward log-loss on 2025/26 GW6-38, over
+    sd 0.05, 0.075, 0.1, 0.15, 0.2 and 0.3 (log-loss 1.4569, 1.4501, 1.4468, 1.4445, 1.4441
+    and 1.4443). It is flat from 0.15 to 0.3, and splitting the two (0.3 and 0.2, or 0.2 and
+    0.3) gives 1.4442 and 1.4441. In-sample for the development window, like the Elo settings.
+  - **Fitted on real data (2025/26):**
+
+    | As-of | Matches | Total 2e^a | b per 100 | h | Equal clubs, home v away | +300 home side v opponent (old form) |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 5 | 50 | 2.480 | 0.269 | 0.142 | 1.328 v 1.152 | 1.788 v 0.692 (2.476 v 0.569) |
+    | 10 | 100 | 2.660 | 0.302 | 0.243 | 1.491 v 1.169 | 2.019 v 0.641 (2.514 v 0.650) |
+    | 20 | 200 | 2.780 | 0.298 | 0.248 | 1.561 v 1.219 | 2.107 v 0.673 (2.416 v 0.750) |
+    | 37 | 370 | 2.754 | 0.293 | 0.207 | 1.519 v 1.235 | 2.059 v 0.695 (2.313 v 0.776) |
+
+- **Before and after, 2025/26 GW6-38 (660 team-fixtures):**
+
+  | Predicted goals bin | Before: n, predicted, actual | After: n, predicted, actual |
+  | --- | --- | --- |
+  | 0-0.75 | 13, 0.697, 0.769 (+0.072) | 12, 0.674, 0.833 (+0.159) |
+  | 0.75-1.25 | 253, 1.060, 1.146 (+0.086) | 225, 1.062, 1.076 (+0.013) |
+  | 1.25-1.75 | 300, 1.461, 1.527 (+0.066) | 349, 1.477, 1.550 (+0.073) |
+  | 1.75+ | 94, 1.992, 1.713 (-0.280) | 74, 1.883, 1.703 (-0.180) |
+
+  | `p_cs` bin | Before: n, predicted, actual | After: n, predicted, actual |
+  | --- | --- | --- |
+  | 0.0-0.1 | 12, 0.085, 0.000 | none |
+  | 0.1-0.2 | 141, 0.164, 0.156 | 146, 0.169, 0.151 |
+  | 0.2-0.3 | 277, 0.252, 0.220 | 307, 0.247, 0.208 |
+  | 0.3-0.4 | 185, 0.346, 0.324 | 161, 0.342, 0.323 |
+  | 0.4-0.5 | 39, 0.439, 0.410 | 38, 0.434, 0.500 |
+  | 0.5-0.6 | 6, 0.515, 0.333 | 8, 0.525, 0.500 |
+
+  - Log-loss 1.4463 before and 1.4441 after, against 1.4705 for the league-average home and
+    away baseline. Calibration slope 0.811 (se 0.129) before and 0.930 (se 0.149) after.
+  - **How strong the evidence is:** every log-loss gain here is within about one paired
+    standard error (the chosen model: -0.0022 ± 0.0023 per team-fixture, paired by match).
+    A two-fold split of the season with fixed coefficients is mixed: the old form wins one
+    fold and the new form two, all by under 0.002. One season can't separate these models
+    on log-loss. The change rests on the two mechanisms above, not on the score.
+- **Rejected (walk-forward log-loss; top-bin miss):**
+  - A gap-squared term (1.4463; -0.140) or an |gap| term (1.4463; -0.185) in the log-linear
+    model: a fourth coefficient, with in-sample likelihood-ratio statistics of 1.6 and 1.4.
+  - A home x gap interaction (1.4472; -0.179): worse.
+  - The new form with a total that varies with |gap| (1.4466; -0.244): the fourth coefficient
+    costs more than it gains.
+  - A fixed multiplier on the fitted gap coefficient (0.8: 1.4460; -0.107): a post-fit
+    constant that doesn't fade with pool size, so it would keep shrinking in 2026/27's large
+    pools, where the noise is small. At 0.6 it is worse (1.4485).
+  - The priors alone, keeping the log-linear form (sd 0.15 per 100 points and per home:
+    1.4456, slope 0.904; -0.222): fixes the noise, not the form. This is the main
+    alternative if a fixed total is unwanted.
+  - The new form without priors (1.4452, slope 0.799; -0.230): fixes the form, not the noise.
+  - Loading 2024/25 results as a prior pool: a new input that would also need 2024/25 ratings.
+  - Changing the Elo ratings, for example a higher K so Liverpool's decline shows sooner: out
+    of scope, and the ratings passed.
+- **Inputs:** unchanged (our `elo_before`, home flag and goals of finished Premier League
+  matches in the pool).
+- **Outputs:** unchanged columns and keys. `lambda_for` + `lambda_against` is now the same for
+  every fixture in a read: 2 exp(intercept), the pool's goals per match.
+- **Code:** `models/team_goals.py`: `goal_rates` (the link and its Jacobian) and
+  `fit_coefficients` (penalised Fisher scoring) replace `poisson_fit`. `GoalsSettings` gains
+  `prior_sd_gap` and `prior_sd_home` and a `precision` property, and rejects a prior sd that
+  isn't positive. `GoalsFit` keeps its fields: `intercept` is log goals for equal clubs on
+  neutral ground, and `gap` and `home` are share-logit coefficients (gap per rating point).
+  `elo_goals`, `goals_from_history` and `elo_ratings` keep their signatures and outputs.
+- **Config keys added:** `goals_model.prior_sd_gap` (0.002 per rating point) and
+  `goals_model.prior_sd_home` (0.2). `model_version` is `0.1.1-elo`.
+- **Tests:** a new `tests/test_goals_fit.py` covers the link, a hand-computed MLE (two gap
+  cells: home logit ln 1.5 and ln 5, total 11/4), stationarity of the penalised likelihood by
+  finite differences, monotone shrinkage with the total kept, an overwhelming prior giving the
+  pool mean, a prior making an unidentified fit possible, and the error paths.
+  `tests/test_team_goals.py` adds config and constant-total tests. The known-answer
+  regression in `tests/test_elo_regression.py` has new goals-model values, changed on purpose
+  for this form and checked by hand (total 26/10 = 2.6, lambda 2.6 x 0.517344 = 1.345094).
+  The rating values are unchanged.
+- **Assumptions and known weaknesses:**
+  - **A fixed expected total per fixture.** 2025/26 supports it (slope -0.013 ± 0.038 per 100
+    points), but it can't rule out the old form's +0.030. Betting markets usually price
+    higher totals in big mismatches, partly because strong sides attack well, and a single
+    rating can't tell attack from defence. Dixon-Coles (phase 2), with separate attack and
+    defence ratings, can vary the total.
+  - **The home prior is centred on no home advantage,** so it trims a large pool's home term
+    a little (0.230 to 0.207 at 370 matches, about -0.015 goals for an equal home side).
+    Walk-forward, home sides now run 0.036 under (1.509 predicted, 1.545 actual; before:
+    1.542, 1.545), within noise (se about 0.07).
+  - **The early-season level** (above) remains, as does the 2-4 point clean-sheet
+    over-prediction it causes. Goals are slightly underdispersed (variance/mean 0.94), so
+    exp(-lambda) runs about 1 point high even in-sample (0.266 against 0.257).
+  - **Rating error dominates what's left of the top bin:** Liverpool -0.63 over 10
+    team-fixtures. Without Liverpool and Villa the after top bin is -0.092 (57).
+  - Raising reads are unchanged: `MissingSeedError` at 2025/26 as-of 0 and 2026/27 as-of
+    0-1, and `InsufficientSampleError` at 2025/26 as-of 1-2.
+- **Revision (same day): log-linear form plus priors (Josh's choice).** Per "main - Elo goals
+  fix: log-linear form plus priors (Josh)", the fixed-total form is rejected. The model keeps
+  v1's form, log lambda = intercept + gap x gap + home x is_home, and adds the priors. This
+  revision supersedes the "Changed", "Code", "Config keys", before-and-after and tests points
+  above, and the two weaknesses specific to the fixed total. The diagnosis, scoring and the
+  rest of the rejected list stand.
+  - **Final form and settings:** zero-centred Gaussian priors on the gap and home
+    coefficients (log goals), with none on the intercept, fitted by penalised Newton.
+    `goals_model.prior_sd_gap` 0.00175 per rating point (0.175 per 100 points) and
+    `goals_model.prior_sd_home` 0.175. `model_version` stays `0.1.1-elo`.
+  - **Re-tuned the same way:** one value for both, by walk-forward log-loss on 2025/26 GW6-38
+    only. sd none, 0.4, 0.3, 0.25, 0.2, 0.175, 0.15, 0.125, 0.1 and 0.075 gave 1.44625,
+    1.44596, 1.44582, 1.44572, 1.44562, 1.44559, 1.44560, 1.44572, 1.44611 and 1.44714.
+    0.175 is the minimum, on a flat stretch from 0.15 to 0.2. Sensitivity only, not adopted
+    (a second knob tuned on one season): a tighter gap prior with a looser home prior does a
+    little better (gap 0.125 and home 0.2: 1.44528; gap 0.15 and home 0.3: 1.44541).
+  - **Fitted on real data (2025/26), with the unpenalised fit in brackets:**
+
+    | As-of | Matches | Intercept | Gap per 100 | Home | Equal clubs, home v away | +300 home side v opponent |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 5 | 50 | 0.124 | 0.173 (0.201) | 0.125 (0.262) | 1.283 v 1.132 | 2.154 v 0.674 (2.476 v 0.569) |
+    | 10 | 100 | 0.148 | 0.160 (0.171) | 0.217 (0.326) | 1.441 v 1.160 | 2.325 v 0.718 (2.514 v 0.650) |
+    | 20 | 200 | 0.194 | 0.146 (0.151) | 0.214 (0.266) | 1.505 v 1.215 | 2.334 v 0.783 (2.416 v 0.750) |
+    | 37 | 370 | 0.196 | 0.143 (0.145) | 0.196 (0.222) | 1.481 v 1.217 | 2.272 v 0.793 (2.313 v 0.776) |
+
+  - **Final against v1, 2025/26 GW6-38 (660 team-fixtures),** through the public
+    `elo_goals`, scored as above:
+
+    | Predicted goals bin | v1: n, predicted, actual | Final: n, predicted, actual |
+    | --- | --- | --- |
+    | 0-0.75 | 13, 0.697, 0.769 (+0.072) | 3, 0.697, 1.000 (+0.303) |
+    | 0.75-1.25 | 253, 1.060, 1.146 (+0.086) | 254, 1.066, 1.114 (+0.048) |
+    | 1.25-1.75 | 300, 1.461, 1.527 (+0.066) | 320, 1.460, 1.528 (+0.068) |
+    | 1.75+ | 94, 1.992, 1.713 (-0.280) | 83, 1.956, 1.735 (-0.221) |
+
+    | `p_cs` bin | v1: n, predicted, actual | Final: n, predicted, actual |
+    | --- | --- | --- |
+    | 0.0-0.1 | 12, 0.085, 0.000 | 6, 0.085, 0.000 |
+    | 0.1-0.2 | 141, 0.164, 0.156 | 132, 0.164, 0.152 |
+    | 0.2-0.3 | 277, 0.252, 0.220 | 300, 0.250, 0.210 |
+    | 0.3-0.4 | 185, 0.346, 0.324 | 190, 0.343, 0.337 |
+    | 0.4-0.5 | 39, 0.439, 0.410 | 31, 0.439, 0.452 |
+    | 0.5-0.6 | 6, 0.515, 0.333 | 1, 0.500, 0.000 |
+
+    - Log-loss 1.4463 (v1) and 1.4456 (final), against the baseline's 1.4705. The paired
+      difference is -0.0007 ± 0.0017 per team-fixture.
+    - Calibration slope 0.811 (se 0.129) for v1 and 0.884 (se 0.141) final.
+  - **Tried and rejected: the fixed-total form** (lambda_for = 2 exp(a) x sigmoid(b x gap +
+    h x side), with priors sd 0.2): log-loss 1.4441, slope 0.930, top bin 74 team-fixtures at
+    -0.180, with middle bins at +0.013 and +0.073. Josh's reasons are in the main entry. The
+    final form gives up about 0.0015 of log-loss to it on 2025/26, within noise.
+  - **Code:** v1's `poisson_fit(x, y, precision, tol, max_iter)` gains the prior precisions:
+    they are added to the Hessian, and `precision x beta` is taken from the score.
+    `GoalsSettings` gains `prior_sd_gap`, `prior_sd_home` and a `precision` property, and
+    rejects a prior sd that isn't positive. `GoalsFit` and the outputs are as in v1.
+  - **Tests:** `tests/test_goals_fit.py` covers v1's known answers without a prior (log-linear
+    cell means, and the intercept-only log mean), stationarity of the penalised likelihood by
+    finite differences, monotone shrinkage with the total kept, an overwhelming prior giving
+    the pool mean, a prior making an unidentified fit possible, and the error paths. The
+    regression values in `tests/test_elo_regression.py` changed on purpose, checked by hand
+    (exp(0.246907 + 0.00100247 x 42.5618 + 0.021331) = 1.36466).
+  - **Weaknesses, final version:**
+    - **The home prior does most of the shrinking.** The gap is well identified, so it
+      barely moves (0.145 to 0.143 at 370 matches). Home goes from 0.222 to 0.196, about
+      -0.04 goals for an equal home side. Walk-forward, home sides now run 0.044 under (1.501
+      predicted, 1.545 actual; v1 1.542) and away sides 0.006 under (1.233 against 1.239;
+      v1 1.194). This is within noise (se about 0.07) but has a direction. The split grid
+      above points the same way.
+    - The early-season level, the clean-sheet over-prediction it causes and Liverpool's
+      rating error (all above) remain. The validator's log-linear claims check holds again.

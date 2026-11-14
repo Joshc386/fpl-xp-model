@@ -20,45 +20,16 @@ from fpl.models.team_goals import (
     fixture_difficulty,
     goals_from_history,
     goals_pool,
-    poisson_fit,
 )
 
-GOALS = GoalsSettings(pool_seasons=2, min_matches=5, tol=1e-10, max_iter=50, max_horizon=2)
+PRIOR = {"prior_sd_gap": 0.00175, "prior_sd_home": 0.175}
+GOALS = GoalsSettings(pool_seasons=2, min_matches=5, tol=1e-10, max_iter=50, max_horizon=2,
+                      **PRIOR)
 COLUMNS = ["team_id", "match_id", "gw", "opponent_id", "home", "lambda_for", "lambda_against",
            "p_cs"]
 # Season A to as-of 3, then the schedule: club 1 has a double in GW4, club 4 a blank.
 FUTURE = FIXTURES_A + [(gw, h, a, None, None, None, None) for gw, h, a in [
     (4, 1, 2), (4, 3, 1), (5, 4, 1), (5, 2, 3), (6, 1, 3), (6, 2, 4)]]
-
-
-def test_poisson_fit_recovers_log_linear_cell_means() -> None:
-    # Cell means 1, 2, 1.5, 3 at (gap, home) = (0,0), (100,0), (0,1), (100,1) are exactly
-    # log-linear, so the MLE is log mu = 0 + gap x ln2/100 + home x ln1.5.
-    cells = [((0, 0), [0, 1, 2]), ((100, 0), [1, 2, 3]), ((0, 1), [1, 2]), ((100, 1), [2, 3, 4])]
-    x = np.array([[1.0, g, h] for (g, h), ys in cells for _ in ys])
-    y = np.array([float(v) for _, ys in cells for v in ys])
-    beta = poisson_fit(x, y, tol=1e-12, max_iter=50)
-    assert beta == pytest.approx([0.0, 0.006931472, 0.405465108], abs=1e-8)
-
-
-def test_poisson_fit_with_an_intercept_only_is_the_log_mean() -> None:
-    beta = poisson_fit(np.ones((4, 1)), np.array([0.0, 1.0, 2.0, 5.0]), tol=1e-12, max_iter=50)
-    assert beta == pytest.approx([math.log(2.0)])
-
-
-@pytest.mark.parametrize(("x", "y", "match"), [
-    (np.ones((3, 1)), np.zeros(3), "no goals"),
-    (np.column_stack([np.ones(3), np.zeros(3)]), np.ones(3), "singular"),
-])
-def test_poisson_fit_raises_on_a_degenerate_pool(x: np.ndarray, y: np.ndarray, match: str) -> None:
-    with pytest.raises(GoalsModelError, match=match):
-        poisson_fit(x, y, tol=1e-12, max_iter=50)
-
-
-def test_poisson_fit_raises_when_it_does_not_converge() -> None:
-    x = np.column_stack([np.ones(4), [0.0, 1.0, 2.0, 3.0]])
-    with pytest.raises(GoalsModelError, match="converge"):
-        poisson_fit(x, np.array([1.0, 0.0, 3.0, 9.0]), tol=1e-12, max_iter=1)
 
 
 def test_clean_sheet_probability_is_exp_of_minus_lambda_against() -> None:
@@ -76,7 +47,8 @@ def test_the_mean_fitted_lambda_is_the_pool_mean_goals() -> None:
 
 def test_a_pool_below_the_minimum_raises_and_so_does_an_empty_one() -> None:
     run = run_elo(two_seasons(), SETTINGS, PREM)
-    small = GoalsSettings(pool_seasons=2, min_matches=11, tol=1e-10, max_iter=50, max_horizon=2)
+    small = GoalsSettings(pool_seasons=2, min_matches=11, tol=1e-10, max_iter=50,
+                          max_horizon=2, **PRIOR)
     with pytest.raises(InsufficientSampleError, match="10 finished matches"):
         fit_goals_model(goals_pool(run.matches, ["2025-2026", "2026-2027"]), small)
     with pytest.raises(InsufficientSampleError, match="0 finished matches"):
@@ -105,6 +77,23 @@ def test_pool_seasons_below_one_is_rejected(pool_seasons: int) -> None:
     cfg = model_config()
     cfg["goals_model"]["pool_seasons"] = pool_seasons
     with pytest.raises(ValueError, match="pool_seasons must be at least 1"):
+        GoalsSettings.from_config(cfg)
+
+
+def test_the_priors_are_read_from_config() -> None:
+    cfg = model_config()
+    s = GoalsSettings.from_config(cfg)
+    assert (s.prior_sd_gap, s.prior_sd_home) == (cfg["goals_model"]["prior_sd_gap"],
+                                                 cfg["goals_model"]["prior_sd_home"])
+    assert s.precision == pytest.approx([0.0, 1 / s.prior_sd_gap**2, 1 / s.prior_sd_home**2])
+
+
+@pytest.mark.parametrize("key", ["prior_sd_gap", "prior_sd_home"])
+@pytest.mark.parametrize("value", [0, -0.1])
+def test_a_prior_sd_that_is_not_positive_is_rejected(key: str, value: float) -> None:
+    cfg = model_config()
+    cfg["goals_model"][key] = value
+    with pytest.raises(ValueError, match=f"{key} must be positive"):
         GoalsSettings.from_config(cfg)
 
 
@@ -138,7 +127,8 @@ def test_lambda_against_is_the_opponents_lambda_for_and_p_cs_follows() -> None:
 def test_the_horizon_stops_at_gameweek_38_and_skips_a_postponed_past_fixture() -> None:
     end = FIXTURES_A + [(36, 1, 2, None, None, None, None), (37, 3, 4, None, None, None, None),
                         (38, 2, 1, None, None, None, None)]
-    five = GoalsSettings(pool_seasons=2, min_matches=5, tol=1e-10, max_iter=50, max_horizon=5)
+    five = GoalsSettings(pool_seasons=2, min_matches=5, tol=1e-10, max_iter=50, max_horizon=5,
+                         **PRIOR)
     out, _ = goals_from_history([season_read("2025-2026", 36, CODES_A, end)], SETTINGS, five,
                                 PREM)
     assert sorted(set(out.gw)) == [37, 38] and len(out) == 4  # GW36's unplayed fixture is past
@@ -173,7 +163,8 @@ def test_a_club_without_a_rating_raises() -> None:
 def test_adding_a_later_result_changes_nothing() -> None:
     # Season B at as-of 1 holds GW2 results in its table; schedule-only GW2 must give the same.
     schedule = [f if f[0] <= 1 else f[:3] + (None, None, None, None) for f in FIXTURES_B]
-    one = GoalsSettings(pool_seasons=2, min_matches=5, tol=1e-10, max_iter=50, max_horizon=2)
+    one = GoalsSettings(pool_seasons=2, min_matches=5, tol=1e-10, max_iter=50, max_horizon=2,
+                        **PRIOR)
     leaked, fit_l = goals_from_history(two_seasons(as_of_b=1), SETTINGS, one, PREM)
     clean, fit_c = goals_from_history(
         [two_seasons()[0], season_read("2026-2027", 1, two_seasons()[1].tables["dim_team"]
