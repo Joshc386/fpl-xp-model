@@ -20,7 +20,7 @@ so a table never mixes seasons.
 
 | Table | Grain | Columns |
 | --- | --- | --- |
-| `dim_player` | Player, current season | `player_id`, `player_code`, `web_name`, `team_id`, `position`, `price_tenths`, `status`, `chance_next`, `news`, `selected_pct`, `pen_order`, `fk_order`, `corner_order`, `ep_next` |
+| `dim_player` | Player, current season | `player_id`, `player_code`, `web_name`, `team_id`, `position`, `price_tenths`, `status`, `chance_next`, `news`, `selected_pct`, `pen_order`, `fk_order`, `corner_order`, `ep_next`, `price_change_start_tenths`, `price_change_gw_tenths`, `transfers_in_gw`, `transfers_out_gw` |
 | `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `upstream_elo` |
 | `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `stats_complete`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
 | `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves` |
@@ -60,6 +60,15 @@ Brief section 4 lists the data rules.
   history in backtest mode.
 - **`dim_player.fk_order` and `corner_order`:** `direct_freekicks_order` and
   `corners_and_indirect_freekicks_order`.
+- **`dim_player.price_change_start_tenths`, `price_change_gw_tenths`,
+  `transfers_in_gw` and `transfers_out_gw`:** upstream `cost_change_start`,
+  `cost_change_event`, `transfers_in_event` and `transfers_out_event` from
+  the snapshot being loaded, overlaid in live mode. The price changes are
+  already integer tenths (brief data rule 7). Like the `fact_player_gw`
+  snapshot columns, they describe the run-up to the next deadline (rule 8):
+  the price change since the season started and since the last deadline,
+  and the transfers made since the last deadline. Never null (decided
+  2026-11-14).
 - **Upstream Elo:** Premier League matches only.
   - `home_upstream_elo` and `away_upstream_elo` are `home_team_elo` and
     `away_team_elo`, the ClubElo rating at kickoff, on Premier League rows.
@@ -179,14 +188,17 @@ CSV in `outputs/`, committed, read by Excel.
 | `players.csv` | Player | `player_id`, `web_name`, `team`, `position`, `price_m`, `status`, `chance_next`, `news`, `selected_pct`, `minutes`, `starts`, `total_points`, `ppg`, `xg90`, `xa90`, `dc90`, `pen_taker`, `net_transfers_gw`, `price_change_gw`, `price_change_start` |
 | `projections.csv` | Player × gameweek (next 5; no row for a blank gameweek) | `player_id`, `gw`, `opponent`, `home`, `exp_minutes`, `p_start`, `p_60`, `xg`, `xa`, `p_cs`, `exp_gc`, `xp_appear`, `xp_goals`, `xp_assists`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves`, `xp_bonus`, `xp_cards`, `xp_total`, `low_confidence` |
 | `player_summary.csv` | Player × horizon (1–5) | `player_id`, `horizon`, `xp_next`, `xp_horizon`, `replacement_xp`, `xp_above_repl`, `value_per_m`, `xp_per_m`, `ep_next_fpl` |
-| `fixture_difficulty.csv` | Team × fixture (gameweeks in the next 5) | `team_id`, `match_id`, `gw`, `opponent_id`, `home`, `lambda_for`, `lambda_against`, `p_cs` |
+| `fixture_difficulty.csv` | Team × fixture (gameweeks in the next 5) | `team_id`, `team`, `match_id`, `gw`, `opponent_id`, `opponent`, `home`, `lambda_for`, `lambda_against`, `p_cs` |
 | `elo_ratings.csv` | Team × Premier League match, 2025/26 and 2026/27 | `team_id`, `match_id`, `season`, `gw`, `kickoff_utc`, `elo_before`, `elo_after` |
 | `optimal_squads.csv` | Horizon × budget × player | `horizon`, `budget_m`, `player_id`, `role` (XI or bench), `bench_order`, `is_captain`, `is_vice`, `xp_next`, `xp_horizon` |
 | `meta.csv` | One row | `run_utc`, `upstream_commit`, `current_gw`, `next_gw`, `next_deadline_utc`, `model_version`, `max_horizon`, `backtest_mae_model`, `backtest_mae_ep_next`, `status` |
 
 - **`fixture_difficulty.csv`:** a double gameweek has two rows for a team, and
   a blank gameweek has none. The workbook sums a gameweek's rows and shows a
-  dash where there are none.
+  dash where there are none. `team` and `opponent` are the clubs'
+  `dim_team.short_name`, so the workbook needs no join (decided 2026-11-14).
+- **`players.csv`:** `net_transfers_gw`, `price_change_gw` and
+  `price_change_start` come from `dim_player` and are never null.
 - **`projections.csv`:** in a double gameweek, `opponent` lists both
   opponents.
 - **`elo_ratings.csv`:** an analysis output for Josh's comparison with an
@@ -198,7 +210,8 @@ CSV in `outputs/`, committed, read by Excel.
 - **`meta.csv`:** `current_gw` is the as-of gameweek. `max_horizon` is the
   number of gameweeks projected (5, from `config/model.yaml`).
   `model_version` comes from `config/model.yaml` (`0.1.0-elo` in phase 1)
-  and stamps every CSV the run publishes.
+  and stamps every CSV the run publishes. `status` is always `ok`, because
+  a failed run publishes nothing (brief section 11).
 - **Gameweeks:** the next gameweek is the first gameweek whose deadline is
   after the run time. A gameweek whose deadline has passed never appears in
   the outputs (`CONTEXT.md`).
@@ -267,8 +280,8 @@ guard against leakage.
     rescheduled fixtures earlier than a manager would (`docs/known_gaps.md`).
   - **Later cup and European matches are left out.** In a knockout cup a
     future tie reveals who won the earlier rounds.
-- **Live mode:** the same, with current status, news, chance of playing and
-  price overlaid from the master files.
+- **Live mode:** the same, with current status, news, chance of playing,
+  price, price changes and transfers overlaid from the master files.
   - **Overlay rules:** the master row with the highest `gw` wins. A cleared
     concern clears the snapshot value. A player with no master row keeps his
     snapshot values. Rows are matched by `player_id`, never by position, and
@@ -283,7 +296,8 @@ guard against leakage.
   fact tables are empty (`docs/known_gaps.md`). A live run at as-of 1 before
   upstream has written GW1 returns the same.
 - **Live gameweeks:** `live_gameweeks(season, run_utc)` returns the next and
-  as-of gameweeks.
+  as-of gameweeks, and `live_deadlines(season)` every gameweek's deadline,
+  both from the master `gameweek_summaries.csv`.
 - **Next and as-of gameweek (live only):** the next gameweek is the first
   whose `deadline_time` in the master `gameweek_summaries.csv` is strictly
   after the run time. A run at the exact deadline treats it as passed. The

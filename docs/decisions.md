@@ -1682,3 +1682,37 @@ Task 5 needs `meta.model_version`. The contract's example value was
   mutants die. The 8 survivors are test gaps in the verdict's leak controls,
   the baseline's call site and the config, and go back to the validator as
   follow-ups.
+
+### 2026-11-14: main - task 5 contract changes (Josh)
+From the data-engineer's task 5 report. Josh approved three of its
+proposals, and the contract changes go in before the fix round's code.
+- **Four FPL fields in `dim_player`:** `price_change_start_tenths`,
+  `price_change_gw_tenths`, `transfers_in_gw` and `transfers_out_gw`, from
+  upstream's `cost_change_start`, `cost_change_event`, `transfers_in_event`
+  and `transfers_out_event`, overlaid in live mode.
+  - Why: `players.csv` can publish `price_change_start`, and
+    `net_transfers_gw` and `price_change_gw` are never null. Until now they
+    came from `fact_player_gw`, whose rows are held back until a club's
+    fixtures finish, so mid-gameweek runs would have published blanks. The
+    export's computed values already match these fields wherever both exist
+    (GW10).
+  - Trade-off: four more columns in a processed table. Rejected: allowing
+    nulls in the two columns.
+- **`team` and `opponent` in `fixture_difficulty.csv`:** the clubs' short
+  names, so the workbook needs no join. Trade-off: names repeat across rows.
+  Rejected: a separate `teams.csv`.
+- **`meta.status` is always `ok`:** a failed run publishes nothing (brief
+  section 11), and the Dashboard's warning comes from data age.
+- **Also in the contract:** `live_deadlines(season)` in the loader section
+  (Code Review).
+- **Code Review of task 5: changes required.** `ppg` takes its points from
+  released gameweek rows and its appearances from complete matches, so it
+  is wrong in a half-played double gameweek and when a match is finished
+  but not yet complete. The main session reproduced both cases. No 2026/27
+  output is affected yet, because there have been no doubles. The other
+  findings are a real-data test that breaks once GW11 prices land, seven
+  untested checks, no goalkeeper `dc90` guard, renames that aren't atomic on
+  Windows, and small fixes. All go to the data-engineer's fix round.
+- **Updated:** `docs/data_contract.md` (`dim_player` and its source note,
+  live mode, live gameweeks, and the `fixture_difficulty.csv`, `players.csv`
+  and `meta.csv` notes) and brief section 5.
