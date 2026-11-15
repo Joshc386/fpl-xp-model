@@ -80,7 +80,9 @@ Update this list as each piece is built.
 * `.venv/Scripts/ruff check .`: lint
 * `.venv/Scripts/python -m fpl.run\_pipeline`: build the processed tables in `data/processed/` from the local upstream checkout (`data/raw/upstream/repo`; pull it first). Ingest, validate and clean only, so far
 * `.venv/Scripts/python -m fpl.models.elo\_tune`: re-tune the Elo settings on 2025/26 (logs only; about 20 s)
-* `python backtest/run\_backtest.py`: run the backtest
+* `.venv/Scripts/python -m fpl.export --out-dir <dir> [--run-utc ISO]`: write the phase 1 outputs (`players.csv`, `fixture\_difficulty.csv`, `elo\_ratings.csv`, `meta.csv`) to `<dir>` after the output checks pass (about 5 s). Never point it at `outputs/` by hand
+* `.venv/Scripts/python -m backtest.elo\_check`: the model-validator's Elo component check; writes a new dated report in `backtest/reports/` (about 5 minutes). It reads 2026/27, the holdout, so log every run in `docs/decisions.md`
+* `python backtest/run\_backtest.py`: run the backtest (not built yet)
 * `python excel/build\_workbook.py`: build the workbook (Windows, Excel installed)
 
 ## Working with Josh
