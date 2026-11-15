@@ -43,8 +43,8 @@ committed to `main` and pushed. Josh approved pushes for phase 1 on
 | 4 | model-validator | **Elo component check.** An independent walk-forward test against brief section 7's Elo pass marks. Report in `backtest/reports/`. | 3 | Pass or fail with numbers. A fail returns to task 3. Can run alongside task 5. |
 | 5 | data-engineer | **Thin-slice outputs.** `export.py` writes `players.csv` (metrics as defined in `CONTEXT.md`), `fixture_difficulty.csv` (team × fixture, from the Elo goals model), `elo_ratings.csv` and `meta.csv`, plus the output checks from brief section 11, step 8. | 3 | Outputs match the contract and pass validation on the latest snapshot. |
 | 6 | data-engineer | **Workflows.** `update.yml` (08:00 and 18:00 UTC plus manual runs; checks out 2025/26 and 2026/27; skips if the upstream commit hasn't changed; publishes `outputs/` only after validation passes) and `ci.yml` (tests and lint). | 5 | A manual run on `main` passes and publishes. |
-| 7 | excel-builder | **Workbook.** Power Query M for `players`, `fixture_difficulty` and `meta`, reading raw GitHub URLs on `main` with refresh on open. The `in_horizon` picker (1 to `max_horizon`). The Player Database and Fixture Analysis sheets, plus `build_workbook.py` (COM). | 6 (real CSVs on `main`) | The workbook builds on Windows, and the sheets reconcile with the CSVs. |
-| 8 | QA, then Josh | **Phase review.** QA checks every done-when item and test coverage. Josh hand-tests refresh-on-open in Windows Excel. | 1-7 | QA passes. |
+| 7 | excel-builder | **Workbook.** Power Query M for `players`, `fixture_difficulty` and `meta`, reading raw GitHub URLs on `main` with refresh on open. The `in_horizon` picker (1 to `max_horizon`). The Player Database and Fixture Analysis sheets, plus `build_workbook.py` (COM). | 6 (real CSVs on `main`) | The workbook builds on Windows, and the sheets reconcile with the CSVs. The task 8 hand-test checklist is written (decided 2026-11-15). |
+| 8 | QA, then Josh | **Phase review.** QA checks every done-when item and test coverage. Josh hand-tests refresh-on-open in Windows Excel with task 7's checklist, after task 9's first scheduled publish (decided 2026-11-15). | 1-7, and one scheduled publish | QA passes, and so does the hand test. |
 | 9 | main session | **Go-live check.** Confirm two consecutive scheduled runs each published a new upstream commit. | 6 | Both runs green. |
 
 **In parallel, outside the gates:** once `elo_ratings.csv` is published
@@ -91,7 +91,8 @@ as soon as phase 1 is signed off.
 
 ## Steps for Josh
 - Task 7 needs Windows Excel on this machine.
-- Hand-test refresh-on-open in task 8.
-- Create a free beyondELO API key (it goes in an environment variable, never
-  in code), and run the outside-source Elo comparison once `elo_ratings.csv`
+- Hand-test refresh-on-open in task 8, with task 7's checklist, after the first
+  scheduled publish.
+- Create a free beyondELO API key (it goes in the user environment variable
+  `BEYONDELO_API_KEY`, never in code), and run the outside-source Elo comparison once `elo_ratings.csv`
   is published.

@@ -2179,3 +2179,42 @@ Josh took the three recommendations from the re-check.
    `update.yml` commits `outputs/` to `main` from GitHub Actions, and Josh's
    rules ask for a plan before any deployment or infrastructure work. It
    starts in a fresh session after the handoff.
+
+### 2026-11-15: main - beyondELO key, goals-prior tuner and the task 8 hand test (Josh)
+Josh answered the main session's review of his open items.
+1. **beyondELO key:** it lives in the user environment variable
+   `BEYONDELO_API_KEY`, set through Windows' account settings. Never in
+   code, a command line or the repo. The pull is a one-off local
+   data-engineer task, so GitHub needs no secret.
+   - **API facts** (developer page, checked 2026-11-15): the key goes in the
+     `X-API-Key` header. A key allows 10 requests a minute and 100 a day,
+     reset at midnight UTC. `GET /v1/matches` gives each side's rating
+     before and after a match and needs a `competition`, `season` or `club`
+     filter. The page doesn't list the Premier League's competition code, so
+     the data-engineer confirms it first.
+   - **Rejected:** the keyless `club-elo-history` CSV. It holds ratings by
+     date, after each match, so the before-match ratings would have to be
+     derived.
+2. **The goals-prior tuner is a separate command,**
+   `python -m fpl.models.goals_tune`, with its grid under
+   `goals_model.tuning` in `config/model.yaml`. `fpl.models.elo_tune` stays
+   the ratings tuner. Why: each tuner covers one model. Trade-off: one more
+   command.
+3. **Task 8's hand test:** the excel-builder writes a checklist as part of
+   task 7. Josh runs it after task 9's first scheduled publish, so the
+   workbook pulls a real update rather than the data it was saved with.
+   Pass marks:
+   - a copy saved before a newer publish, opened without pressing Refresh
+     All, shows `meta`'s `run_utc` and a `tbl_players` row count that match
+     the CSVs on `main`;
+   - opened offline, it shows the last good data and no sheet breaks;
+   - the test waits more than 5 minutes after a publish:
+     raw.githubusercontent.com caches each file for 5 minutes
+     (`Cache-Control: max-age=300`, checked 2026-11-15), so an earlier
+     refresh can show old files, or old and new ones mixed.
+   - **For the task 7 message:** the README sheet's "how to refresh" lists
+     the first-open prompts each new user sees: Protected View on a
+     downloaded copy, the external-data warning, and Anonymous access for
+     the web source.
+   - **Still open:** pywin32 as a Windows-only dev dependency for
+     `build_workbook.py`.
