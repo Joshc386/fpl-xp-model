@@ -2157,3 +2157,25 @@ only, at upstream `ac8be9ca`; nothing in 2026/27 was fitted, scored or looked at
     its limit is 0.2-0.3, at −0.034 against 0.050.
 - **This is the phase 1 Elo component check** (plan, task 4). Josh signs
   it off.
+
+### 2026-11-15: main - task 4 signed off (Josh)
+Josh took the three recommendations from the re-check.
+1. **Task 4 is signed off.** The Elo component check passes on `ff6d43d`
+   (`backtest/reports/2026-11-14.md`) under the rule set before the
+   re-check, so phase 1's Elo done-when item is met. The three caveats
+   logged on 2026-11-14 stand: the old failing bin now carries no mark, the
+   holdout gain is within noise, and clean sheets run slightly high. They
+   are part of why the phase 2 Dixon-Coles model, and Josh's beyondELO
+   comparison, still matter.
+2. **Two small follow-up rounds run before task 6:**
+   - the modeller adds a committed tuning command for the goals priors (like
+     `elo_tune`), plus a guard against a units slip in
+     `goals_model.prior_sd_gap`;
+   - the validator fixes Code Review's four low findings from the harness's
+     third pass.
+
+   Neither changes the verdict.
+3. **Task 6 (the workflows) gets an explicit plan before delegation.**
+   `update.yml` commits `outputs/` to `main` from GitHub Actions, and Josh's
+   rules ask for a plan before any deployment or infrastructure work. It
+   starts in a fresh session after the handoff.
