@@ -2,3 +2,5 @@
 pytest==9.2.0
 pytest-cov==7.1.0
 ruff==0.17.4
+# Windows only: build_workbook.py drives Excel through COM (task 7). Skipped on Linux CI.
+pywin32==312; sys_platform == "win32"
