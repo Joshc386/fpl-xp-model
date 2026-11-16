@@ -2497,3 +2497,35 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
   - workflow syntax (actionlint isn't installed).
   The first CI run and the first manual run test these. Step 6 of the plan
   now includes a second manual run with upstream unchanged, which must skip.
+
+### 2026-11-16: main - task 6 done: the first manual runs (Josh approved)
+- **First run** ([43902048007](https://github.com/Joshc386/fpl-xp-model/actions/runs/43902048007),
+  52 s, green):
+  - It published `4f8fa36` as `github-actions[bot]`. The commit holds only
+    the four `outputs/` files, and its message gives upstream `fa67c136` and
+    `run_utc` 2026-11-16T15:57:50Z.
+  - Rows: `players` 672, `fixture_difficulty` 100, `elo_ratings` 960,
+    `meta` 1.
+  - `meta`: `current_gw` 10, `next_gw` 11, next deadline
+    2026-11-21T11:00:00Z, `model_version` 0.1.1-elo, status ok.
+  - The credential helper and the push worked.
+  - All four raw GitHub URLs serve the files (HTTP 200).
+- **Second run** ([43902361860](https://github.com/Joshc386/fpl-xp-model/actions/runs/43902361860),
+  29 s, green): upstream was still at `fa67c136`, so the publish decision
+  skipped. The build, export and commit steps were skipped, and `main`
+  didn't move. This shows the skip rule reads the published `meta.csv`.
+- **Local rebuild,** by the main session at the same upstream commit and
+  `run_utc`, on Windows:
+  - `meta`, `players` and `elo_ratings` are byte-identical to the published
+    blobs.
+  - In `fixture_difficulty`, 8 lines differ in the last bit of a float
+    (largest difference 2.2e-16), from Linux and Windows maths.
+  - The published blobs use LF. The local working-tree copies show CRLF
+    only because of git's `core.autocrlf` on checkout, which Power Query
+    never sees.
+- **Task 6's done-means is met:** a manual run on `main` passes and
+  publishes. Next:
+  - task 7 (the workbook) can start against these CSVs;
+  - task 9 watches the scheduled runs, from 18:00 UTC today. A scheduled
+    run with no new upstream commit skips and doesn't count towards task
+    9's two publishing runs.

@@ -1,6 +1,6 @@
 # Task 6 plan: the workflows
 
-Status: approved by Josh (2026-11-16), and delegated to the data-engineer. Terms are as in `CONTEXT.md`.
+Status: done (2026-11-16). The first manual run published `4f8fa36`, and the second skipped as it should; see docs/decisions.md. Terms are as in `CONTEXT.md`.
 
 **Spec:** `docs/plans/phase-1.md` task 6, and brief section 11 ("Workflows",
 "`update.yml` steps", "When something fails", "Tests").
