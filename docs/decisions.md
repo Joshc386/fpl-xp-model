@@ -2440,3 +2440,26 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
 - **Next:** the data-engineer builds the skip-rule function and both
   workflows, then Code Review and `/security-review`. The main session
   asks Josh before the first manual run.
+
+### 2026-11-16: main - refit follow-ups reviewed and committed
+- **Committed as `f4ff5cc`:** the nine follow-ups logged above, then a
+  second pass on Code Review's findings. Nothing read 2026/27, so there is
+  no holdout look to log.
+- **Code Review:** approve with non-blocking findings. 33 mutants run, 29
+  die: R08 and R09 are equivalent, L06 was closed in the second pass, and
+  G11 was stricter. The moved tests were compared by syntax tree, and none
+  was lost or weakened. The session fixture leaks no state between tests.
+  - **Second pass, checked by the main session, not re-reviewed:** L06
+    pinned; the postponed scenario checks its own cup tie; a non-finite
+    pair is reported as "not finite"; the synthetic swap raises on any read
+    that resolves to the real checkout; the season order comes from
+    `pipeline.yaml`; the comment-reading test deleted.
+- **New rules, approved by the main session:**
+  - a NaN or infinite coefficient difference fails the refit pair (added
+    to brief section 7);
+  - `check_pool_settings` stops the run, before any read, unless the
+    backtest seasons start the Elo run (`pipeline.yaml`'s seasons from
+    `elo.start_season` on) and `baseline_pool_seasons` equals
+    `goals_model.pool_seasons`. A prefix is enough: a pipeline season the
+    backtest doesn't cover yet doesn't stop the check.
+- **Full suite:** 853 passed, 99% coverage of `fpl`, lint clean.
