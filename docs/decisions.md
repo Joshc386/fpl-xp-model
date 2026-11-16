@@ -2340,3 +2340,35 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
 - **Settled since 2026-11-15:** pywin32 312 is a Windows-only dev
   dependency (`ddac026`). `BEYONDELO_API_KEY` is set, and Josh rotated
   the key after it was shared in a chat.
+
+### 2026-11-16: main - refit criterion and home-share Concern (Josh)
+- **Modeller follow-ups, committed as `6cf1b42`:** tests now pin the
+  tuner's logged minimum and its config-match check, and a duplicate value
+  in `goals_model.tuning.shared_sd_grid` stops the run before any data is
+  read. The tuner's curve on 2025/26 is unchanged. The main session read
+  the diff: 43 tests pass, lint clean.
+- **Approved: the refit row counts towards the verdict.** This resolves the
+  conflict logged above in the brief's favour. Between consecutive as-of
+  reads of `elo_goals`, the fitted coefficients must change when the
+  fitting pool (finished Premier League results of this season and last, up
+  to the as-of, as brief section 7 defines the baseline pool) gained a
+  result, and must not change when the pool is identical, as after a wholly
+  postponed gameweek. A change smaller than a configured tolerance counts
+  as no change, since the implied coefficients are refitted on a different
+  horizon at each read. The row also needs at least one pair, and the
+  ratings reads must hold no rows after their as-of.
+  - **Why:** the old rule (a change at every pair) would fail a correct
+    model on a postponed gameweek, and it never counted. The new rule is
+    stricter too: a fit that changes with no new result is reading
+    something it shouldn't.
+  - **Effect on past runs:** none. Every pair in the 2026-11-14 run gained
+    results and changed (42 of 42), so its PASS stands. Nothing re-reads
+    2026/27 for this.
+- **Approved: a Concern when the home share is low.** The report lists a
+  Concern when the lowest `home_above` share falls below 0.9 (a new report
+  threshold in `backtest/config.yaml`). It doesn't fail the gate. It
+  watches the known gap where the home prior pulls home advantage towards
+  zero on a small sample. On the 2026-11-14 run the lowest share was 1.000.
+- **Next:** one validator round covering both, plus the five Code Review
+  follow-ups logged above. Brief section 7 gains the refit rule under "How
+  the check is run".
