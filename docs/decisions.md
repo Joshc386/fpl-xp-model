@@ -2413,3 +2413,18 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
   9. Check that the backtest's pool settings match the model's (the
      season order against `elo.start_season`, `baseline_pool_seasons`
      against `goals_model.pool_seasons`); nothing does today.
+
+### 2026-11-16: main - task 6 plan: CI skips the real-data tests (Josh)
+- **Decision 1 of `docs/plans/task-6-workflows.md`, approved:** `ci.yml`
+  runs without the upstream checkout, so the real-data tests skip there.
+  - **Why:** CI stays quick and doesn't depend on upstream being
+    reachable. The real-data tests still run locally before every commit,
+    and `update.yml` runs every check on the real data twice a day.
+  - **Trade-off accepted:** a change that breaks only on real data isn't
+    caught by CI. It's caught at the local run, or at the next `update.yml`
+    run, which then fails without publishing.
+  - **Rejected:** a pinned upstream checkout in CI (a large checkout and
+    several extra minutes on every push, and a SHA to bump whenever those
+    tests change), and the newest upstream (it fails CI whenever upstream
+    changes, because the real tests pin row counts).
+- **Still open:** the rest of the plan. Nothing is delegated yet.
