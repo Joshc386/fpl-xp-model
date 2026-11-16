@@ -63,7 +63,12 @@ def stability_lines(stability: dict) -> list[str]:
 
 
 def coefficient_steps(checks: pd.DataFrame) -> tuple[int, int]:
-    """(consecutive as-of reads whose fitted coefficients changed, consecutive pairs)."""
+    """(consecutive as-of reads whose fitted coefficients changed, consecutive pairs).
+
+    The refit row requires a change at every pair. A gameweek with no new finished league
+    result (wholly postponed, say) would legitimately leave the fitting pool, and so the
+    coefficients, unchanged, and fail that row; the report says to look at it by hand.
+    """
     coef = checks[["intercept", "gap", "home"]]
     if len(coef) < 2:
         return 0, 0
@@ -76,7 +81,7 @@ def shape_lines(checks: pd.DataFrame) -> list[str]:
             ["Steps up in rating gap where lambda doesn't rise (home and away rows)",
              int(checks.not_rising.sum())],
             ["Equal gaps with different lambda", int(checks.tie_mismatch.sum())],
-            ["Home rows above the away curve at the same gap, lowest share",
+            ["Home rows above the away curve at the same gap, lowest share (information)",
              fmt(float(checks.home_above.min()))],
             ["Max abs(p_cs - exp(-lambda_against)) (contract)", f"{checks.p_cs_err.max():.2e}"],
             ["Max abs(lambda_against - opponent's lambda_for)", f"{checks.mirror_err.max():.2e}"],
@@ -85,8 +90,10 @@ def shape_lines(checks: pd.DataFrame) -> list[str]:
             "The brief says the Elo goals model is a Poisson driven by the rating gap and home "
             "advantage. Without assuming a form: within each as-of read, each club's current "
             "rating is its last `elo_after`, and for home and away rows separately, sorted by "
-            "gap, lambda must rise with the gap and be equal at equal gaps (a rate that depends "
-            "on anything else, such as the club, breaks one of these).\n",
+            "gap, lambda must rise with the gap and be equal at equal gaps. These are necessary, "
+            "not sufficient: a rate that depends on anything else, such as the club, can break "
+            "one of them but can also pass both. The home share is information only and raises "
+            "no concern.\n",
             table(["Check", "Value"], rows)]
 
 
@@ -105,7 +112,9 @@ def form_lines(checks: pd.DataFrame) -> list[str]:
             "The model's form is log-linear, log lambda = a + b * gap + h * home (chosen "
             "2026-11-14); the brief doesn't require it. A residual near zero means the output "
             "has that form. The coefficients summarise each read's fit; their changing between "
-            "reads is evidence of a refit.\n", table(["Check", "Value"], rows)]
+            "reads is evidence of a refit. A gameweek with no new finished league result (wholly "
+            "postponed, say) would legitimately leave them unchanged and fail the refit row "
+            "below; such a fail needs a look by hand.\n", table(["Check", "Value"], rows)]
 
 
 def _leak_counts(res: dict) -> dict[str, int]:

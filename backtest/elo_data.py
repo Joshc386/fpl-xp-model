@@ -241,11 +241,12 @@ def goals_shape(preds: pd.DataFrame, ratings: pd.DataFrame, season: str,
 
     Each club's current rating is its last `elo_after` in `ratings` (the same as-of read).
     Home and away rows are checked separately, sorted by gap: `not_rising` counts adjacent
-    steps up in gap where lambda doesn't rise by more than `tol` (a rate that depends on
-    anything else, such as the club, shows up here or as a tie), and `tie_mismatch` equal gaps
-    whose lambdas differ. `home_above` is the share of home rows whose lambda is above the away
-    rows' curve at the same gap (linear interpolation, gaps inside the away range only; NaN
-    if no home gap is inside it).
+    steps up in gap where lambda doesn't rise by more than `tol`, and `tie_mismatch` equal gaps
+    whose lambdas differ. Both are necessary conditions, not sufficient: a rate that depends on
+    anything else, such as the club, may show up in either, but can also pass both. `home_above`
+    (information only; it raises no concern) is the share of home rows whose lambda is above
+    the away rows' curve at the same gap (linear interpolation, gaps inside the away range only;
+    NaN if no home gap is inside it).
     """
     cur = _current_ratings(ratings, season)
     gap = preds.team_id.map(cur) - preds.opponent_id.map(cur)

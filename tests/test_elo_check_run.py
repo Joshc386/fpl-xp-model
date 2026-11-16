@@ -12,9 +12,10 @@ from backtest.elo_check import Models, run_check
 from backtest.elo_data import UnexpectedReadError
 from backtest.elo_leakage import peeking_goals
 from backtest.elo_report import render
+from backtest.elo_report_leak import coefficient_steps
 
 import synth
-from elo_check_synth import synth_point
+from elo_check_synth import real_redirect_to_synth, synth_point
 from fpl.models.elo import elo_ratings
 from fpl.models.team_goals import elo_goals
 
@@ -53,10 +54,30 @@ def settings(within: bool = True) -> dict:
 
 
 @pytest.fixture(scope="module")
-def honest(synth_upstream: tuple[Path, dict]) -> dict:
+def honest_run(synth_upstream: tuple[Path, dict]) -> tuple[dict, list[Path]]:
+    """The check with no `point`, so through the production `perturb.redirect`, and the data
+    copies that redirect was pointed at."""
     root, cfg = synth_upstream
-    with synth_point(root / "data"):
-        return run_check(settings(), Models(), cfg, root / "data", point=synth_point)
+    seen: list[Path] = []
+    with synth_point(root / "data"), real_redirect_to_synth(seen):
+        return run_check(settings(), Models(), cfg, root / "data"), seen
+
+
+@pytest.fixture(scope="module")
+def honest(honest_run: tuple[dict, list[Path]]) -> dict:
+    return honest_run[0]
+
+
+def test_by_default_the_check_reads_the_copy_through_perturb_redirect(
+        honest_run: tuple[dict, list[Path]], synth_upstream: tuple[Path, dict]) -> None:
+    """Mutant P10 (`run_check`'s default `point` a no-op) dies here: the redirect would never be
+    entered, and the copy control and the planted leak would read the clean source."""
+    res, seen = honest_run
+    src = synth_upstream[0] / "data"
+    # Per after-as-of case: clean, corrupted and control runs; per within case: clean and dirty.
+    assert len(seen) == 3 * len(res["leakage"]["after"]) + 2 * len(res["leakage"]["within"])
+    assert len(set(seen)) == 1 and seen[0] != src and seen[0].name == "data"
+    assert res["met"]["copy_reached"] and res["met"]["planted_leak_caught"]
 
 
 def test_the_honest_model_passes_every_leakage_check(honest: dict) -> None:
@@ -139,6 +160,26 @@ def test_the_refit_row_doesnt_depend_on_the_models_form(honest: dict) -> None:
     assert "| FAIL |" in checklist_row(render(frozen, INFO), "Team ratings refitted")
 
 
+def test_coefficient_steps_counts_each_consecutive_change() -> None:
+    a, b, c = [0.1, 0.002, 0.3], [0.2, 0.002, 0.3], [0.2, 0.003, 0.3]
+    checks = pd.DataFrame([a, a, b, c, c], columns=["intercept", "gap", "home"])
+    assert coefficient_steps(checks) == (2, 4)
+    assert coefficient_steps(checks.iloc[:1]) == (0, 0)
+
+
+def test_the_refit_row_needs_a_change_at_every_consecutive_read(honest: dict) -> None:
+    """Mutant P07 (any change passes) dies here: some consecutive reads change, one doesn't."""
+    some = copy.deepcopy(honest)
+    coef, cols = some["goal_checks"], ["intercept", "gap", "home"]
+    steps, pairs = coefficient_steps(coef)
+    assert steps == pairs >= 3  # the honest synthetic run refits at every read
+    coef.loc[coef.index[2], cols] = coef.loc[coef.index[1], cols].to_numpy()
+    text = render(some, INFO)
+    row = checklist_row(text, "Team ratings refitted")
+    assert "| FAIL |" in row and f"changed at {pairs - 1} of {pairs} consecutive" in row
+    assert "wholly postponed" in text  # the case where an unchanged pair is legitimate
+
+
 def test_a_shape_violation_is_a_concern_but_another_form_is_not(honest: dict) -> None:
     ok = copy.deepcopy(honest)
     ok["goal_checks"][["not_rising", "tie_mismatch"]] = 0
@@ -147,6 +188,18 @@ def test_a_shape_violation_is_a_concern_but_another_form_is_not(honest: dict) ->
     bad = copy.deepcopy(ok)
     bad["goal_checks"].loc[bad["goal_checks"].index[0], "not_rising"] = 2
     assert "rating gap and home" in render(bad, INFO).split("## Concerns")[1]
+
+
+def test_the_shape_text_claims_no_more_than_it_checks(honest: dict) -> None:
+    """The two shape checks are necessary conditions only, and the home share raises nothing."""
+    ok = copy.deepcopy(honest)
+    ok["goal_checks"][["not_rising", "tie_mismatch"]] = 0
+    low = copy.deepcopy(ok)
+    low["goal_checks"]["home_above"] = 0.0  # no home row above the away curve
+    text = render(low, INFO)
+    assert "breaks one of these" not in text and "necessary, not sufficient" in text
+    assert "lowest share (information) | 0.000 |" in text
+    assert text.split("## Concerns")[1] == render(ok, INFO).split("## Concerns")[1]
 
 
 def test_a_leaky_goals_model_fails_the_check(synth_upstream: tuple[Path, dict]) -> None:
