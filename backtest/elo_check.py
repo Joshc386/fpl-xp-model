@@ -30,6 +30,7 @@ from backtest.elo_data import (
     match_results,
     rating_pairs,
     read_stability,
+    refit_pairs,
     score_gameweek,
     team_results,
 )
@@ -107,10 +108,15 @@ def _score_season(s: dict, models: Models, skips: SkipLog, finals: dict, season:
     return parts, reads
 
 
+def league_results(finals: dict, prem: str) -> dict[str, pd.DataFrame]:
+    """Each season's finished Premier League results (`match_results`): the pools' source."""
+    return {x: match_results(finals[x]["fact_fixture"], prem) for x in finals}
+
+
 def collect_goals(s: dict, models: Models, skips: SkipLog, finals: dict,
                   prem: str) -> tuple[pd.DataFrame, dict]:
     """Every scored team-fixture with both log-losses, and the raw predictions by as-of."""
-    pools = {x: match_results(finals[x]["fact_fixture"], prem) for x in finals}
+    pools = league_results(finals, prem)
     parts, reads = [], {}
     for season, lo, hi in _seasons(s):
         p, r = _score_season(s, models, skips, finals, season, range(lo, hi + 1), prem, pools)
@@ -152,8 +158,7 @@ def goal_checks(goal_reads: dict, rating_reads: dict, tol: float) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
-def run_leakage(s: dict, models: Models, pcfg: dict, src: Path,
-                point: Redirect = redirect) -> dict:
+def run_leakage(s: dict, models: Models, pcfg: dict, src: Path, point: Redirect) -> dict:
     """The perturbation and within-gameweek cases on a scratch copy of the upstream data.
 
     `point(data_dir)` points the loader at the copy: the loader's `use_data_copy` in the real
@@ -176,8 +181,10 @@ def run_leakage(s: dict, models: Models, pcfg: dict, src: Path,
     return {"after": after, "within": within}
 
 
-def criteria(rt: pd.DataFrame, pooled: dict, leak: dict, stability: dict, s: dict) -> dict:
-    """Whether each gate criterion is met (`elo_summary.CRITERIA`)."""
+def criteria(rt: pd.DataFrame, pooled: dict, leak: dict, stability: dict, refit: pd.DataFrame,
+             s: dict) -> dict:
+    """Whether each gate criterion is met (`elo_summary.CRITERIA`). `refit` is `refit_pairs`:
+    at least one pair, and every pair meets the rule."""
     want = {g for lo, hi in s["ratings"]["pass_gameweeks"] for g in range(lo, hi + 1)}
     marked = rt[rt.mark == "pass mark"]
     honest = [v["changed"] for case in leak["after"] for k, v in case["functions"].items()
@@ -195,6 +202,7 @@ def criteria(rt: pd.DataFrame, pooled: dict, leak: dict, stability: dict, s: dic
                                for w in leak["within"]),
         "read_stability": all(v["changed"] == v["missing"] == v["extra"] == 0
                               for v in stability.values()),
+        "refit": len(refit) > 0 and bool(refit.ok.all()),
     }
 
 
@@ -210,11 +218,13 @@ def run_check(s: dict, models: Models, pcfg: dict, src: Path,
     leak = run_leakage(s, models, pcfg, src, point)
     groups = {k: group_summary(v, s) for k, v in split_groups(goals, s).items() if len(v)}
     rt = ratings_table(pairs, s)
-    met = criteria(rt, groups[POOLED], leak, stability, s)
+    checks = goal_checks(goal_reads, rating_reads, float(s["shape_tolerance"]))
+    refit = refit_pairs(checks, league_results(finals, prem), [x for x, _, _ in _seasons(s)],
+                        int(s["baseline_pool_seasons"]), float(s["refit_tolerance"]))
+    met = criteria(rt, groups[POOLED], leak, stability, refit, s)
     ok, missed = verdict(met)
     return {"settings": s, "goals": goals, "pairs": pairs, "ratings": rt, "groups": groups,
-            "goal_checks": goal_checks(goal_reads, rating_reads, float(s["shape_tolerance"])),
-            "stability": stability,
+            "goal_checks": checks, "refit": refit, "stability": stability,
             "leakage": leak, "skips": skips, "non_league_rows": non_league, "met": met,
             "passed": ok, "missed": missed}
 

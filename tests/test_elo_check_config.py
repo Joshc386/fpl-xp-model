@@ -54,6 +54,13 @@ def test_expected_skips_are_exactly_the_contracts() -> None:  # M38
     assert expected_skips(S) == want
 
 
+def test_refit_tolerance_and_report_thresholds() -> None:
+    # Coefficient noise at an unchanged fit is about 1e-14; a real refit moves them by 1e-3.
+    assert S["refit_tolerance"] == 1e-9
+    assert S["concern_home_share"] == 0.9  # a Concern only, never the verdict
+    assert S["shape_tolerance"] == 1e-12 and S["concern_spearman_margin"] == 0.03
+
+
 def test_perturbation_cases_are_the_briefs() -> None:
     p = S["perturbation"]
     assert [(c["season"], c["as_of"]) for c in p["cases"]] == [

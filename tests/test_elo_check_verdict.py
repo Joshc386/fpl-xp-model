@@ -13,7 +13,7 @@ from backtest.elo_data import SkipLog
 S = {"ratings": {"pass_gameweeks": [[6, 7]]}}
 
 
-def inputs() -> tuple[pd.DataFrame, dict, dict, dict]:
+def inputs() -> tuple[pd.DataFrame, dict, dict, dict, pd.DataFrame]:
     """Inputs that meet every criterion."""
     rt = pd.DataFrame({"gw": [5, 6, 7], "mark": ["no pass mark: early", "pass mark", "pass mark"],
                        "passed": [None, True, True]})
@@ -23,7 +23,9 @@ def inputs() -> tuple[pd.DataFrame, dict, dict, dict]:
                        "control": {"elo_ratings": {"changed": 3}, "elo_goals": {"changed": 2}}}],
             "within": [{"changed": 0, "control_changed": 4}]}
     stability = {"S1": {"changed": 0, "missing": 0, "extra": 0}}
-    return rt, pooled, leak, stability
+    refit = pd.DataFrame({"pool_changed": [True, False], "coef_changed": [True, False],
+                          "ok": [True, True]})
+    return rt, pooled, leak, stability, refit
 
 
 def test_every_criterion_is_met_on_good_inputs() -> None:
@@ -31,53 +33,53 @@ def test_every_criterion_is_met_on_good_inputs() -> None:
 
 
 def test_a_missing_pass_mark_gameweek_fails_the_ratings() -> None:  # M25
-    rt, pooled, leak, stability = inputs()
-    assert not criteria(rt[rt.gw != 7], pooled, leak, stability, S)["ratings"]
+    rt, pooled, leak, stability, refit = inputs()
+    assert not criteria(rt[rt.gw != 7], pooled, leak, stability, refit, S)["ratings"]
 
 
 def test_a_failed_pass_mark_gameweek_fails_the_ratings() -> None:
-    rt, pooled, leak, stability = inputs()
+    rt, pooled, leak, stability, refit = inputs()
     rt.loc[rt.gw == 6, "passed"] = False
-    assert not criteria(rt, pooled, leak, stability, S)["ratings"]
+    assert not criteria(rt, pooled, leak, stability, refit, S)["ratings"]
 
 
 def test_a_planted_leak_that_changes_nothing_is_not_caught() -> None:  # M26
-    rt, pooled, leak, stability = inputs()
+    rt, pooled, leak, stability, refit = inputs()
     leak["after"][0]["functions"]["planted_leak"]["changed"] = 0
-    assert not criteria(rt, pooled, leak, stability, S)["planted_leak_caught"]
+    assert not criteria(rt, pooled, leak, stability, refit, S)["planted_leak_caught"]
 
 
 def test_a_within_gameweek_case_with_no_control_change_fails() -> None:  # M27
-    rt, pooled, leak, stability = inputs()
+    rt, pooled, leak, stability, refit = inputs()
     leak["within"][0]["control_changed"] = 0
-    assert not criteria(rt, pooled, leak, stability, S)["within_gameweek"]
+    assert not criteria(rt, pooled, leak, stability, refit, S)["within_gameweek"]
 
 
 def test_a_within_gameweek_change_fails() -> None:
-    rt, pooled, leak, stability = inputs()
+    rt, pooled, leak, stability, refit = inputs()
     leak["within"][0]["changed"] = 1
-    assert not criteria(rt, pooled, leak, stability, S)["within_gameweek"]
+    assert not criteria(rt, pooled, leak, stability, refit, S)["within_gameweek"]
 
 
 @pytest.mark.parametrize("fn", ["elo_ratings", "elo_goals"])
 def test_a_function_the_copy_control_doesnt_move_fails(fn: str) -> None:
-    rt, pooled, leak, stability = inputs()
+    rt, pooled, leak, stability, refit = inputs()
     leak["after"][0]["control"][fn]["changed"] = 0
-    assert not criteria(rt, pooled, leak, stability, S)["copy_reached"]
+    assert not criteria(rt, pooled, leak, stability, refit, S)["copy_reached"]
 
 
 @pytest.mark.parametrize("fn", ["elo_ratings", "elo_goals"])
 def test_any_changed_value_fails_the_perturbation(fn: str) -> None:
-    rt, pooled, leak, stability = inputs()
+    rt, pooled, leak, stability, refit = inputs()
     leak["after"][0]["functions"][fn]["changed"] = 1
-    assert not criteria(rt, pooled, leak, stability, S)["perturbation"]
+    assert not criteria(rt, pooled, leak, stability, refit, S)["perturbation"]
 
 
 @pytest.mark.parametrize("field", ["changed", "missing", "extra"])
 def test_any_unstable_read_fails(field: str) -> None:
-    rt, pooled, leak, stability = inputs()
+    rt, pooled, leak, stability, refit = inputs()
     stability["S1"][field] = 1
-    assert not criteria(rt, pooled, leak, stability, S)["read_stability"]
+    assert not criteria(rt, pooled, leak, stability, refit, S)["read_stability"]
 
 
 # --- the baseline at its call site --------------------------------------------------------

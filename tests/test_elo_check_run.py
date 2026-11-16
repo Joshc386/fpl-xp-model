@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import re
 from pathlib import Path
 
+import backtest.perturb
 import pandas as pd
 import pytest
-from backtest.elo_check import Models, run_check
+from backtest.elo_check import Models, run_check, run_leakage
 from backtest.elo_data import UnexpectedReadError
 from backtest.elo_leakage import peeking_goals
 from backtest.elo_report import render
-from backtest.elo_report_leak import coefficient_steps
 
 import synth
 from elo_check_synth import real_redirect_to_synth, synth_point
@@ -38,7 +39,7 @@ def settings(within: bool = True) -> dict:
         "mode": "backtest", "seasons": [{"id": SEASON, "target_gameweeks": [15, 22]}],
         "baseline_pool_seasons": 2, "pass_from_gw": 18, "min_bin_count": 5, "concern_min_count": 3,
         "compare_decimals": 9, "calibration_k": 2, "shape_tolerance": 1e-12,
-        "concern_spearman_margin": 0.03,
+        "refit_tolerance": 1e-9, "concern_spearman_margin": 0.03, "concern_home_share": 0.9,
         "goals": {"bin_edges": [0.0, 0.75, 1.25, 1.75], "tolerance": 0.1},
         "clean_sheets": {"bin_width": 0.1, "tolerance": 0.05},
         "ratings": {"season": SEASON, "min_spearman": -1.0, "pass_gameweeks": [[16, 20]],
@@ -80,10 +81,22 @@ def test_by_default_the_check_reads_the_copy_through_perturb_redirect(
     assert res["met"]["copy_reached"] and res["met"]["planted_leak_caught"]
 
 
+def test_run_checks_default_point_is_the_production_redirect() -> None:
+    """Mutant P10 dies here without relying on the test double above being right."""
+    point = inspect.signature(run_check).parameters["point"]
+    assert point.default is backtest.perturb.redirect
+
+
+def test_run_leakage_has_no_default_point() -> None:
+    """`run_check` always passes `point`; a default here would be dead code."""
+    point = inspect.signature(run_leakage).parameters["point"]
+    assert point.default is inspect.Parameter.empty
+
+
 def test_the_honest_model_passes_every_leakage_check(honest: dict) -> None:
     met = honest["met"]
     assert met["perturbation"] and met["planted_leak_caught"] and met["copy_reached"]
-    assert met["within_gameweek"] and met["read_stability"]
+    assert met["within_gameweek"] and met["read_stability"] and met["refit"]
     control = honest["leakage"]["after"][0]["control"]
     assert control["elo_goals"]["changed"] > 0 and control["elo_ratings"]["changed"] > 0
     assert honest["non_league_rows"] == 0  # the cup ties never reach the ratings
@@ -145,39 +158,88 @@ def test_the_deadline_row_needs_the_copy_control(honest: dict) -> None:  # N13
     assert "| FAIL |" in row and "reached both functions in 0 of 1" in row
 
 
+def test_the_honest_run_has_a_refit_pair_per_consecutive_goals_read(honest: dict) -> None:
+    refit, checks = honest["refit"], honest["goal_checks"]
+    assert len(refit) == len(checks) - 1 >= 3
+    assert list(zip(refit.to_season, refit.to_as_of, strict=True)) == list(
+        zip(checks.season.iloc[1:], checks.as_of.iloc[1:], strict=True))
+    assert refit.pool_changed.all() and refit.coef_changed.all()  # results every gameweek
+    assert refit.max_diff.min() > 1e3 * honest["settings"]["refit_tolerance"]
+
+
+def failing_refit(honest: dict, i: int, **change: object) -> dict:
+    """The honest run with refit pair `i` changed and the verdict recomputed."""
+    bad = copy.deepcopy(honest)
+    r = bad["refit"]
+    for k, v in change.items():
+        r.loc[r.index[i], k] = v
+    r["ok"] = r.pool_changed == r.coef_changed
+    bad["met"]["refit"] = False
+    bad["passed"], bad["missed"] = False, ["refit"]
+    return bad
+
+
 def test_the_refit_row_doesnt_depend_on_the_models_form(honest: dict) -> None:
     other_form = copy.deepcopy(honest)
     other_form["goal_checks"]["max_resid"] = 0.5  # far from log-linear
     row = checklist_row(render(other_form, INFO), "Team ratings refitted")
     assert "| pass |" in row and "residual" not in row
+
+
+def test_the_refit_row_shows_read_stability_and_refit(honest: dict) -> None:
+    row = checklist_row(render(honest, INFO), "Team ratings refitted")
+    n = len(honest["refit"])
+    assert "| pass |" in row and f"{n} consecutive pairs" in row and "Failing pairs: none" in row
     unstable = copy.deepcopy(honest)
     unstable["stability"][SEASON]["extra"] = 2
     unstable["met"]["read_stability"] = False
     row = checklist_row(render(unstable, INFO), "Team ratings refitted")
     assert "| FAIL |" in row and "2 rows from after the as-of" in row
-    frozen = copy.deepcopy(honest)
-    frozen["goal_checks"][["intercept", "gap", "home"]] = 0.1  # coefficients never change
-    assert "| FAIL |" in checklist_row(render(frozen, INFO), "Team ratings refitted")
+    assert "| FAIL |" in checklist_row(render(failing_refit(honest, 1, coef_changed=False), INFO),
+                                       "Team ratings refitted")
 
 
-def test_coefficient_steps_counts_each_consecutive_change() -> None:
-    a, b, c = [0.1, 0.002, 0.3], [0.2, 0.002, 0.3], [0.2, 0.003, 0.3]
-    checks = pd.DataFrame([a, a, b, c, c], columns=["intercept", "gap", "home"])
-    assert coefficient_steps(checks) == (2, 4)
-    assert coefficient_steps(checks.iloc[:1]) == (0, 0)
-
-
-def test_the_refit_row_needs_a_change_at_every_consecutive_read(honest: dict) -> None:
-    """Mutant P07 (any change passes) dies here: some consecutive reads change, one doesn't."""
-    some = copy.deepcopy(honest)
-    coef, cols = some["goal_checks"], ["intercept", "gap", "home"]
-    steps, pairs = coefficient_steps(coef)
-    assert steps == pairs >= 3  # the honest synthetic run refits at every read
-    coef.loc[coef.index[2], cols] = coef.loc[coef.index[1], cols].to_numpy()
-    text = render(some, INFO)
+def test_the_refit_evidence_names_each_failing_pair(honest: dict) -> None:
+    r = honest["refit"].iloc[1]
+    bad = failing_refit(honest, 1, coef_changed=False, max_diff=0.0)
+    text = render(bad, INFO)
     row = checklist_row(text, "Team ratings refitted")
-    assert "| FAIL |" in row and f"changed at {pairs - 1} of {pairs} consecutive" in row
-    assert "wholly postponed" in text  # the case where an unchanged pair is legitimate
+    assert "| FAIL |" in row
+    assert (f"{r.from_season} as-of {r.from_as_of} to {r.to_season} as-of {r.to_as_of} "
+            "(pool changed, coefficients unchanged" in row)
+    assert "**FAIL.** Criteria missed: refit." in text
+    r2 = honest["refit"].iloc[2]
+    row = checklist_row(render(failing_refit(honest, 2, pool_changed=False), INFO),
+                        "Team ratings refitted")
+    assert (f"{r2.from_season} as-of {r2.from_as_of} to {r2.to_season} as-of {r2.to_as_of} "
+            "(pool unchanged, coefficients changed" in row)
+
+
+def test_the_verdict_lists_the_refit_criterion(honest: dict) -> None:
+    verdict = render(honest, INFO).split("## Code under test")[0]
+    assert "change between consecutive goals reads when the fitting pool changed" in verdict
+    assert "1e-09" in verdict
+
+
+def test_the_report_text_describes_the_refit_rule(honest: dict) -> None:
+    text = render(honest, INFO)
+    assert "needs a look by hand" not in text and "legitimately" not in text
+    assert "wholly postponed" in text and "must not change" in text
+
+
+@pytest.mark.parametrize(("last", "rows"), [(20, 0), (21, 1)])
+def test_a_run_with_fewer_than_two_goal_checks_fails_the_refit_criterion(
+        synth_upstream: tuple[Path, dict], last: int, rows: int) -> None:
+    """Targets from GW20: the goals read at as-of 19 has no ratings read to pair with."""
+    root, cfg = synth_upstream
+    s = settings(within=False) | {"seasons": [{"id": SEASON, "target_gameweeks": [20, last]}]}
+    with synth_point(root / "data"):
+        res = run_check(s, Models(), cfg, root / "data", point=synth_point)
+    assert len(res["goal_checks"]) == rows and len(res["refit"]) == 0
+    assert not res["met"]["refit"] and "refit" in res["missed"]
+    if rows:  # with no goal checks at all the shape section has no columns to report
+        row = checklist_row(render(res, INFO), "Team ratings refitted")
+        assert "| FAIL |" in row and "0 consecutive pairs" in row
 
 
 def test_a_shape_violation_is_a_concern_but_another_form_is_not(honest: dict) -> None:
@@ -190,16 +252,50 @@ def test_a_shape_violation_is_a_concern_but_another_form_is_not(honest: dict) ->
     assert "rating gap and home" in render(bad, INFO).split("## Concerns")[1]
 
 
+def concerns(res: dict) -> str:
+    return render(res, INFO).split("## Concerns")[1]
+
+
+def with_home_share(honest: dict, shares: list[float]) -> dict:
+    """The honest run with no shape violation and `shares` repeated over the as-of reads."""
+    out = copy.deepcopy(honest)
+    c = out["goal_checks"]
+    c[["not_rising", "tie_mismatch"]] = 0
+    c["home_above"] = (shares * len(c))[:len(c)]
+    return out
+
+
 def test_the_shape_text_claims_no_more_than_it_checks(honest: dict) -> None:
-    """The two shape checks are necessary conditions only, and the home share raises nothing."""
-    ok = copy.deepcopy(honest)
-    ok["goal_checks"][["not_rising", "tie_mismatch"]] = 0
-    low = copy.deepcopy(ok)
-    low["goal_checks"]["home_above"] = 0.0  # no home row above the away curve
+    """The two shape checks are necessary conditions only; the home share fails nothing."""
+    low = with_home_share(honest, [0.0])
     text = render(low, INFO)
     assert "breaks one of these" not in text and "necessary, not sufficient" in text
-    assert "lowest share (information) | 0.000 |" in text
-    assert text.split("## Concerns")[1] == render(ok, INFO).split("## Concerns")[1]
+    assert "lowest share (Concern below 0.9) | 0.000 |" in text
+    assert "raises no concern" not in text and "(information) |" not in text
+
+
+def test_a_low_home_share_is_a_concern(honest: dict) -> None:
+    assert "home rows" not in concerns(with_home_share(honest, [1.0]))
+    low = with_home_share(honest, [1.0])
+    c = low["goal_checks"]
+    c.loc[c.index[2], "home_above"] = 0.5
+    x, a = c.season.iloc[2], c.as_of.iloc[2]
+    text = concerns(low)
+    assert "home rows" in text and f"0.500 at {x} as-of {a}" in text and "below 0.9" in text
+    assert f"1 of {len(c)} reads" in text
+
+
+def test_a_home_share_of_exactly_the_threshold_is_not_a_concern(honest: dict) -> None:
+    assert "home rows" not in concerns(with_home_share(honest, [0.9]))
+    assert "home rows" in concerns(with_home_share(honest, [0.9 - 1e-9]))
+
+
+def test_reads_with_no_home_share_are_ignored(honest: dict) -> None:
+    nan = float("nan")
+    assert "home rows" not in concerns(with_home_share(honest, [nan]))  # every read NaN
+    assert "home rows" not in concerns(with_home_share(honest, [nan, 1.0]))
+    mixed = concerns(with_home_share(honest, [nan, 0.5]))
+    assert "home rows" in mixed and "0.500" in mixed
 
 
 def test_a_leaky_goals_model_fails_the_check(synth_upstream: tuple[Path, dict]) -> None:

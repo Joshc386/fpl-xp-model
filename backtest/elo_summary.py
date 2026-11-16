@@ -8,7 +8,8 @@ from backtest.elo_metrics import calibration, calibration_ok, gap_summary, step_
 
 # The criteria the verdict needs, in report order (brief section 7, Elo component check).
 CRITERIA = ["ratings", "goals", "clean_sheets", "log_loss", "perturbation",
-            "planted_leak_caught", "copy_reached", "within_gameweek", "read_stability"]
+            "planted_leak_caught", "copy_reached", "within_gameweek", "read_stability",
+            "refit"]
 
 
 # A reporting group's key: (scope, season). Scope is "pooled" (every season from

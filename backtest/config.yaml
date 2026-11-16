@@ -90,11 +90,23 @@ perturbation:
 upstream_files: [fixtures, matches, players, teams, playerstats, playermatchstats,
                  player_gameweek_stats]
 
+# The refit check (brief section 7, decided 2026-11-16): between consecutive goals reads, the
+# fitted (intercept, gap, home) coefficients count as changed when their largest absolute
+# difference is above refit_tolerance. They are a least-squares fit over a different set of
+# horizon fixtures at each read, so an unchanged model still differs at floating-point level:
+# at most 5.4e-15 on 2025/26 when one read is fitted on different horizon subsets. The smallest
+# real step between consecutive 2025/26 reads was 2.7e-3. 1e-9 sits about five orders of
+# magnitude from each.
+refit_tolerance: 1.0e-9
+
 # Report thresholds (not gate criteria). In the form-free goals check (brief 6.2), a rate
 # that moves by no more than shape_tolerance counts as not moving. Pass-mark gameweeks whose
-# Spearman is within concern_spearman_margin of the threshold are listed under Concerns.
+# Spearman is within concern_spearman_margin of the threshold are listed under Concerns, and
+# so is a lowest home_above share (home rows above the away curve) below concern_home_share:
+# it watches the home prior pulling home advantage towards zero on a small sample.
 shape_tolerance: 1.0e-12
 concern_spearman_margin: 0.03
+concern_home_share: 0.9
 
 weakest:
   top_n: 3                     # how many clubs, gameweeks and bins to list

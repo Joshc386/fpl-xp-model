@@ -28,6 +28,8 @@ LABELS = {
                     "change in the copy",
     "within_gameweek": "Within a gameweek: elo_before ignores its own and later results",
     "read_stability": "elo_before at a kickoff unchanged across every later as-of read",
+    "refit": "Refit: the goals model's coefficients change between consecutive goals reads when "
+             "the fitting pool changed, and only then (changed: by more than {refit_tol})",
 }
 
 
@@ -47,7 +49,8 @@ def verdict_section(res: dict) -> list[str]:
                           for lo, hi in s["ratings"]["pass_gameweeks"])
     fill = {"min_sp": s["ratings"]["min_spearman"], "sp_gws": sp_gws,
             "g_tol": s["goals"]["tolerance"], "k": s["calibration_k"],
-            "cs_pp": round(100 * s["clean_sheets"]["tolerance"]), "n": s["min_bin_count"]}
+            "cs_pp": round(100 * s["clean_sheets"]["tolerance"]), "n": s["min_bin_count"],
+            "refit_tol": f"{float(s['refit_tolerance']):g}"}
     head = "PASS" if res["passed"] else "FAIL"
     missed = ", ".join(res["missed"]) or "none"
     lines = [f"## Verdict\n\n**{head}.** Criteria missed: {missed}.\n"]

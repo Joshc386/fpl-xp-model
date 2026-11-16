@@ -84,8 +84,7 @@ def test_ratings_table_marks_only_the_pass_gameweeks() -> None:
 def criteria(**over: bool) -> dict:
     base = {"ratings": True, "goals": True, "clean_sheets": True, "log_loss": True,
             "perturbation": True, "planted_leak_caught": True, "copy_reached": True,
-            "within_gameweek": True,
-            "read_stability": True}
+            "within_gameweek": True, "read_stability": True, "refit": True}
     return base | over
 
 
@@ -94,6 +93,10 @@ def test_verdict_passes_only_when_every_criterion_is_met() -> None:
     assert ok and missed == []
     ok, missed = verdict(criteria(goals=False, perturbation=False))
     assert not ok and missed == ["goals", "perturbation"]
+
+
+def test_a_failed_refit_fails_the_verdict() -> None:
+    assert verdict(criteria(refit=False)) == (False, ["refit"])
 
 
 def test_a_planted_leak_that_is_not_caught_fails_the_verdict() -> None:

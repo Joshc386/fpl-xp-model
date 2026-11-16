@@ -62,27 +62,15 @@ def stability_lines(stability: dict) -> list[str]:
                    "Result"], rows, 6)]
 
 
-def coefficient_steps(checks: pd.DataFrame) -> tuple[int, int]:
-    """(consecutive as-of reads whose fitted coefficients changed, consecutive pairs).
-
-    The refit row requires a change at every pair. A gameweek with no new finished league
-    result (wholly postponed, say) would legitimately leave the fitting pool, and so the
-    coefficients, unchanged, and fail that row; the report says to look at it by hand.
-    """
-    coef = checks[["intercept", "gap", "home"]]
-    if len(coef) < 2:
-        return 0, 0
-    return int((coef.diff().abs().max(axis=1).iloc[1:] > 0).sum()), len(coef) - 1
-
-
-def shape_lines(checks: pd.DataFrame) -> list[str]:
+def shape_lines(checks: pd.DataFrame, s: dict) -> list[str]:
     """Brief 6.2's shape, checked from the public outputs without assuming a form."""
+    low = float(s["concern_home_share"])
     rows = [["As-of reads checked", len(checks)],
             ["Steps up in rating gap where lambda doesn't rise (home and away rows)",
              int(checks.not_rising.sum())],
             ["Equal gaps with different lambda", int(checks.tie_mismatch.sum())],
-            ["Home rows above the away curve at the same gap, lowest share (information)",
-             fmt(float(checks.home_above.min()))],
+            [f"Home rows above the away curve at the same gap, lowest share (Concern below "
+             f"{low:g})", fmt(float(checks.home_above.min()))],
             ["Max abs(p_cs - exp(-lambda_against)) (contract)", f"{checks.p_cs_err.max():.2e}"],
             ["Max abs(lambda_against - opponent's lambda_for)", f"{checks.mirror_err.max():.2e}"],
             ["Rows with a club with no current rating", int(checks.unrated.sum())]]
@@ -92,29 +80,38 @@ def shape_lines(checks: pd.DataFrame) -> list[str]:
             "rating is its last `elo_after`, and for home and away rows separately, sorted by "
             "gap, lambda must rise with the gap and be equal at equal gaps. These are necessary, "
             "not sufficient: a rate that depends on anything else, such as the club, can break "
-            "one of them but can also pass both. The home share is information only and raises "
-            "no concern.\n",
+            "one of them but can also pass both. The home share has no pass mark; a lowest "
+            f"share below {low:g} (reads with no comparable home gap ignored) is listed under "
+            "Concerns.\n",
             table(["Check", "Value"], rows)]
 
 
-def form_lines(checks: pd.DataFrame) -> list[str]:
-    """The current model's form, as information: the log-linear fit and its coefficients."""
-    coef = checks[["intercept", "gap", "home"]]
-    steps, pairs = coefficient_steps(checks)
+def form_lines(checks: pd.DataFrame, refit: pd.DataFrame, s: dict) -> list[str]:
+    """The current model's form, as information, and the coefficient steps the refit check
+    compares (`elo_data.refit_pairs`)."""
+    coef, tol = checks[["intercept", "gap", "home"]], float(s["refit_tolerance"])
+    gained, same = refit[refit.pool_changed], refit[~refit.pool_changed]
     rows = [["Max residual of log lambda_for on (1, gap, home)", f"{checks.max_resid.max():.2e}"],
             ["Fitted intercept, range",
              f"{coef.intercept.min():.4f} to {coef.intercept.max():.4f}"],
             ["Fitted gap coefficient per point, range",
              f"{coef.gap.min():.6f} to {coef.gap.max():.6f}"],
             ["Fitted home coefficient, range", f"{coef.home.min():.4f} to {coef.home.max():.4f}"],
-            ["Consecutive as-of reads whose coefficients changed", f"{steps} of {pairs}"]]
-    return ["\n### The current model's form (information, no pass mark)\n",
+            ["Consecutive as-of pairs: pool changed / coefficients changed",
+             f"{len(gained)} / {int(refit.coef_changed.sum())} of {len(refit)}"],
+            ["Smallest coefficient change where the pool changed",
+             f"{gained.max_diff.min():.2e}" if len(gained) else "-"],
+            ["Largest coefficient change where the pool was unchanged",
+             f"{same.max_diff.max():.2e}" if len(same) else "-"]]
+    return ["\n### The current model's form and the refit check\n",
             "The model's form is log-linear, log lambda = a + b * gap + h * home (chosen "
-            "2026-11-14); the brief doesn't require it. A residual near zero means the output "
-            "has that form. The coefficients summarise each read's fit; their changing between "
-            "reads is evidence of a refit. A gameweek with no new finished league result (wholly "
-            "postponed, say) would legitimately leave them unchanged and fail the refit row "
-            "below; such a fail needs a look by hand.\n", table(["Check", "Value"], rows)]
+            "2026-11-14); the brief doesn't require it, and the form has no pass mark. A "
+            "residual near zero means the output has that form. The coefficients summarise each "
+            "read's fit, and the refit criterion compares them between consecutive as-of reads, "
+            "the season boundary included: their largest change must be above "
+            f"{tol:g} when the fitting pool (finished league results of this season and last, "
+            "up to the as-of) changed, and they must not change when the pool is identical, as "
+            "after a wholly postponed gameweek.\n", table(["Check", "Value"], rows)]
 
 
 def _leak_counts(res: dict) -> dict[str, int]:
@@ -126,10 +123,20 @@ def _leak_counts(res: dict) -> dict[str, int]:
             "extra": sum(v["extra"] for v in res["stability"].values())}
 
 
+def _failing(refit: pd.DataFrame) -> str:
+    """Each pair that breaks the refit rule: both reads, and what changed."""
+    def word(x: bool) -> str:
+        return "changed" if x else "unchanged"
+
+    return "; ".join(f"{r.from_season} as-of {r.from_as_of} to {r.to_season} as-of {r.to_as_of} "
+                     f"(pool {word(r.pool_changed)}, coefficients {word(r.coef_changed)}, max "
+                     f"diff {r.max_diff:.2e})" for r in refit[~refit.ok].itertuples()) or "none"
+
+
 def checklist_lines(res: dict) -> list[str]:
     """The section 7 checklist items that apply, each result and its evidence from the run."""
     met, k = res["met"], _leak_counts(res)
-    steps, pairs = coefficient_steps(res["goal_checks"])
+    refit, tol = res["refit"], float(res["settings"]["refit_tolerance"])
     deadline_ok = (met["perturbation"] and met["planted_leak_caught"] and met["copy_reached"]
                    and res["non_league_rows"] == 0)
     rows = [
@@ -142,9 +149,12 @@ def checklist_lines(res: dict) -> list[str]:
          f"GW g is scored from as-of g-1, and each of the {k['cases']} perturbation cases "
          f"corrupts the target gameweek itself; {k['changed']} output values changed."],
         ["Team ratings refitted per target gameweek",
-         bool(met["read_stability"] and steps == pairs and pairs > 0),
+         bool(met["read_stability"] and met["refit"]),
          f"Ratings: {k['extra']} rows from after the as-of across every read. Goals model: "
-         f"fitted coefficients changed at {steps} of {pairs} consecutive as-of reads."],
+         f"{len(refit)} consecutive pairs of as-of reads (at least one needed); the fitting "
+         f"pool changed at {int(refit.pool_changed.sum())} and the coefficients (by more than "
+         f"{tol:g}) at {int(refit.coef_changed.sum())}. Failing pairs: "
+         f"{_failing(refit)}."],
         ["Price, status and ownership from the GW g-1 snapshot", "n/a",
          "The Elo component reads no player data."],
         ["Shrinkage priors from training data only", "n/a", "No shrinkage in the Elo component."],
@@ -155,11 +165,10 @@ def checklist_lines(res: dict) -> list[str]:
 
 def leakage_section(res: dict) -> list[str]:
     """The whole leakage section."""
-    leak = res["leakage"]
+    leak, checks, s = res["leakage"], res["goal_checks"], res["settings"]
     return (["## Leakage\n"] + perturbation_lines(leak) + within_lines(leak)
-            + stability_lines(res["stability"]) + shape_lines(res["goal_checks"])
-            + form_lines(res["goal_checks"])
-            + checklist_lines(res))
+            + stability_lines(res["stability"]) + shape_lines(checks, s)
+            + form_lines(checks, res["refit"], s) + checklist_lines(res))
 
 
 def skips_section(res: dict) -> list[str]:
@@ -190,6 +199,14 @@ def auto_concerns(res: dict) -> list[str]:
                    f"rise with the gap: {int(checks.not_rising.sum())} steps that don't rise and "
                    f"{int(checks.tie_mismatch.sum())} equal-gap mismatches (brief 6.2; see "
                    "Leakage).")
+    share = checks.home_above.dropna() if len(checks) else pd.Series(dtype="float64")
+    low = float(s["concern_home_share"])
+    if len(share) and share.min() < low:
+        at = checks.loc[share.idxmin()]
+        out.append(f"The share of home rows above the away curve at the same gap fell to "
+                   f"{share.min():.3f} at {at.season} as-of {int(at.as_of)}, below {low:g} "
+                   f"({int((share < low).sum())} of {len(share)} reads below it): the home prior "
+                   "may be pulling home advantage towards zero (brief 6.2; see Leakage).")
     rt, margin = res["ratings"], float(s["concern_spearman_margin"])
     near = rt[(rt.mark == "pass mark") & (rt.spearman < s["ratings"]["min_spearman"] + margin)]
     if len(near):

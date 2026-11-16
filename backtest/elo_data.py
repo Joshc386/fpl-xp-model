@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from itertools import pairwise
 
 import numpy as np
 import pandas as pd
@@ -170,6 +171,37 @@ def baseline_pool(by_season: dict[str, pd.DataFrame], order: list[str], season: 
     return pd.concat(parts, ignore_index=True)
 
 
+COEFFICIENTS = ["intercept", "gap", "home"]
+REFIT_COLUMNS = ["from_season", "from_as_of", "to_season", "to_as_of", "pool_changed",
+                 "max_diff", "coef_changed", "ok"]
+
+
+def refit_pairs(checks: pd.DataFrame, by_season: dict[str, pd.DataFrame], order: list[str],
+                pool_seasons: int, tol: float) -> pd.DataFrame:
+    """The refit check (brief section 7) at each consecutive pair of rows of `checks`.
+
+    `checks` holds one row per goals read (season, as_of and the implied coefficients), in
+    run order, the season boundary included. A read's fitting pool is `baseline_pool` at
+    target `as_of + 1`, compared as a set of (season, match_id). A pair's coefficients changed
+    if their largest absolute difference is above `tol`. The pair is `ok` when they changed
+    exactly when the pool did: a refit on new results, and no change when the pool is
+    identical (a wholly postponed gameweek, say).
+    """
+    def pool(season: str, as_of: int) -> frozenset:
+        p = baseline_pool(by_season, order, season, as_of + 1, pool_seasons)
+        return frozenset(zip(p.season, p.match_id, strict=True))
+
+    recs = checks.to_dict("records")
+    rows = []
+    for a, b in pairwise(recs):
+        changed = pool(a["season"], int(a["as_of"])) != pool(b["season"], int(b["as_of"]))
+        diff = max(abs(b[k] - a[k]) for k in COEFFICIENTS)
+        moved = bool(diff > tol)
+        rows.append([a["season"], int(a["as_of"]), b["season"], int(b["as_of"]), changed,
+                     float(diff), moved, changed == moved])
+    return pd.DataFrame(rows, columns=REFIT_COLUMNS)
+
+
 def read_stability(reads: dict[int, pd.DataFrame], season: str) -> dict[str, float]:
     """Compare every as-of read of `elo_ratings` with the last one.
 
@@ -206,8 +238,9 @@ def implied_coefficients(preds: pd.DataFrame, ratings: pd.DataFrame,
 
     Regresses log `lambda_for` on (1, rating gap, home), with each club's current rating its
     last `elo_after` in `ratings` (the same as-of read). The residual is zero if the output is
-    log-linear (the form chosen on 2026-11-14); brief 6.2 doesn't require that form, so this is
-    never a pass mark (`goals_shape` is the form-free check). Also returns the largest error of
+    log-linear (the form chosen on 2026-11-14); brief 6.2 doesn't require that form, so the
+    residual is never a pass mark (`goals_shape` is the form-free check). The refit check
+    compares the coefficients between reads (`refit_pairs`). Also returns the largest error of
     `p_cs` against exp(-`lambda_against`) and of `lambda_against` against the opponent's
     `lambda_for`, and how many rows had a club with no rating.
     """
@@ -244,7 +277,8 @@ def goals_shape(preds: pd.DataFrame, ratings: pd.DataFrame, season: str,
     steps up in gap where lambda doesn't rise by more than `tol`, and `tie_mismatch` equal gaps
     whose lambdas differ. Both are necessary conditions, not sufficient: a rate that depends on
     anything else, such as the club, may show up in either, but can also pass both. `home_above`
-    (information only; it raises no concern) is the share of home rows whose lambda is above
+    (no pass mark; a low share is listed under Concerns) is the share of home rows whose lambda
+    is above
     the away rows' curve at the same gap (linear interpolation, gaps inside the away range only;
     NaN if no home gap is inside it).
     """
