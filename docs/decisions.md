@@ -2296,3 +2296,46 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
     4 s of the 58. The rest is the 34 reads, about 2 s each.
   - The loader logs two INFO lines per read (68 lines before the report), as `elo_tune` does for
     its one read.
+
+### 2026-11-16: main - the two follow-up rounds reviewed and committed
+- **Harness low findings, committed as `ae809e3`:** all four are fixed, and
+  mutants P10 and P07 now die. The new caller guard found
+  `fpl.models.elo_tune` missing from `CALLERS`. The `backtest/` changes
+  are wording and docstrings only: no verdict rule or report number changed.
+  - **Code Review:** approve with non-blocking findings. 19 mutants run,
+    15 die; the guard runs on every `synth_point` entry.
+  - **Follow-ups for the validator:** the guard looks by name, so an
+    aliased import, a module reference (`features.load_as_of(...)`) or a
+    default argument gets past it. Compare by identity, and make
+    `fpl.features.load_as_of` raise inside `synth_point`. Also plant a
+    caller under `fpl` as well as `backtest`; assert `run_check`'s default
+    directly; make `run_leakage`'s dead `point` default required; and test
+    the refit row's `pairs > 0`.
+- **Goals-prior tuner, committed as `c3ca7c7`:** `python -m
+  fpl.models.goals_tune` and the units guard
+  (`goals_model.prior_sd_gap_max`). The main session ran the tuner, and
+  scored the committed priors with its own script; both reproduce the
+  recorded search. Outputs are unchanged; `model_version` stays
+  `0.1.1-elo`.
+  - **Code Review:** approve with non-blocking findings. Its own fitter
+    reproduces the whole curve. `elo_goals` is identical to `ddac026` at
+    seven as-of reads, and 38 of 42 mutants die.
+  - **Follow-ups for the modeller:** tests for the logged minimum and for
+    the config-match check (the two surviving code mutants), and rejecting
+    duplicate grid values.
+  - **Accepted:** no real-data test pins the config grid (about 70 s a
+    run). The tuner's own "matches/DIFFERS" line shows a drift whenever it
+    runs.
+- **Full suite** with both rounds: 750 passed, 99% coverage of `fpl`, lint
+  clean.
+- **Conflict found (brief wins, not resolved here):** brief section 7 says
+  every leakage check passes, and its checklist includes "Team ratings are
+  refitted per target gameweek". But the harness's `criteria()` has no
+  refit entry, so that row can FAIL while the verdict says PASS. On the
+  2026-11-14 run it showed 42 of 42, so that PASS stands. Put to Josh, with
+  the validator's two proposals: a refit rule that allows an unchanged pool
+  (a wholly postponed gameweek), and a Concern when `home_above` falls
+  below 0.9.
+- **Settled since 2026-11-15:** pywin32 312 is a Windows-only dev
+  dependency (`ddac026`). `BEYONDELO_API_KEY` is set, and Josh rotated
+  the key after it was shared in a chat.
