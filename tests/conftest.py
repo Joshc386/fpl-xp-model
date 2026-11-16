@@ -1,4 +1,5 @@
-"""Shared fixtures: the pipeline config and the real-upstream samples."""
+"""Shared fixtures: the pipeline config, the real-upstream samples, the synthetic season
+(`synth_upstream`, `synth_load`) and the Elo check's honest run on it (`honest_run`, `honest`)."""
 
 from __future__ import annotations
 
@@ -81,3 +82,25 @@ def synth_load(synth_upstream: tuple[Path, dict]) -> Callable[[int, str], dict]:
         return cache[(as_of, mode)]
 
     return load
+
+
+@pytest.fixture(scope="session")
+def honest_run(synth_upstream: tuple[Path, dict]) -> tuple[dict, list[Path]]:
+    """The Elo check on the synthetic season with the real model and no `point`, so through the
+    production `perturb.redirect`, and the data copies that redirect was pointed at. Session
+    scope: several test files render it (copy it before changing it)."""
+    from backtest.elo_check import Models, run_check
+
+    from elo_check_runs import settings
+    from elo_check_synth import real_redirect_to_synth, synth_point
+
+    root, cfg = synth_upstream
+    seen: list[Path] = []
+    with synth_point(root / "data"), real_redirect_to_synth(seen):
+        return run_check(settings(), Models(), cfg, root / "data"), seen
+
+
+@pytest.fixture(scope="session")
+def honest(honest_run: tuple[dict, list[Path]]) -> dict:
+    """The honest run's results (copy them before changing them)."""
+    return honest_run[0]

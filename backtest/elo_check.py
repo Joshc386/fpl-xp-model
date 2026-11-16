@@ -22,6 +22,7 @@ import pandas as pd
 import yaml
 
 from backtest.elo_data import (
+    HarnessError,
     ModelFn,
     SkipLog,
     baseline_pool,
@@ -47,6 +48,7 @@ from fpl.models.team_goals import InsufficientSampleError, elo_goals
 
 log = logging.getLogger(__name__)
 
+MODEL_YAML = ROOT / "config" / "model.yaml"
 ERRORS: dict[str, type[Exception]] = {"MissingSeedError": MissingSeedError,
                                       "InsufficientSampleError": InsufficientSampleError}
 
@@ -60,7 +62,7 @@ class Models:
 
 
 def load_settings(path: Path = SETTINGS) -> dict:
-    """backtest/config.yaml."""
+    """A YAML settings file: backtest/config.yaml by default."""
     with Path(path).open(encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
@@ -75,6 +77,24 @@ def expected_skips(s: dict) -> dict[str, dict[str, dict[int, type[Exception]]]]:
 def _seasons(s: dict) -> list[tuple[str, int, int]]:
     return [(x["id"], int(x["target_gameweeks"][0]), int(x["target_gameweeks"][1]))
             for x in s["seasons"]]
+
+
+def check_pool_settings(s: dict, model: dict, pcfg: dict) -> None:
+    """The baseline pool is the pool the Elo goals model fits on (brief section 7). Raises
+    `HarnessError` unless the run's seasons are the first seasons of the Elo run (pipeline.yaml's
+    seasons from model.yaml's `elo.start_season` on, as `fpl.models.elo` orders them) and
+    `baseline_pool_seasons` is the model's `goals_model.pool_seasons`."""
+    order, ids = [x for x, _, _ in _seasons(s)], [x["id"] for x in pcfg["seasons"]]
+    start = model["elo"]["start_season"]
+    run = ids[ids.index(start):] if start in ids else []
+    if not order or order != run[:len(order)]:
+        raise HarnessError(f"backtest seasons {order} must start the Elo run {run}: "
+                           "config/pipeline.yaml's seasons from config/model.yaml's "
+                           f"elo.start_season ({start}) on")
+    pool, model_pool = int(s["baseline_pool_seasons"]), int(model["goals_model"]["pool_seasons"])
+    if pool != model_pool:
+        raise HarnessError(f"baseline_pool_seasons is {pool} but config/model.yaml's "
+                           f"goals_model.pool_seasons is {model_pool}")
 
 
 def final_tables(s: dict) -> dict[str, dict[str, pd.DataFrame]]:
@@ -208,7 +228,9 @@ def criteria(rt: pd.DataFrame, pooled: dict, leak: dict, stability: dict, refit:
 
 def run_check(s: dict, models: Models, pcfg: dict, src: Path,
               point: Redirect = redirect) -> dict:
-    """The whole check; returns everything the report needs. `point`: see `run_leakage`."""
+    """The whole check; returns everything the report needs. `point`: see `run_leakage`.
+    First checks the pool settings against config/model.yaml (`check_pool_settings`)."""
+    check_pool_settings(s, load_settings(MODEL_YAML), pcfg)
     prem = pcfg["premier_league_tag"]
     skips = SkipLog(expected_skips(s))
     finals = final_tables(s)

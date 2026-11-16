@@ -95,8 +95,8 @@ upstream_files: [fixtures, matches, players, teams, playerstats, playermatchstat
 # difference is above refit_tolerance. They are a least-squares fit over a different set of
 # horizon fixtures at each read, so an unchanged model still differs at floating-point level:
 # at most 5.4e-15 on 2025/26 when one read is fitted on different horizon subsets. The smallest
-# real step between consecutive 2025/26 reads was 2.7e-3. 1e-9 sits about five orders of
-# magnitude from each.
+# real step between consecutive 2025/26 reads was 2.7e-3. 1e-9 sits about 5.3 orders of
+# magnitude above the noise and 6.4 below the smallest real step.
 refit_tolerance: 1.0e-9
 
 # Report thresholds (not gate criteria). In the form-free goals check (brief 6.2), a rate

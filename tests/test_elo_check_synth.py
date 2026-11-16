@@ -6,6 +6,7 @@ import importlib
 import pkgutil
 import sys
 import types
+from functools import partial
 from pathlib import Path
 
 import backtest
@@ -14,8 +15,12 @@ import pytest
 import fpl
 import fpl.features
 import fpl.models.elo
-from elo_check_synth import CALLERS, stray_callers, synth_point
+import synth
+from elo_check_synth import BASE_CFG, CALLERS, stray_callers, synth_point
 from fpl.features import load_as_of
+from fpl.ingest import ROOT
+
+SEASON = synth.SEASON
 
 
 def import_everything() -> list[str]:
@@ -110,3 +115,83 @@ def test_the_swap_reaches_every_caller_and_is_undone(tmp_path: Path) -> None:
         assert all(m.load_as_of is not load_as_of for m in CALLERS)
         assert stray_callers() == []
     assert all(m.load_as_of is load_as_of for m in CALLERS)
+
+
+# --- callers the identity scan can't see: `_resolve` is patched, so any of them raises ------
+
+# An as-of no season has: before the patch, the real loader stops at it without reading data.
+STRAY_READ = ("2025-2026", 99, "backtest")
+REAL = "resolved to the real upstream checkout"
+
+
+def make_closure() -> object:
+    loader = load_as_of
+    return lambda: loader(*STRAY_READ)
+
+
+class Static:
+    loader = staticmethod(load_as_of)
+
+    @staticmethod
+    def read(loader: object = load_as_of) -> object:
+        return loader(*STRAY_READ)
+
+    @classmethod
+    def read_cls(cls, loader: object = load_as_of) -> object:
+        return loader(*STRAY_READ)
+
+    class Inner:
+        loader = load_as_of
+
+
+class Instance:
+    def __init__(self) -> None:
+        self.loader = load_as_of
+
+
+HIDDEN = {  # name -> (what the module holds, how a caller reaches the loader through it)
+    "dict": ({"f": load_as_of}, lambda h: h["f"](*STRAY_READ)),
+    "tuple": ((load_as_of,), lambda h: h[0](*STRAY_READ)),
+    "partial": (partial(load_as_of, mode="backtest"), lambda h: h(*STRAY_READ[:2])),
+    "closure": (make_closure(), lambda h: h()),
+    "staticmethod": (Static, lambda h: h.loader(*STRAY_READ)),
+    "staticmethod default": (Static, lambda h: h.read()),
+    "classmethod default": (Static, lambda h: h.read_cls()),
+    "nested class": (Static, lambda h: h.Inner.loader(*STRAY_READ)),
+    "instance attribute": (Instance(), lambda h: h.loader(*STRAY_READ)),
+}
+
+
+@pytest.mark.parametrize("kind", list(HIDDEN))
+def test_a_caller_the_scan_misses_still_raises_inside_the_swap(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kind: str) -> None:
+    held, call = HIDDEN[kind]
+    plant(monkeypatch, "fpl.planted_hidden", held=held)
+    assert stray_callers() == []  # the identity scan can't see it
+    with synth_point(tmp_path / "data"), pytest.raises(RuntimeError, match=REAL):
+        call(held)
+    with pytest.raises(ValueError, match="as_of_gw must be"):  # outside, the real loader again
+        call(held)
+
+
+@pytest.mark.parametrize("module", CALLERS, ids=lambda m: m.__name__)
+def test_every_swapped_caller_still_reads_the_synthetic_season(
+        synth_upstream: tuple[Path, dict], module: types.ModuleType) -> None:
+    with synth_point(synth_upstream[0] / "data"):
+        tables = module.load_as_of(SEASON, 3, "backtest")
+    fx = tables["fact_fixture"]
+    assert set(fx.season) == {SEASON} and fx[fx.finished].gw.max() == 3
+    assert len(tables["dim_team"]) == len(synth.TEAM_CODE)
+
+
+@pytest.mark.parametrize("given", [{"root": ROOT}, {"cfg": BASE_CFG}], ids=["root", "cfg"])
+def test_a_read_given_the_real_root_or_config_raises_inside_the_swap(tmp_path: Path,
+                                                                     given: dict) -> None:
+    with synth_point(tmp_path / "data"), pytest.raises(RuntimeError, match=REAL):
+        load_as_of(*STRAY_READ, **given)
+
+
+def test_the_live_readers_are_guarded_too(tmp_path: Path) -> None:
+    """`_resolve` serves `live_deadlines` and `live_gameweeks` as well as `load_as_of`."""
+    with synth_point(tmp_path / "data"), pytest.raises(RuntimeError, match=REAL):
+        fpl.features.live_deadlines(SEASON)

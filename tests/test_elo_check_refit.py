@@ -6,6 +6,8 @@ than the tolerance) when the fitting pool changed, and must not change when it i
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 import pytest
 from backtest.elo_check import criteria
@@ -82,6 +84,27 @@ def test_a_change_of_exactly_the_tolerance_is_no_change() -> None:
     assert at.ok.all()  # the pool is unchanged, so no change is right
     above = pairs(checks(("S1", 2, 2.0), ("S1", 3, 2.0 + TOL + 2 ** -40)))
     assert above.coef_changed.tolist() == [True] and not above.ok.any()
+
+
+NAN, INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize(("field", "bad"), [("intercept", NAN), ("home", NAN), ("gap", INF),
+                                            ("gap", -INF)])
+@pytest.mark.parametrize("reads", [(("S1", 2, 2.0), ("S1", 3, 2.0)),   # identical pool
+                                   (("S1", 1, 1.0), ("S1", 2, 2.0))],  # pool gained a result
+                         ids=["same pool", "pool changed"])
+def test_a_non_finite_coefficient_difference_fails(field: str, bad: float,
+                                                   reads: tuple) -> None:
+    """A NaN in the first coefficient compared, or in a later one, or an infinite step: each is
+    a broken fit, never a pass. (Python's `max` drops a NaN after the first item, and
+    `NaN > tol` is False.)"""
+    c = checks(*reads)
+    c.loc[1, field] = bad
+    out = pairs(c)
+    assert not out.ok.any()
+    assert not math.isfinite(out.max_diff.iloc[0])
+    assert not met(out)
 
 
 def test_fewer_than_two_reads_give_no_pairs() -> None:

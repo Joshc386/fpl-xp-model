@@ -6,9 +6,22 @@ first, then this test.
 
 from __future__ import annotations
 
-import pytest
-from backtest.elo_check import expected_skips, load_settings
+import copy
+from pathlib import Path
 
+import backtest.elo_check
+import pytest
+import yaml
+from backtest.elo_check import (
+    Models,
+    check_pool_settings,
+    expected_skips,
+    load_settings,
+    run_check,
+)
+from backtest.elo_data import HarnessError
+
+from fpl.ingest import ROOT, load_config
 from fpl.models.elo import MissingSeedError
 from fpl.models.team_goals import InsufficientSampleError
 
@@ -72,3 +85,74 @@ def test_perturbation_cases_are_the_briefs() -> None:
 def test_an_unknown_exception_name_is_rejected() -> None:
     with pytest.raises(KeyError):
         expected_skips({"expected_skips": {"elo_goals": {"2025-2026": {0: "ValueError"}}}})
+
+
+# --- the pool settings against the model's (brief section 7: the baseline pool is the pool
+# the Elo goals model fits on) ------------------------------------------------------------
+
+MODEL = yaml.safe_load((ROOT / "config" / "model.yaml").read_text(encoding="utf-8"))
+PIPELINE = load_config(ROOT / "config" / "pipeline.yaml")
+
+
+def test_the_pool_settings_agree_with_the_models() -> None:
+    check_pool_settings(S, MODEL, PIPELINE)
+    assert S["seasons"][0]["id"] == MODEL["elo"]["start_season"]
+    assert S["baseline_pool_seasons"] == MODEL["goals_model"]["pool_seasons"]
+
+
+def season(x: str) -> dict:
+    return {"id": x, "target_gameweeks": [1, 38]}
+
+
+def pipeline(*ids: str) -> dict:
+    return {"seasons": [{"id": x, "gameweeks": 38} for x in ids]}
+
+
+TWO = ("2025-2026", "2026-2027")
+
+
+@pytest.mark.parametrize(("seasons", "listed", "start", "pool", "match"), [
+    (TWO, TWO, "2024-2025", 2, "start_season"),                         # start not in pipeline
+    (["2026-2027"], TWO, "2025-2026", 2, "start_season"),               # the run starts later
+    (["2026-2027", "2025-2026"], TWO, "2025-2026", 2, "start_season"),  # out of order
+    (["2025-2026", "2027-2028"], TWO, "2025-2026", 2, "start_season"),  # not the next season
+    (TWO, ("2025-2026", "2027-2028"), "2025-2026", 2, "start_season"),  # the pipeline's order
+    (TWO, TWO, "2025-2026", 3, "pool_seasons"),
+    (TWO, TWO, "2025-2026", 1, "pool_seasons"),
+])
+def test_pool_settings_that_disagree_with_the_model_raise(
+        seasons: list[str], listed: tuple[str, ...], start: str, pool: int, match: str) -> None:
+    model = copy.deepcopy(MODEL)
+    model["elo"]["start_season"] = start
+    model["goals_model"]["pool_seasons"] = pool
+    s = copy.deepcopy(S) | {"seasons": [season(x) for x in seasons]}
+    with pytest.raises(HarnessError, match=match):
+        check_pool_settings(s, model, pipeline(*listed))
+
+
+@pytest.mark.parametrize(("seasons", "listed"), [
+    (["2025-2026", "2027-2028"], ("2025-2026", "2027-2028")),         # the pipeline skips one
+    (TWO, ("2024-2025", *TWO)),                                       # the pipeline starts earlier
+    (["2025-2026"], TWO),                                             # the run's first seasons
+])
+def test_the_season_order_is_the_pipelines_from_the_start_season_on(
+        seasons: list[str], listed: tuple[str, ...]) -> None:
+    """The order comes from config/pipeline.yaml, as the Elo run's own does, not from the ids."""
+    s = copy.deepcopy(S) | {"seasons": [season(x) for x in seasons]}
+    check_pool_settings(s, MODEL, pipeline(*listed))
+
+
+@pytest.mark.parametrize("change", [{"baseline_pool_seasons": 3},
+                                    {"seasons": [season("2026-2027")]}])
+def test_run_check_checks_the_pool_settings_before_reading_anything(
+        monkeypatch: pytest.MonkeyPatch, change: dict) -> None:
+    """Against the real config/model.yaml. If the check were missing, the run would go on to
+    read data: `final_tables` is made to raise first, so this test never reads (the real
+    settings include 2026/27, the holdout)."""
+    def no_reads(s: dict) -> dict:
+        raise AssertionError("run_check read data before checking its pool settings")
+
+    monkeypatch.setattr(backtest.elo_check, "final_tables", no_reads)
+    s = copy.deepcopy(S) | change
+    with pytest.raises(HarnessError, match="model.yaml"):
+        run_check(s, Models(), PIPELINE, Path("unused"))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+import numpy as np
 import pandas as pd
 
 from backtest.elo_summary import group_label
@@ -90,7 +91,8 @@ def form_lines(checks: pd.DataFrame, refit: pd.DataFrame, s: dict) -> list[str]:
     """The current model's form, as information, and the coefficient steps the refit check
     compares (`elo_data.refit_pairs`)."""
     coef, tol = checks[["intercept", "gap", "home"]], float(s["refit_tolerance"])
-    gained, same = refit[refit.pool_changed], refit[~refit.pool_changed]
+    changed = refit.pool_changed.astype(bool)  # an empty frame's column is object dtype
+    gained, same = refit[changed], refit[~changed]
     rows = [["Max residual of log lambda_for on (1, gap, home)", f"{checks.max_resid.max():.2e}"],
             ["Fitted intercept, range",
              f"{coef.intercept.min():.4f} to {coef.intercept.max():.4f}"],
@@ -98,11 +100,11 @@ def form_lines(checks: pd.DataFrame, refit: pd.DataFrame, s: dict) -> list[str]:
              f"{coef.gap.min():.6f} to {coef.gap.max():.6f}"],
             ["Fitted home coefficient, range", f"{coef.home.min():.4f} to {coef.home.max():.4f}"],
             ["Consecutive as-of pairs: pool changed / coefficients changed",
-             f"{len(gained)} / {int(refit.coef_changed.sum())} of {len(refit)}"],
-            ["Smallest coefficient change where the pool changed",
-             f"{gained.max_diff.min():.2e}" if len(gained) else "-"],
+             f"{len(gained)} / {int(refit.coef_changed.sum())} of {len(refit)}"
+             + (f"; {bad} not finite" if (bad := _not_finite(refit)) else "")],
+            ["Smallest coefficient change where the pool changed", _step(gained.max_diff, "min")],
             ["Largest coefficient change where the pool was unchanged",
-             f"{same.max_diff.max():.2e}" if len(same) else "-"]]
+             _step(same.max_diff, "max")]]
     return ["\n### The current model's form and the refit check\n",
             "The model's form is log-linear, log lambda = a + b * gap + h * home (chosen "
             "2026-11-14); the brief doesn't require it, and the form has no pass mark. A "
@@ -112,6 +114,19 @@ def form_lines(checks: pd.DataFrame, refit: pd.DataFrame, s: dict) -> list[str]:
             f"{tol:g} when the fitting pool (finished league results of this season and last, "
             "up to the as-of) changed, and they must not change when the pool is identical, as "
             "after a wholly postponed gameweek.\n", table(["Check", "Value"], rows)]
+
+
+def _step(diffs: pd.Series, how: str) -> str:
+    """The smallest or largest coefficient change: "-" if none, "not finite" if any is NaN or
+    infinite (pandas' min and max would skip a NaN)."""
+    if not len(diffs):
+        return "-"
+    return f"{getattr(diffs, how)():.2e}" if np.isfinite(diffs).all() else "not finite"
+
+
+def _not_finite(refit: pd.DataFrame) -> int:
+    """Pairs whose coefficient difference is NaN or infinite (each fails, `refit_pairs`)."""
+    return int((~np.isfinite(refit.max_diff.astype("float64"))).sum())
 
 
 def _leak_counts(res: dict) -> dict[str, int]:
@@ -128,8 +143,11 @@ def _failing(refit: pd.DataFrame) -> str:
     def word(x: bool) -> str:
         return "changed" if x else "unchanged"
 
+    def coef(r: tuple) -> str:
+        return word(r.coef_changed) if np.isfinite(r.max_diff) else "not finite"
+
     return "; ".join(f"{r.from_season} as-of {r.from_as_of} to {r.to_season} as-of {r.to_as_of} "
-                     f"(pool {word(r.pool_changed)}, coefficients {word(r.coef_changed)}, max "
+                     f"(pool {word(r.pool_changed)}, coefficients {coef(r)}, max "
                      f"diff {r.max_diff:.2e})" for r in refit[~refit.ok].itertuples()) or "none"
 
 
@@ -153,7 +171,9 @@ def checklist_lines(res: dict) -> list[str]:
          f"Ratings: {k['extra']} rows from after the as-of across every read. Goals model: "
          f"{len(refit)} consecutive pairs of as-of reads (at least one needed); the fitting "
          f"pool changed at {int(refit.pool_changed.sum())} and the coefficients (by more than "
-         f"{tol:g}) at {int(refit.coef_changed.sum())}. Failing pairs: "
+         f"{tol:g}) at {int(refit.coef_changed.sum())}"
+         + (f"; the difference was not finite at {bad}" if (bad := _not_finite(refit)) else "")
+         + ". Failing pairs: "
          f"{_failing(refit)}."],
         ["Price, status and ownership from the GW g-1 snapshot", "n/a",
          "The Elo component reads no player data."],
@@ -164,11 +184,13 @@ def checklist_lines(res: dict) -> list[str]:
 
 
 def leakage_section(res: dict) -> list[str]:
-    """The whole leakage section."""
+    """The whole leakage section. With no goal checks, one line replaces shape and form."""
     leak, checks, s = res["leakage"], res["goal_checks"], res["settings"]
+    goals = (shape_lines(checks, s) + form_lines(checks, res["refit"], s) if len(checks) else
+             ["\nNo as-of read had both a goals and a ratings read, so there is no shape, form "
+              "or refit evidence (the refit criterion needs at least one pair).\n"])
     return (["## Leakage\n"] + perturbation_lines(leak) + within_lines(leak)
-            + stability_lines(res["stability"]) + shape_lines(checks, s)
-            + form_lines(checks, res["refit"], s) + checklist_lines(res))
+            + stability_lines(res["stability"]) + goals + checklist_lines(res))
 
 
 def skips_section(res: dict) -> list[str]:

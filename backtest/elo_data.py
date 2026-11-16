@@ -24,7 +24,8 @@ ModelFn = Callable[[str, int, str], pd.DataFrame]
 
 
 class HarnessError(RuntimeError):
-    """Model output doesn't match its hand-off interface or the evaluation set."""
+    """Model output doesn't match its hand-off interface or the evaluation set, or the
+    harness's settings disagree with the model's (`elo_check.check_pool_settings`)."""
 
 
 class UnexpectedReadError(RuntimeError):
@@ -185,7 +186,7 @@ def refit_pairs(checks: pd.DataFrame, by_season: dict[str, pd.DataFrame], order:
     target `as_of + 1`, compared as a set of (season, match_id). A pair's coefficients changed
     if their largest absolute difference is above `tol`. The pair is `ok` when they changed
     exactly when the pool did: a refit on new results, and no change when the pool is
-    identical (a wholly postponed gameweek, say).
+    identical (a wholly postponed gameweek, say). A NaN or infinite difference always fails.
     """
     def pool(season: str, as_of: int) -> frozenset:
         p = baseline_pool(by_season, order, season, as_of + 1, pool_seasons)
@@ -195,10 +196,10 @@ def refit_pairs(checks: pd.DataFrame, by_season: dict[str, pd.DataFrame], order:
     rows = []
     for a, b in pairwise(recs):
         changed = pool(a["season"], int(a["as_of"])) != pool(b["season"], int(b["as_of"]))
-        diff = max(abs(b[k] - a[k]) for k in COEFFICIENTS)
-        moved = bool(diff > tol)
+        diff = np.abs([b[k] - a[k] for k in COEFFICIENTS])  # NaN-safe, unlike `max`
+        moved = bool(diff.max() > tol)
         rows.append([a["season"], int(a["as_of"]), b["season"], int(b["as_of"]), changed,
-                     float(diff), moved, changed == moved])
+                     float(diff.max()), moved, bool(changed == moved and np.isfinite(diff).all())])
     return pd.DataFrame(rows, columns=REFIT_COLUMNS)
 
 
