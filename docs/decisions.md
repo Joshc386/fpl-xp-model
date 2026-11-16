@@ -2428,3 +2428,15 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
     tests change), and the newest upstream (it fails CI whenever upstream
     changes, because the real tests pin row counts).
 - **Still open:** the rest of the plan. Nothing is delegated yet.
+
+### 2026-11-16: main - task 6 plan approved (Josh)
+- **Approved:** the rest of `docs/plans/task-6-workflows.md`, including the
+  items the main session decided:
+  - the brief's skip rule is kept as it is;
+  - third-party actions are pinned to full commit SHAs;
+  - `fpl.run_pipeline` runs before `fpl.export` in `update.yml`;
+  - no force-publish input yet, and no coverage gate in CI.
+- **Known gap logged:** a stalled upstream across a deadline.
+- **Next:** the data-engineer builds the skip-rule function and both
+  workflows, then Code Review and `/security-review`. The main session
+  asks Josh before the first manual run.

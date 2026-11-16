@@ -1,7 +1,6 @@
 # Task 6 plan: the workflows
 
-Status: draft, for Josh's approval (2026-11-16). Decision 1 is approved;
-nothing is delegated until he approves the rest. Terms are as in `CONTEXT.md`.
+Status: approved by Josh (2026-11-16), and delegated to the data-engineer. Terms are as in `CONTEXT.md`.
 
 **Spec:** `docs/plans/phase-1.md` task 6, and brief section 11 ("Workflows",
 "`update.yml` steps", "When something fails", "Tests").

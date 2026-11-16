@@ -100,6 +100,16 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
   - **Effect:** status, news and `ep_next` can include post-deadline news. The
     model-validator reports pre- and post-deadline snapshots separately.
 
+- **A stalled upstream across a deadline** (2026-11-16, task 6 plan).
+  - **Gap:** `update.yml` publishes only when upstream's commit changes. If
+    upstream stops refreshing across a deadline, the published outputs keep
+    the passed gameweek as the next one until upstream refreshes.
+  - **Effect:** rare, since upstream refreshes about three times a day. The
+    data age shows it after 24 hours.
+  - **Idea:** publish anyway when the published `next_deadline_utc` has
+    passed. Not done because it resets `run_utc`, so the data age would hide
+    a stuck upstream.
+
 ## Missing inputs
 
 - **Upcoming European and cup ties** (2026-11-11).
