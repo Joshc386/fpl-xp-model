@@ -71,6 +71,8 @@ class GoalsSettings:
         """The settings in the parsed config/model.yaml.
 
         `pool_seasons` must be at least 1 and both prior standard deviations positive.
+        `prior_sd_gap` must be below `prior_sd_gap_max`: it is per rating point, and a value
+        per 100 points would turn the gap prior off without any other sign.
         """
         g = cfg["goals_model"]
         pool_seasons = int(g["pool_seasons"])
@@ -79,6 +81,11 @@ class GoalsSettings:
         for key in ("prior_sd_gap", "prior_sd_home"):
             if not float(g[key]) > 0:
                 raise ValueError(f"goals_model.{key} must be positive, got {g[key]}")
+        if not float(g["prior_sd_gap"]) < float(g["prior_sd_gap_max"]):
+            raise ValueError(
+                f"goals_model.prior_sd_gap is per rating point (log goals per point of Elo gap) "
+                f"and must be below goals_model.prior_sd_gap_max ({g['prior_sd_gap_max']}), got "
+                f"{g['prior_sd_gap']}: is it a value per 100 rating points?")
         return cls(pool_seasons, int(g["min_matches"]), float(g["newton_tol"]),
                    int(g["newton_max_iter"]), int(cfg["max_horizon"]),
                    float(g["prior_sd_gap"]), float(g["prior_sd_home"]))

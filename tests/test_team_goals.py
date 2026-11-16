@@ -97,6 +97,22 @@ def test_a_prior_sd_that_is_not_positive_is_rejected(key: str, value: float) -> 
         GoalsSettings.from_config(cfg)
 
 
+@pytest.mark.parametrize("value", [0.175, 0.01])  # 0.175: per 100 points (mutant M20); the bound
+def test_a_prior_sd_gap_at_or_above_the_bound_is_rejected_naming_the_unit(value: float) -> None:
+    cfg = model_config()
+    cfg["goals_model"]["prior_sd_gap"] = value
+    with pytest.raises(ValueError, match="prior_sd_gap is per rating point"):
+        GoalsSettings.from_config(cfg)
+
+
+def test_the_prior_sd_gap_bound_is_read_from_config() -> None:
+    cfg = model_config()
+    assert GoalsSettings.from_config(cfg).prior_sd_gap == cfg["goals_model"]["prior_sd_gap"]
+    cfg["goals_model"]["prior_sd_gap_max"] = cfg["goals_model"]["prior_sd_gap"]
+    with pytest.raises(ValueError, match="must be below"):
+        GoalsSettings.from_config(cfg)
+
+
 def test_the_pool_is_this_season_and_last_only() -> None:
     history = [season_read("2024-2025", 3, CODES_A, FIXTURES_A)] + two_seasons()
     _, fit = goals_from_history(history, SETTINGS, GOALS, PREM)

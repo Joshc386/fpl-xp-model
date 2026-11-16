@@ -39,7 +39,20 @@ goals_model:
   newton_max_iter: 50
   # Zero-centred Gaussian priors on the gap and home coefficients (log goals); they pull small
   # pools towards league-average goals. Chosen as one value (0.175 per 100 rating points, 0.175
-  # for home) by walk-forward log-loss on 2025/26 GW6-38 only (grid 0.075-0.4; docs/decisions.md,
-  # "model - Elo goals fix round"); never tuned on 2026/27.
+  # for home) by `python -m fpl.models.goals_tune`: walk-forward log-loss on 2025/26 GW6-38 only
+  # (`tuning` below; docs/decisions.md, "model - Elo goals fix round"); never tuned on 2026/27.
   prior_sd_gap: 0.00175       # per rating point of gap (0.175 per 100 points)
   prior_sd_home: 0.175
+  # Units guard: prior_sd_gap (per rating point) must be below this. At 0.01 the gap prior is
+  # practically off (it shrinks the 50-match as-of 5 fit by 0.4%), so a value this large is a
+  # per-100-points slip, not a setting; the tuning grid tops out at 0.004 (docs/decisions.md,
+  # "model - goals-prior tuner and units guard").
+  prior_sd_gap_max: 0.01
+  # `python -m fpl.models.goals_tune` (logs only; copy the chosen values above by hand).
+  tuning:
+    season: "2025-2026"       # the Elo run's first season; never 2026/27, the holdout
+    scored_gameweeks: [6, 38] # inclusive; GW g is scored from the fit as of g-1 (backtest mode)
+    # Each grid value sd sets prior_sd_home = sd and prior_sd_gap = sd per gap_points rating
+    # points (sd / gap_points per point). The no-prior fit is always logged as a reference row.
+    gap_points: 100
+    shared_sd_grid: [0.4, 0.3, 0.25, 0.2, 0.175, 0.15, 0.125, 0.1, 0.075]

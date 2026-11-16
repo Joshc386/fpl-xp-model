@@ -2218,3 +2218,81 @@ Josh answered the main session's review of his open items.
      the web source.
    - **Still open:** pywin32 as a Windows-only dev dependency for
      `build_workbook.py`.
+
+### 2026-11-15: model - goals-prior tuner and units guard
+Phase 1 follow-up before task 6 (approved by Josh on 2026-11-15). Worked on 2025/26 only, at
+upstream `ac8be9ca`; nothing in 2026/27 was read, fitted or scored, and `backtest/reports/` was
+not read. No `model_version` bump: `prior_sd_gap` and `prior_sd_home` keep their values, and
+the goals model's output is unchanged (checked exactly against HEAD's `team_goals.py` and
+`config/model.yaml` at 2025/26 as-of 5, 20 and 37).
+- **Built:** `python -m fpl.models.goals_tune` (`src/fpl/models/goals_tune.py`), the search
+  behind the goals priors, now in the repo; and a units guard on `goals_model.prior_sd_gap` in
+  `GoalsSettings.from_config`.
+- **Method, tuner:** the search in "model - Elo goals fix round" (its "Re-tuned the same way"
+  revision). One shared sd per grid point sets `prior_sd_home` = sd and `prior_sd_gap` = sd /
+  `gap_points` per rating point. Each 2025/26 GW g team-fixture, g = 6..38, is predicted once
+  by `goals_from_history` (the pure core of `elo_goals`) on `load_history("2025-2026", g - 1,
+  "backtest")`, and scored by Poisson log-loss (-ln P(goals), with the ln goals! term) against
+  the goals in the as-of 38 read.
+  - Each read is loaded once, and all ten fits (the nine grid values and the no-prior
+    reference, sd inf) run on it.
+  - Reads go through `fpl.models.elo.load_history`, so the module holds no `load_as_of`
+    reference of its own.
+  - Before reading anything it refuses a tuning season other than the Elo run's first season
+    (`elo.start_season`), or that season if it is the newest or the current one. It also
+    refuses scored gameweeks outside the season.
+  - Every grid point is built through `GoalsSettings.from_config`, so the units guard checks
+    each one.
+  - It logs the curve, the minimum over the grid and whether `config/model.yaml` holds it. It
+    writes nothing.
+- **Real run, 2025/26 GW6-38 (660 team-fixtures), 58 s:**
+
+  | Shared sd | none | 0.4 | 0.3 | 0.25 | 0.2 | 0.175 | 0.15 | 0.125 | 0.1 | 0.075 |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | Log-loss | 1.44625 | 1.44596 | 1.44582 | 1.44572 | 1.44562 | 1.44559 | 1.44560 | 1.44572 | 1.44611 | 1.44714 |
+
+  The minimum is 0.175, the configured value, and the curve is the fix round's to 5 decimal
+  places. A scratch loop with its own join and log-loss gave the same curve, and found every GW
+  g fixture in the as-of g-1 read has the same `match_id` and `gw` as in the as-of 38 read.
+- **Method, guard:** `prior_sd_gap` must be below `goals_model.prior_sd_gap_max`, 0.01 per
+  rating point (1.0 log goals per 100 points). The error says the setting is per rating point
+  and asks whether the value is per 100 points.
+  - Why 0.01: there the gap prior is practically off. With the home prior off, it shrinks the
+    gap coefficient by 0.4% at as-of 5 (50 matches: 0.20123 to 0.20033 per 100 points) and by
+    0.05% at as-of 37. So no useful setting is that large. The grid tops out at 0.004 (2.7%
+    shrinkage at as-of 5), 2.5 times below the bound.
+  - Slips: a per-100 value from the grid lands at 0.075 or above, 7.5 times above the bound;
+    Code Review's mutant M20 (0.175) is 17.5 times above. At 0.175 the fit equals the
+    unpenalised one to 5 decimal places, which is why the slip was silent.
+- **Inputs:** unchanged (`fact_fixture` and `dim_team` through `load_history`).
+- **Outputs:** none; the tuner logs only. `elo_goals`, `goals_from_history` and the published
+  outputs are unchanged.
+- **Config keys added:** `goals_model.prior_sd_gap_max` (0.01) and `goals_model.tuning`:
+  `season` "2025-2026", `scored_gameweeks` [6, 38], `gap_points` 100 and `shared_sd_grid` [0.4,
+  0.3, 0.25, 0.2, 0.175, 0.15, 0.125, 0.1, 0.075]. The `goals_model` comment points at the
+  command.
+- **Tests:**
+  - `tests/test_goals_tune.py`:
+    - a known-output curve on a fixed synthetic season (six clubs, 30 matches, GW4-10 scored,
+      42 team-fixtures), with expected values from a separate loop;
+    - the log-loss against hand values;
+    - the grid mapping, and that a grid value the guard rejects stops the tuner;
+    - the curve's refusals (a missing prediction, a missing result, a duplicate);
+    - the season and gameweek guards, which load nothing;
+    - the logged report, with both config-check outcomes.
+  - `tests/test_team_goals.py`: 0.175 and the bound itself are rejected (each fails if the guard
+    is removed), and the bound is read from config.
+  - A real-data test of the full curve would take about 60 s, twice the 30 s budget, so there
+    is none; the real run is above.
+- **Assumptions and known weaknesses:**
+  - As before, the curve is in-sample for the development window: the same 660 team-fixtures
+    choose the priors and score them.
+  - The bound catches a per-100 slip, not every wrong value. A per-point value between 0.004
+    and 0.01 passes, and so does a value 100 times too small.
+  - The tuner raises if a predicted fixture has no result in the as-of 38 read or a scored
+    fixture has no prediction. That never happens in 2025/26, but a postponed match in a future
+    tuning season would need a rule.
+  - To score through `elo_goals`'s own core, each grid point re-runs the Elo ratings (13 ms), about
+    4 s of the 58. The rest is the 34 reads, about 2 s each.
+  - The loader logs two INFO lines per read (68 lines before the report), as `elo_tune` does for
+    its one read.
