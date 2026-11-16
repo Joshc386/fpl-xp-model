@@ -165,6 +165,18 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     fixed league-wide value. Phase 2's Dixon-Coles model replaces this one
     for fixture difficulty.
 
+- **The refit check assumes the goals model's log-linear form** (2026-11-16).
+  - **Gap:** the Elo check compares coefficients implied by the outputs
+    between as-of reads. The output is exactly log-linear today, so an
+    unchanged fit gives the same coefficients on any horizon. Under another
+    form, they would move with each read's horizon fixtures even when
+    nothing was refitted.
+  - **Effect:** none today. With another form, a wholly postponed gameweek
+    would give a loud false FAIL on `refit`, never a silent PASS.
+  - **Idea:** when the goals model's form changes (phase 2's Dixon-Coles),
+    the validator revisits the rule, for example comparing outputs on a
+    fixed set of fixtures.
+
 ## Engineering
 
 - **Writes aren't atomic across seasons** (2026-11-10).

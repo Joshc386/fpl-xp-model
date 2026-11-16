@@ -2372,3 +2372,44 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
 - **Next:** one validator round covering both, plus the five Code Review
   follow-ups logged above. Brief section 7 gains the refit rule under "How
   the check is run".
+
+### 2026-11-16: main - refit round reviewed and committed
+- **Committed as `6f26524`:** the `refit` criterion, the home-share Concern
+  and Code Review's five follow-ups on `ae809e3`. Nothing read 2026/27, so
+  there is no holdout look to log.
+- **Tolerance 1e-9:** on 2025/26, refitting one read on different horizon
+  subsets moves the coefficients by at most 5.4e-15 (Code Review: 3.1e-15).
+  The smallest real step between consecutive reads is 2.7e-3, and all 34
+  pairs changed both their pool and their coefficients.
+- **The 2026-11-14 PASS stands.** Every pair in that run gained results.
+  The 8 pairs that touch 2026/27 are known only to have changed above zero,
+  but real refit steps are about 1e-3, so a re-run (a holdout look) isn't
+  worth it.
+- **Code Review:** approve with non-blocking findings; 30 of 40 mutants die,
+  two of the survivors equivalent. The harness's pool equals the model's own
+  fitting pool at every 2025/26 as-of from 3 to 37. The verdict and the
+  checklist row can't disagree.
+- **Brief:** the refit bullet now says the pool "changed (in practice, it
+  gained a finished result)" and names `refit_tolerance` (the validator's
+  proposal). **Known gap logged:** the refit check assumes the goals model's
+  log-linear form.
+- **Full suite:** 786 passed, 99% coverage of `fpl`, lint clean.
+- **Follow-ups for the validator,** one more small round:
+  1. Test `run_check`'s refit wiring end to end: a synthetic gameweek with
+     its league matches postponed and a cup tie kept. Mutants R15-R17
+     (unfiltered fixtures, pool length 1, the wrong tolerance) survive.
+  2. Render a run with no goal-check rows instead of crashing (predates
+     this round).
+  3. Patch `fpl.features._resolve` inside `synth_point`, so reaching the
+     real loader without the synthetic config raises, however a caller
+     holds it (closes the container, partial and closure gaps).
+  4. Pin the three new report numbers (L04-L06).
+  5. The home-share Concern: assert the "of K reads" count, and test a
+     non-default threshold (H02, H03).
+  6. Bring `tests/test_elo_check_run.py` (320 lines) under 300.
+  7. Count a non-finite coefficient difference as a fail.
+  8. Correct the config comment: 1e-9 is about 5.3 orders above the noise
+     and 6.4 below the smallest step.
+  9. Check that the backtest's pool settings match the model's (the
+     season order against `elo.start_season`, `baseline_pool_seasons`
+     against `goals_model.pool_seasons`); nothing does today.
