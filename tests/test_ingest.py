@@ -99,3 +99,14 @@ def test_read_upstream_commit_returns_the_head_sha(tmp_path: Path) -> None:
 def test_read_upstream_commit_fails_outside_a_repo(tmp_path: Path) -> None:
     with pytest.raises(IngestError):
         read_upstream_commit(tmp_path)
+
+
+def test_read_upstream_commit_refuses_a_plain_folder_inside_another_repo(tmp_path: Path) -> None:
+    """git walks up from a non-git folder; the outer repo's SHA must not be returned."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                    "--allow-empty", "-m", "x"], cwd=tmp_path, check=True, capture_output=True)
+    inner = tmp_path / "data" / "upstream"
+    inner.mkdir(parents=True)
+    with pytest.raises(IngestError, match="not the root"):
+        read_upstream_commit(inner)

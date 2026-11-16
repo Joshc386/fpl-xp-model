@@ -79,17 +79,24 @@ def load_config(path: Path) -> dict:
 
 
 def read_upstream_commit(checkout: Path) -> str:
-    """The full SHA of the upstream checkout's HEAD."""
+    """The full SHA of the upstream checkout's HEAD.
+
+    The checkout folder must itself be the root of a git repo: git walks up from a plain
+    folder, so without this check a missing clone would return the enclosing repo's SHA.
+    """
     try:
         res = subprocess.run(
-            ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+            ["git", "-C", str(checkout), "rev-parse", "--show-toplevel", "HEAD"],
             capture_output=True, text=True, check=False,
         )
     except OSError as exc:
         raise IngestError(f"cannot run git to read the upstream commit: {exc}") from exc
     if res.returncode != 0:
         raise IngestError(f"{checkout} is not a git checkout: {res.stderr.strip()}")
-    return res.stdout.strip()
+    top, _, sha = res.stdout.strip().partition("\n")
+    if Path(top).resolve() != Path(checkout).resolve():
+        raise IngestError(f"{checkout} is not the root of a git checkout (git found {top})")
+    return sha.strip()
 
 
 def read_table(path: Path, file: str) -> pd.DataFrame:
