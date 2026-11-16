@@ -79,6 +79,7 @@ Update this list as each piece is built.
 * `FPL_FULL_SWEEP=1 .venv/Scripts/python -m pytest tests/test_loader_real.py`: the full real-data leakage sweep (every as-of gameweek of 2025/26)
 * `.venv/Scripts/ruff check .`: lint
 * `.venv/Scripts/python -m fpl.run\_pipeline`: build the processed tables in `data/processed/` from the local upstream checkout (`data/raw/upstream/repo`; pull it first). Ingest, validate and clean only, so far
+* `.venv/Scripts/python -m fpl.publish\_decision [--checkout DIR] [--meta FILE]`: whether the upstream checkout's commit differs from `upstream_commit` in `outputs/meta.csv`. Prints `publish=true` or `publish=false` (and appends it to `$GITHUB_OUTPUT`); exits non-zero on an unusable `meta.csv`. `update.yml` calls it
 * `.venv/Scripts/python -m fpl.models.elo\_tune`: re-tune the Elo settings on 2025/26 (logs only; about 20 s)
 * `.venv/Scripts/python -m fpl.models.goals\_tune`: re-tune the Elo goals model's prior sd on 2025/26 by walk-forward log-loss (logs only; about 1 minute)
 * `.venv/Scripts/python -m fpl.export --out-dir <dir> [--run-utc ISO]`: write the phase 1 outputs (`players.csv`, `fixture\_difficulty.csv`, `elo\_ratings.csv`, `meta.csv`) to `<dir>` after the output checks pass (about 5 s). Never point it at `outputs/` by hand
