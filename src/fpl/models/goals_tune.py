@@ -47,11 +47,16 @@ def grid_settings(cfg: dict) -> dict[float, GoalsSettings]:
     """The settings per shared sd, the no-prior reference row (sd inf) first.
 
     Each grid point goes through `GoalsSettings.from_config`, so the units guard checks it.
+    Raises `ValueError` on a duplicate grid value, which would otherwise become one row.
     """
     goals, tuning = cfg["goals_model"], cfg["goals_model"]["tuning"]
+    sds = tuning["shared_sd_grid"]
+    if dupes := sorted({float(sd) for sd in sds if sds.count(sd) > 1}):
+        raise ValueError(f"goals_model.tuning.shared_sd_grid has duplicate values {dupes}: "
+                         f"each sd is one row of the curve")
     grid = {math.inf: dataclasses.replace(GoalsSettings.from_config(cfg),
                                           prior_sd_gap=math.inf, prior_sd_home=math.inf)}
-    for sd in tuning["shared_sd_grid"]:
+    for sd in sds:
         priors = {"prior_sd_gap": sd / tuning["gap_points"], "prior_sd_home": sd}
         grid[float(sd)] = GoalsSettings.from_config({**cfg, "goals_model": goals | priors})
     return grid

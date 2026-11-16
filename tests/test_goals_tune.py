@@ -138,18 +138,57 @@ def test_known_output_on_the_synthetic_season(loads: list[tuple[str, int, str]])
     assert loads == [(SEASON, g, "backtest") for g in range(3, 10)] + [(SEASON, 10, "backtest")]
 
 
-@pytest.mark.parametrize(("grid", "best", "verdict"), [
-    ([0.3, 0.175, 0.1], "0.3", "DIFFERS"), ([0.175, 0.1], "0.175", "matches")])
+@pytest.mark.parametrize(("grid", "priors", "best", "verdict"), [
+    ([0.3, 0.175, 0.1], {}, "0.3", "DIFFERS"),
+    ([0.175, 0.1], {}, "0.175", "matches"),
+    # The best gap prior but not the best home prior, and the other way round: each DIFFERS.
+    # The config's priors don't enter the curve, since every row sets both of its own.
+    ([0.175, 0.1], {"prior_sd_home": 0.2}, "0.175", "DIFFERS"),
+    ([0.175, 0.1], {"prior_sd_gap": 0.002}, "0.175", "DIFFERS"),
+], ids=["best-differs", "best-matches", "home-differs", "gap-differs"])
 def test_main_logs_the_curve_the_minimum_and_the_config_check(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
-    loads: list[tuple[str, int, str]], grid: list[float], best: str, verdict: str,
+    loads: list[tuple[str, int, str]], grid: list[float], priors: dict[str, float], best: str,
+    verdict: str,
 ) -> None:
-    monkeypatch.setattr(goals_tune, "model_config", lambda: small_config(grid))
+    cfg = small_config(grid)
+    cfg["goals_model"] |= priors
+    monkeypatch.setattr(goals_tune, "model_config", lambda: cfg)
     with caplog.at_level(logging.INFO, logger="fpl.models.goals_tune"):
         goals_tune.main()
     assert f"Minimum: shared sd {best} " in caplog.text and f"({verdict})" in caplog.text
     assert "1.55286" in caplog.text and "42 team-fixtures" in caplog.text
     assert {season for season, _, _ in loads} == {SEASON}
+
+
+def test_the_logged_minimum_skips_the_no_prior_row_when_it_scores_best(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    loads: list[tuple[str, int, str]],
+) -> None:
+    # A prior sd of 0.01 pins both coefficients near zero, so the no-prior reference row has the
+    # lowest log-loss; the minimum reported against the config must still be a grid value.
+    curves: list[pd.DataFrame] = []
+
+    def recorded_tune(*args: object) -> pd.DataFrame:
+        curves.append(tune(*args))
+        return curves[-1]
+
+    monkeypatch.setattr(goals_tune, "model_config", lambda: small_config([0.01]))
+    monkeypatch.setattr(goals_tune, "tune", recorded_tune)
+    with caplog.at_level(logging.INFO, logger="fpl.models.goals_tune"):
+        goals_tune.main()
+    assert curves[0].set_index("shared_sd").log_loss.idxmin() == math.inf
+    assert "Minimum: shared sd 0.01 " in caplog.text and "(DIFFERS)" in caplog.text
+
+
+def test_main_refuses_a_duplicate_grid_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The curve is keyed by sd, so a duplicate would otherwise become one row without a word.
+    cfg = model_config()
+    cfg["goals_model"]["tuning"]["shared_sd_grid"] = [0.2, 0.175, 0.2]
+    monkeypatch.setattr(goals_tune, "model_config", lambda: cfg)
+    monkeypatch.setattr(elo, "load_as_of", lambda *a: pytest.fail("must not load"))
+    with pytest.raises(ValueError, match=r"shared_sd_grid has duplicate values \[0\.2\]"):
+        goals_tune.main()
 
 
 def holdout_config(season: str, start: str) -> dict:
