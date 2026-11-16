@@ -2302,8 +2302,9 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
   mutants P10 and P07 now die. The new caller guard found
   `fpl.models.elo_tune` missing from `CALLERS`. The `backtest/` changes
   are wording and docstrings only: no verdict rule or report number changed.
-  - **Code Review:** approve with non-blocking findings. 19 mutants run,
-    15 die; the guard runs on every `synth_point` entry.
+  - **Code Review:** approve with non-blocking findings. 18 mutants run,
+    12 die; of the 6 that survive, one is equivalent. The guard runs on
+    every `synth_point` entry.
   - **Follow-ups for the validator:** the guard looks by name, so an
     aliased import, a module reference (`features.load_as_of(...)`) or a
     default argument gets past it. Compare by identity, and make
