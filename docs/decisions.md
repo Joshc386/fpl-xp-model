@@ -2463,3 +2463,37 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
     `goals_model.pool_seasons`. A prefix is enough: a pipeline season the
     backtest doesn't cover yet doesn't stop the check.
 - **Full suite:** 853 passed, 99% coverage of `fpl`, lint clean.
+
+### 2026-11-16: main - task 6 reviewed and committed
+- **Committed:** `aabff75` (`read_upstream_commit` refuses a folder that
+  isn't its own clone) and `68d19f5` (`update.yml`, `ci.yml` and
+  `fpl.publish_decision`).
+- **Code Review:** request changes, all fixed before the commit:
+  - bare `pytest` in CI couldn't import `backtest`, so it's now `python -m
+    pytest`;
+  - a run queued behind another started from the queued commit and its
+    rebase conflicted, so the checkout is now `ref: main` and a failed
+    rebase is aborted before the retry;
+  - stale files could stay in `outputs/`, so the folder is now cleared
+    before the copy;
+  - the token stayed on disk for the whole job, so it now reaches only the
+    commit step, through a credential helper;
+  - `read_upstream_commit` fell through to our repo;
+  - two tests were added for the publish decision (mutants M15 and M27).
+  The plan's line "a rebase can't conflict" is corrected.
+- **`/security-review`:** no vulnerabilities found. Upstream content is only
+  read, never run. The only `${{ }}` in a step is the token in `env:`.
+  `ci.yml` uses `pull_request`, not `pull_request_target`.
+- **Brief section 11** brought in line with the approved plan: CI runs on
+  pushes to `main` and on pull requests, and the upstream checkout takes
+  each season's master files and `By Gameweek` folders.
+- **For task 7 (excel-builder):** the CSVs publish free text from upstream
+  (`news`, names) unscreened. Power Query loads values, which is safe, but
+  opening a raw CSV straight in Excel could evaluate a cell starting `=`,
+  `+`, `-` or `@`. The README sheet should say to use the workbook.
+- **Not yet tested on GitHub itself:**
+  - the credential helper and the rebase retry;
+  - the pinned wheels on Linux;
+  - workflow syntax (actionlint isn't installed).
+  The first CI run and the first manual run test these. Step 6 of the plan
+  now includes a second manual run with upstream unchanged, which must skip.

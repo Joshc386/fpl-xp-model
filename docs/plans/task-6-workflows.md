@@ -37,12 +37,12 @@ consecutive scheduled runs that each publish a new upstream refresh.
 | Concurrency | One group, `update`, with `cancel-in-progress: false`, so a manual run queues behind a scheduled one rather than overlapping. |
 | Timeout | 15 minutes. |
 | Python | 3.13 on `ubuntu-latest`, with the pip cache keyed on `requirements.txt`. It installs `requirements.txt` and `-e .`, not the dev tools. |
-| Our checkout | `main`, at depth 1. |
+| Our checkout | `main`'s tip when the job starts (`ref: main`, not the commit the run was queued at), at depth 1, without keeping the token on disk. |
 | Upstream checkout | `olbauday/FPL-Core-Insights` into `data/raw/upstream/repo` (already gitignored). Sparse, cone mode, on `data/2025-2026/By Gameweek` and `data/2026-2027/By Gameweek`, which also brings each season's master files. Depth 1, blobless. This leaves out `By Tournament` and 2024/25. `read_upstream_commit` records the SHA. |
 | Skip rule | If the checked-out SHA equals `upstream_commit` in `outputs/meta.csv` on `main`, the run ends green without committing. If there's no `meta.csv` (the first run), it publishes. A small tested Python function makes the decision, not a shell line. |
 | Build | `python -m fpl.run_pipeline` (brief steps 4 and 5: input checks for both seasons), then `python -m fpl.export --out-dir $RUNNER_TEMP/outputs` (steps 8 and 9: output checks, then `meta.csv`). Steps 6 and 7, the xP model and the optimiser, join in later phases. |
 | Publish | Only after both commands exit 0: copy the files into `outputs/` and commit `outputs/` alone. |
-| Commit | Author `github-actions[bot]`. Message `chore: publish outputs for upstream <short sha>`, with the full SHA, `run_utc` and the run's URL in the body. Before pushing, it rebases onto `origin/main` and retries once. Only the workflow writes `outputs/`, so a rebase can't conflict. |
+| Commit | Author `github-actions[bot]`. Message `chore: publish outputs for upstream <short sha>`, with the full SHA, `run_utc` and the run's URL in the body. Before pushing, it rebases onto `origin/main` and retries once, aborting a failed rebase first. Runs never overlap and each starts from `main`'s tip, so only code pushes can move `main` during a run, and they never touch `outputs/`. Only the commit step gets the token. |
 | Failure | Any non-zero exit fails the job before the commit step, so nothing is published. GitHub emails the failure. |
 
 **Why a rebase rather than failing on a race:** if the main session pushes
@@ -127,6 +127,8 @@ outputs come from the code just before the push. The next run catches up.
      message;
    - `meta.csv`'s values are right for that run;
    - the raw GitHub URLs serve the four CSVs;
+   - a second manual run with upstream unchanged ends green with
+     `publish=false` and no commit (added after Code Review, 2026-11-16);
    - a local `fpl.export` at the same upstream SHA and `run_utc` gives the
      same files, to within float noise.
 7. **Then:** task 7 (the workbook) starts, and task 9 watches the scheduled

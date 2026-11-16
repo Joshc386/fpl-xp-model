@@ -510,14 +510,14 @@ A GitHub Actions workflow runs the full pipeline at 08:00 and 18:00 UTC. Upstrea
 | --- | --- | --- |
 | `update.yml` | Cron `0 8 * * *` and `0 18 * * *` (UTC), plus manual run | Full pipeline and publish |
 | `backtest.yml` | Weekly, Monday 09:00 UTC, plus manual run | Full backtest; report and headline metrics |
-| `ci.yml` | Every push and pull request | Tests and lint |
+| `ci.yml` | Every push to `main`, and every pull request | Tests and lint |
 
 GitHub cron runs in UTC and so does the upstream schedule, so no summer-time adjustment is needed.
 
 **`update.yml` steps**
 
 1. Check out the repo and set up Python with a pip cache.
-2. Sparse-checkout `data/2026-2027/` and `data/2025-2026/` from upstream, and record the commit SHA. The Elo component needs 2025/26 for seeds and calibration.
+2. Sparse-checkout each season's master files and `By Gameweek` folders (`data/2026-2027/` and `data/2025-2026/`) from upstream, and record the commit SHA. The Elo component needs 2025/26 for seeds and calibration.
 3. If the upstream SHA matches the last run's, exit without committing.
 4. Validate inputs: expected files exist, schemas match the contract, keys are non-null and unique, row counts are within bounds, and the latest gameweek folder is present.
 5. Build the processed tables.
