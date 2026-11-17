@@ -85,7 +85,7 @@ Update this list as each piece is built.
 * `.venv/Scripts/python -m fpl.export --out-dir <dir> [--run-utc ISO]`: write the phase 1 outputs (`players.csv`, `fixture\_difficulty.csv`, `elo\_ratings.csv`, `meta.csv`) to `<dir>` after the output checks pass (about 5 s). Never point it at `outputs/` by hand
 * `.venv/Scripts/python -m backtest.elo\_check`: the model-validator's Elo component check; writes a new dated report in `backtest/reports/` (about 5 minutes). It reads 2026/27, the holdout, so log every run in `docs/decisions.md`
 * `python backtest/run\_backtest.py`: run the backtest (not built yet)
-* `python excel/build\_workbook.py`: build the workbook (Windows, Excel installed)
+* `.venv/Scripts/python excel/build\_workbook.py [--base-path DIR] [--no-replace]`: build the workbook (Windows, Excel installed; about 30 s). It refreshes and checks a new file in `excel/build/`, then replaces `excel/FPL_Model.xlsx`. The default base path is the raw GitHub URL; a local `--base-path` build (DIR may be relative) never replaces it. If `FPL_Model.xlsx` is open in Excel it stops with a plain message and leaves the checked build in `excel/build/`
 
 ## Working with Josh
 

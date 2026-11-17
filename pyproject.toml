@@ -23,7 +23,7 @@ source = ["fpl"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-src = ["src", "tests"]
+src = ["src", "tests", "excel"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "C90"]
