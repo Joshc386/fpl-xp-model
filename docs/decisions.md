@@ -3137,3 +3137,14 @@ Tested `546687e` on `main` (clean tree). QA didn't build any of this code. Overa
   - the medium finding: nothing automatic builds the workbook, so an `excel/` change can pass CI unbuilt;
   - three low findings: `HAND_TEST.md` step A5, the untested `export.main`, and the `print` in `publish_decision.py`;
   - the model-validator's low finding on the keep test.
+
+### 2026-11-17: main - QA's remaining findings (Josh)
+Josh took all three recommendations.
+1. **Three small fixes run now, in parallel:**
+   - `HAND_TEST.md` step A5 also checks a value that changes every publish (excel-builder);
+   - a test of `export.main`, the command `update.yml` runs (data-engineer);
+   - the keep test's `fixtures.csv` comparison must compare at least one column (model-validator).
+
+   They touch only tests and the checklist, so the main session reviews them itself instead of a Code Review pass.
+2. **The `print` at `src/fpl/publish_decision.py:77` is an accepted exception** to the logging rule. It is the command's documented output (`publish=true` or `publish=false`), which `update.yml` reads.
+3. **New `CLAUDE.md` convention:** run the full suite on Windows with Excel before committing anything under `excel/`, because CI skips the 8 Excel tests. This answers QA's medium finding.

@@ -67,6 +67,9 @@ one decimal place.
 `load\_as\_of` in src/fpl/features.py.
 * Never write to outputs/ by hand; only the workflow publishes. Never commit
 data/.
+* Before committing anything under excel/, run the full suite on Windows with
+Excel installed. CI skips the 8 Excel tests, so a workbook change can pass
+CI without the workbook ever being built (decided 2026-11-17).
 * Keep commits small, one task each, with a message saying what changed and
 why.
 
