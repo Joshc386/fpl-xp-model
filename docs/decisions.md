@@ -3000,3 +3000,23 @@ sources. Josh's calls follow.
   The four keep tests failed first, and so did the real test without the workaround
   (`CleanError ... upstream now has 3-8`). `tests/test_elo_check*.py`: 203 passed. Ruff clean.
   `python -m backtest.elo_check` was not run (holdout).
+
+### 2026-11-17: main - score correction and harness fix reviewed and committed; beyondELO table built
+- **Committed as `de950d6`:** data rule 16 in `clean.py` (`src/fpl/corrections.py`) and the Elo check harness's keep set (`backtest/perturb.py`, `backtest/elo_check.py`), with their tests.
+- **Code Review's first pass:** approve with findings.
+  - **F1 (high):** the harness's control reads corrupt every score up to the as-of gameweek, so the next `python -m backtest.elo_check` run would have crashed at 2025/26 as-of 20 and 33.
+  - **The fix, by the model-validator:** the harness never corrupts a listed match.
+  - **The trade-off, accepted by the main session:** a leak of that one match's result alone would go unseen. Every other match is still corrupted.
+  - **F2-F6, by the data-engineer:** a real-data loader test (1-2 at as-of 8, 38 and live 20, null at as-of 7), a CI check of the config entries' shape (Premier League only), one-sided mismatch tests, and a readable error message.
+- **Second pass:** approve. With the correction switched off, 3 of the 4 real-data tests fail. One low finding is left: the keep test's `fixtures.csv` comparison checks no columns, because the synthetic file has none to compare. It goes to the model-validator after task 8.
+- **Main session's check:** full suite 1036 passed, 99% coverage of `fpl`, and 100% of `corrections.py`. Lint is clean. The rebuilt 2025/26 `fact_fixture` has the match at 1-2, with row counts unchanged.
+- **beyondELO table built** from the cache, with no further requests. 6 of the day's 100 were used in all.
+  - **2025/26:** 380 of 380 matches matched in both directions.
+  - **2026/27:** 100 of 100 matched; our 280 unplayed fixtures are counted, not failed.
+  - **Ratings:** in every decided match both ratings moved the right way (276 and 73 matches).
+  - **Promoted:** Burnley, Leeds and Sunderland in 2025/26; Coventry, Hull and Ipswich in 2026/27.
+  - **Committed earlier:** `7cdc31a` (the pull) and `4114e73` (the string tiers and the 10 club aliases).
+  - **Next:** settle the comparison method with `/grill-with-docs` before the model-validator builds the script.
+- **Task 9 log:**
+  - the 2026-11-17 08:00 UTC scheduled run never started (nothing by 17:08 UTC), so it counts as dropped;
+  - the crons moved to 08:23 and 18:23 UTC at 13:46 UTC (`d4e34fa`), so 18:23 tonight is the first run at the new time.
