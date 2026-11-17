@@ -2904,3 +2904,6 @@ Josh took all eight of the main session's recommendations on the handoff.
     kept is the run-level one, which lists names across both seasons; `add_team_ids` has none and
     `build_season` fails on a missing team id.
   - `tests/test_beyondelo_api.py` split into client and paging files.
+- **First real response:** `/competitions` gave string tiers ("domestic_league", "continental_club"), not
+  numbers, and the Premier League's code is `eng.1`. `find_premier_league_code` now selects country
+  "England" and tier "domestic_league"; none or several still stops.

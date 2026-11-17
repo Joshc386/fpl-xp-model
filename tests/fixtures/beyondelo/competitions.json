@@ -1,8 +1,8 @@
 {
   "data": [
-    {"code": "test-pl", "name": "Test Premier League", "tier": 1, "country": "England", "first_season": "1992-1993", "end_season": null},
-    {"code": "test-ch", "name": "Test Championship", "tier": 2, "country": "England", "first_season": "2004-2005", "end_season": null},
-    {"code": "test-ll", "name": "Test La Liga", "tier": 1, "country": "Spain", "first_season": "1990-1991", "end_season": null}
+    {"code": "test-pl", "name": "Test Premier League", "tier": "domestic_league", "country": "England", "first_season": "1993-1994", "end_season": null},
+    {"code": "test-ll", "name": "Test La Liga", "tier": "domestic_league", "country": "Spain", "first_season": "1990-1991", "end_season": null},
+    {"code": "test-cl", "name": "Test Champions Cup", "tier": "continental_club", "country": null, "first_season": "1992-1993", "end_season": null}
   ],
-  "meta": {"total": 3}
+  "meta": {"licence": "invented", "attribution": "invented", "total": 3}
 }

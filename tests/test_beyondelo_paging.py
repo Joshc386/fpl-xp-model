@@ -23,9 +23,11 @@ def test_premier_league_code_found():
 
 @pytest.mark.parametrize("rows", [
     [],
-    [{"code": "x", "country": "Spain", "tier": 1}],
-    [{"code": "a", "country": "England", "tier": 1, "first_season": "1992-1993"},
-     {"code": "b", "country": "England", "tier": 1, "first_season": "1992-1993"}],
+    [{"code": "x", "country": "Spain", "tier": "domestic_league"}],
+    [{"code": "c", "country": None, "tier": "continental_club"}],
+    [{"code": "e", "country": "England", "tier": "continental_club"}],
+    [{"code": "a", "country": "England", "tier": "domestic_league"},
+     {"code": "b", "country": "England", "tier": "domestic_league"}],
 ])
 def test_premier_league_code_missing_or_ambiguous(rows):
     with pytest.raises(api.BeyondEloError, match="Premier League"):
@@ -34,7 +36,7 @@ def test_premier_league_code_missing_or_ambiguous(rows):
 
 def test_country_must_be_spelled_england():
     with pytest.raises(api.BeyondEloError, match="Premier League"):
-        api.find_premier_league_code([{"code": "x", "country": "ENG", "tier": 1}])
+        api.find_premier_league_code([{"code": "x", "country": "ENG", "tier": "domestic_league"}])
 
 
 def test_bare_list_responses_are_refused(tmp_path):
@@ -44,7 +46,7 @@ def test_bare_list_responses_are_refused(tmp_path):
 
 
 def test_bad_competition_code_stops_before_any_matches_request(tmp_path):
-    body = {"data": [{"code": "x", "country": "Spain", "tier": 1}]}
+    body = {"data": [{"code": "x", "country": "Spain", "tier": "domestic_league"}]}
     t = h.FakeTransport([h.ok(body)])
     with pytest.raises(api.BeyondEloError, match="Premier League"):
         pull(client(tmp_path, t), ["2025-2026"])

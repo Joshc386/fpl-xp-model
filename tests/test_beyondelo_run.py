@@ -264,5 +264,8 @@ def test_settings_from_config_and_main(tmp_path, monkeypatch):
 def test_real_config_section_is_complete():
     cfg = run_mod.load_config(run_mod.ROOT / "config" / "pipeline.yaml")["beyondelo"]
     assert cfg["base_url"].startswith("https://") and cfg["max_requests"] == 20
-    assert cfg["seasons"] == SEASONS and cfg["per_page"] == 100 and cfg["club_aliases"] == {}
+    assert cfg["seasons"] == SEASONS and cfg["per_page"] == 100
+    aliases = cfg["club_aliases"]
+    assert isinstance(aliases, dict)
+    assert all(isinstance(k, str) and isinstance(v, str) for k, v in aliases.items())
     assert cfg["max_wrong_direction_share"] == 0.5

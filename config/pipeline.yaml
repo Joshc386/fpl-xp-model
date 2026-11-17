@@ -88,8 +88,9 @@ output_validation:
 # One-off pull of beyondELO's per-match club ratings (python -m fpl.beyondelo). An outside
 # source for Josh's Elo check, never a model input (docs/data_contract.md, Outside sources).
 # The key comes only from the environment variable BEYONDELO_API_KEY. The Premier League's
-# competition code is not configured: it is confirmed from GET /competitions (England, tier 1),
-# because beyondELO does not document it, and the pull stops if that is not unambiguous.
+# competition code is not configured: it is confirmed from GET /competitions (the one entry with
+# country England and tier domestic_league; the code is eng.1), because beyondELO does not
+# document it, and the pull stops if that is not unambiguous.
 beyondelo:
   base_url: https://public-api.beyondelo.com/v1
   seasons: [2025-2026, 2026-2027]            # ids as in `seasons` above and as beyondELO writes them
@@ -102,6 +103,16 @@ beyondelo:
   # narrow-winning favourite).
   max_wrong_direction_share: 0.5
   external_dir: data/external/beyondelo      # {season}.parquet, reconciliation.csv and raw/ below
-  # beyondELO club name -> our dim_team.name, for names that differ. Empty until the first
-  # real response shows which do; an unmapped name fails the build and is listed.
-  club_aliases: {}
+  # beyondELO club name -> our dim_team.name, for names that differ, taken from the first real
+  # pull (2026-11-17). An unmapped name fails the build and is listed.
+  club_aliases:
+    AFC Bournemouth: Bournemouth
+    Brentford FC: Brentford
+    Ipswich: Ipswich Town
+    Leeds United: Leeds
+    Manchester City: Man City
+    Manchester United: Man Utd
+    Newcastle United: Newcastle
+    Nottingham Forest: "Nott'm Forest"
+    Sunderland AFC: Sunderland
+    Tottenham Hotspurs: Spurs

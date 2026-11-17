@@ -186,14 +186,16 @@ def _records(payload: Any, what: str) -> list[dict]:
 
 
 def find_premier_league_code(competitions: list[dict]) -> str:
-    """The code of the one English tier-1 competition; anything else is an error."""
+    """The code of the one English domestic league in /competitions; none or several is an error."""
     codes = [
         c.get("code") for c in competitions
-        if str(c.get("country", "")).strip().lower() == "england" and str(c.get("tier")) == "1"
+        if str(c.get("country") or "").strip().lower() == "england"
+        and c.get("tier") == "domestic_league"
     ]
     if len(codes) != 1 or not codes[0]:
         raise BeyondEloError(
-            f"cannot identify the Premier League in /competitions (England, tier 1): found {codes}"
+            "cannot identify the Premier League in /competitions "
+            f"(England, domestic_league): found {codes}"
         )
     return str(codes[0])
 
