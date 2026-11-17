@@ -32,7 +32,7 @@ consecutive scheduled runs that each publish a new upstream refresh.
 
 | Item | Plan |
 | --- | --- |
-| Triggers | Cron `0 8 * * *` and `0 18 * * *` (UTC), plus manual runs (`workflow_dispatch`). |
+| Triggers | Cron `23 8 * * *` and `23 18 * * *` (UTC; `0 8` and `0 18` until 2026-11-17), plus manual runs (`workflow_dispatch`). |
 | Permissions | `contents: write` for this workflow only, and nothing else. No secrets. |
 | Concurrency | One group, `update`, with `cancel-in-progress: false`, so a manual run queues behind a scheduled one rather than overlapping. |
 | Timeout | 15 minutes. |
@@ -138,8 +138,9 @@ outputs come from the code just before the push. The next run catches up.
 
 - **Late or dropped runs:** GitHub can start a scheduled run late, or drop
   it under load, especially on the hour. Task 9 counts only runs that
-  actually happened. If runs are dropped often, moving off the hour (for
-  example 08:07) is a one-line change.
+  actually happened. The crons moved off the hour, to 08:23 and 18:23 UTC,
+  on 2026-11-17, after one run started 7 h 43 min late and the next hadn't
+  started 5 hours on.
 - **The off-season:** GitHub turns off scheduled workflows in a public repo
   after 60 days without activity. The bot's commits count as activity, but
   in the summer, when upstream stops, the schedule could switch itself off.

@@ -10,7 +10,7 @@ Josh is the first user; anyone given the workbook is the second. Users need Exce
 | --- | --- | --- |
 | Model accuracy | xP beats FPL's own `ep_next` on mean absolute error across the walk-forward backtest | Validator report |
 | Calibration | Mean actual points within ±0.3 of mean predicted in every xP bin with ≥200 player-gameweeks | Calibration table in the report |
-| Freshness | Each run (08:00 and 18:00 UTC) publishes the newest upstream commit that existed when it started | `meta.upstream_commit` vs upstream's latest commit at run start |
+| Freshness | Each run (08:23 and 18:23 UTC) publishes the newest upstream commit that existed when it started | `meta.upstream_commit` vs upstream's latest commit at run start |
 | Reliability | Outputs that fail validation are never published | GitHub Actions run history |
 | Optimiser | Returns a legal 15-player squad in under 60 seconds | Unit tests and run log |
 | Usability | A new user finds the best-value midfielder under £7.0m for the next 5 GWs in under a minute | Hand test before sign-off |
@@ -502,13 +502,13 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 
 ## Automation and operations
 
-A GitHub Actions workflow runs the full pipeline at 08:00 and 18:00 UTC. Upstream refreshes about three times a day at drifting times, so each run publishes whatever is newest when it starts; twice a day is enough. It commits only outputs that pass validation. GitHub may start scheduled runs several minutes late, so on days with an 18:00 deadline the evening run lands after the deadline.
+A GitHub Actions workflow runs the full pipeline at 08:23 and 18:23 UTC, off the hour because GitHub delays and drops scheduled runs most at the start of each hour (decided 2026-11-17). Upstream refreshes about three times a day at drifting times, so each run publishes whatever is newest when it starts; twice a day is enough. It commits only outputs that pass validation. GitHub may start scheduled runs late, by hours at times, or drop them, so on days with an 18:00 deadline the evening run lands after the deadline.
 
 **Workflows**
 
 | Workflow | Trigger | Job |
 | --- | --- | --- |
-| `update.yml` | Cron `0 8 * * *` and `0 18 * * *` (UTC), plus manual run | Full pipeline and publish |
+| `update.yml` | Cron `23 8 * * *` and `23 18 * * *` (UTC), plus manual run | Full pipeline and publish |
 | `backtest.yml` | Weekly, Monday 09:00 UTC, plus manual run | Full backtest; report and headline metrics |
 | `ci.yml` | Every push to `main`, and every pull request | Tests and lint |
 

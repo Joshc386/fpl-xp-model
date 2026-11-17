@@ -28,7 +28,7 @@ than the data it was saved with.
 This is the main pass mark: a copy saved before a newer publish, opened **without pressing
 Refresh All**, shows the new `run_utc` and the new row count.
 
-1. Before a scheduled publish (08:00 or 18:00 UTC; runs can be hours late), download
+1. Before a scheduled publish (08:23 or 18:23 UTC; runs can be hours late), download
    `FPL_Model.xlsx` from GitHub with your browser (`excel/FPL_Model.xlsx` in the repo, the
    Download raw file button) and save it as `stale_copy.xlsx`. A browser download marks the file
    as from the internet, which is what a new user gets. Don't open it yet.

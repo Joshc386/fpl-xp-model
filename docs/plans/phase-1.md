@@ -42,7 +42,7 @@ committed to `main` and pushed. Josh approved pushes for phase 1 on
 | 3 | expected-points-modeller | **Elo component.** `models/elo.py` (from 2025/26 GW1, each season seeded from upstream Elo, settings in `config/model.yaml`, tuned on 2025/26 where upstream Elo is a before-match rating) and the Elo goals model in `models/team_goals.py` (Poisson on the rating gap plus home advantage, fitted only on results up to the as-of gameweek). Both return DataFrames; `export.py` writes the CSVs in task 5. Data is read through `load_as_of`. | 2 | Tests pass. The modeller reports its own calibration numbers, which go to Josh, never to the validator. |
 | 4 | model-validator | **Elo component check.** An independent walk-forward test against brief section 7's Elo pass marks. Report in `backtest/reports/`. | 3 | Pass or fail with numbers. A fail returns to task 3. Can run alongside task 5. |
 | 5 | data-engineer | **Thin-slice outputs.** `export.py` writes `players.csv` (metrics as defined in `CONTEXT.md`), `fixture_difficulty.csv` (team × fixture, from the Elo goals model), `elo_ratings.csv` and `meta.csv`, plus the output checks from brief section 11, step 8. | 3 | Outputs match the contract and pass validation on the latest snapshot. |
-| 6 | data-engineer | **Workflows.** `update.yml` (08:00 and 18:00 UTC plus manual runs; checks out 2025/26 and 2026/27; skips if the upstream commit hasn't changed; publishes `outputs/` only after validation passes) and `ci.yml` (tests and lint). | 5 | A manual run on `main` passes and publishes. |
+| 6 | data-engineer | **Workflows.** `update.yml` (08:23 and 18:23 UTC, 08:00 and 18:00 until 2026-11-17, plus manual runs; checks out 2025/26 and 2026/27; skips if the upstream commit hasn't changed; publishes `outputs/` only after validation passes) and `ci.yml` (tests and lint). | 5 | A manual run on `main` passes and publishes. |
 | 7 | excel-builder | **Workbook.** Power Query M for `players`, `fixture_difficulty` and `meta`, reading raw GitHub URLs on `main` with refresh on open. The `in_horizon` picker (1 to `max_horizon`). The Player Database and Fixture Analysis sheets, plus `build_workbook.py` (COM). | 6 (real CSVs on `main`) | The workbook builds on Windows, and the sheets reconcile with the CSVs. The task 8 hand-test checklist is written (decided 2026-11-15). |
 | 8 | QA, then Josh | **Phase review.** QA checks every done-when item and test coverage. Josh hand-tests refresh-on-open in Windows Excel with task 7's checklist, after task 9's first scheduled publish (decided 2026-11-15). | 1-7, and one scheduled publish | QA passes, and so does the hand test. |
 | 9 | main session | **Go-live check.** Confirm two consecutive scheduled runs each published a new upstream commit. | 6 | Both runs green. |
@@ -67,8 +67,9 @@ as soon as phase 1 is signed off.
 4. **`fixture_difficulty.csv`:** team × fixture. Blank gameweeks have no row,
    and doubles have two.
 5. **`players.csv` metrics:** as defined in `CONTEXT.md`.
-6. **Runs:** 08:00 and 18:00 UTC. Each publishes the newest upstream commit.
-   The 1-hour freshness target is dropped.
+6. **Runs:** 08:00 and 18:00 UTC, moved to 08:23 and 18:23 on 2026-11-17.
+   Each publishes the newest upstream commit. The 1-hour freshness target is
+   dropped.
 7. **Elo:** the expected-points-modeller owns the ratings and the goals model.
    The model-validator judges them, and Josh adds his own outside-source
    comparison.

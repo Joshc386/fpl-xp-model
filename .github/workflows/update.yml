@@ -4,8 +4,8 @@ name: update
 
 on:
   schedule:
-    - cron: "0 8 * * *"
-    - cron: "0 18 * * *"
+    - cron: "23 8 * * *"
+    - cron: "23 18 * * *"
   workflow_dispatch:
 
 permissions:
