@@ -136,21 +136,30 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
   - **Idea:** look the club up in later snapshots up to the as-of gameweek.
     The catch is that an as-of read would then no longer equal the full
     build for those rows.
-- **Players missing from a snapshot** (2026-11-13).
-  - **Gap:** 7 Premier League player-match rows in 2026/27 are dropped as
-    `player_not_in_snapshot` (Mfuni, J.Angulo and Tutierov), so their xG and
-    xA from those matches are lost.
-  - **Effect:** none on today's outputs, because those rows carry no xG or
-    xA, but a missing player's xG90 and xA90 could read low.
+- **Players missing from a snapshot** (2026-11-13; corrected 2026-11-17 by
+  QA's task 8 check).
+  - **Gap:** at upstream `ac8be9c`, 7 2026/27 player-match rows are dropped
+    as `player_not_in_snapshot`: 6 EFL Cup rows and 1 Champions League row,
+    for players added to FPL after the gameweek they played in (ids 623,
+    626, 660, 661, 667, 670 and 672). The first version of this entry named
+    Mfuni, J.Angulo and Tutierov, which is no longer the case.
+  - **Effect:** 3 of the 7 rows carry minutes (90, 45 and 90), so a little
+    cup rotation data is lost. Premier League xG and xA are unaffected.
   - **Idea:** the same as for cup appearances: look the player up in later
     snapshots up to the as-of gameweek.
-  - **Rechecked 2026-11-17** against the local upstream checkout: all three
-    are now in each gameweek's snapshot, but `playermatchstats` has no row
-    for them in 8 of their Premier League player-gameweeks with minutes
-    (Mfuni 5, J.Angulo 1, Tutierov 2). For example, Mfuni's 86th-minute goal
-    in Coventry 4–1 Newcastle (2026/27 GW6) is in `shots.csv` but not in
-    `fact_player_match`. FPL's per-gameweek minutes and points for them are
-    complete.
+- **Players with no per-match rows** (2026-11-17).
+  - **Gap:** at upstream `ac8be9c`, Mfuni, J.Angulo and Tutierov are in each
+    gameweek's snapshot, but `playermatchstats` has no row for them in 8 of
+    their Premier League player-gameweeks with minutes (Mfuni 5, J.Angulo 1,
+    Tutierov 2). For example, Mfuni's 86th-minute goal in Coventry 4–1
+    Newcastle (2026/27 GW6) is in `shots.csv` but not in
+    `fact_player_match`.
+  - **Effect:** their per-match minutes, goals, xG and xA are missing, so
+    their xG90, xA90 and DC90 can read wrong. FPL's per-gameweek minutes and
+    points for them are complete.
+  - **Idea:** check whether a later upstream commit fills the rows; if not,
+    flag such players in `players.csv` or fall back to FPL's per-gameweek
+    minutes.
 - **Per-match goals conceded** (2026-11-10).
   - **Gap:** upstream's per-match figure is unreliable, so FPL's
     per-gameweek `goals_conceded` is used.

@@ -3020,3 +3020,120 @@ sources. Josh's calls follow.
 - **Task 9 log:**
   - the 2026-11-17 08:00 UTC scheduled run never started (nothing by 17:08 UTC), so it counts as dropped;
   - the crons moved to 08:23 and 18:23 UTC at 13:46 UTC (`d4e34fa`), so 18:23 tonight is the first run at the new time.
+
+### 2026-11-17: qa - phase 1 review (task 8)
+Tested `546687e` on `main` (clean tree). QA didn't build any of this code. Overall verdict:
+**pass with findings**, with one condition: `excel/` coverage must be measured with Excel
+(item 3).
+- **1. The workbook refreshes from GitHub on open: static part PASS; the live part is Josh's
+  hand test.**
+  - `excel/HAND_TEST.md` covers the 2026-11-15 pass marks: A (a stale copy opened without
+    Refresh All shows the new `run_utc` and the `tbl_players` row count from `main`), C
+    (offline: last good data, no error values), the wait of more than 5 minutes (the rules
+    and A2), and B (the three first-open prompts).
+  - Read as a zip, never opened in Excel: `xl/connections.xml` has 3 Power Query connections
+    (`players`, `fixture_difficulty`, `meta`), each `refreshOnLoad="1"`. The 3 query tables
+    are `refreshOnLoad="1"` and `backgroundRefresh="0"`. The embedded `Section1.m` has
+    `BasePath` = `https://raw.githubusercontent.com/Joshc386/fpl-xp-model/main/outputs/`, read
+    through `Web.Contents`.
+- **2. Processed row counts reconcile with upstream: PASS.**
+  - QA's own script (it doesn't import `fpl`) recomputed every table from the raw files of
+    the local checkout at `ac8be9c`. That is the HEAD of `data/raw/upstream/repo` and the
+    `upstream_commit` in both manifests (built 2026-11-17T15:06:07Z).
+  - Every count matches `reconciliation.csv`, and in = kept + dropped holds for all 10
+    tables.
+    - 2025/26: `fact_fixture` 525 = 485 + 40 `no_kickoff_time` (all cup and European, 36
+      of them played); `fact_player_match` 15,340 = 14,589 + 749 `match_has_no_kickoff_time`
+      + 2 `club_not_in_match`; `fact_player_gw` 29,978; `dim_player` 841; `dim_team` 20.
+    - 2026/27: `fact_fixture` 484, with 319 unfinished kept; `fact_player_match` 5,530 =
+      5,517 + 7 `player_not_in_snapshot` + 6 `club_not_in_match`; `fact_player_gw` 6,596;
+      `dim_player` 672 (GW10); `dim_team` 20.
+  - The key sets equal QA's in all five tables, and so do `gw`, `finished`, `stats_complete`
+    and `fact_player_match.team_id`. There are no duplicate keys.
+  - Rechecked a second way: upstream line counts (`wc -l`) and the Parquet row metadata.
+- **3. Tests pass, with at least 80% coverage on new code: PASS for `fpl` and `backtest`;
+  OPEN for `excel/`.**
+  - QA's run: 1,028 passed in 734 s, with no skips. QA left out
+    `tests/test_workbook_excel.py` (8 tests), because those tests start Excel and QA may not.
+    That accounts for the main session's 1,036. CI on `546687e`: 979 passed, 57 skipped.
+  - Coverage (statements, missed, covered): `fpl` 2,035, 20, 99.0%; `backtest` 803, 25,
+    96.9%; `excel` 1,025, 648, 36.8% without the Excel tests; all 3,863, 693, 82.1%, or
+    80.2% without the beyondELO modules.
+    - In `fpl`, every phase 1 module is at 97.6% or more, except `export.py` (88.0%).
+    - In `backtest`, every module is at 91.0% or more.
+    - The `excel/` builders and checks run only in the Excel tests.
+  - **To close:** the main session runs `.venv/Scripts/python -m pytest --cov=excel
+    --cov-report=term-missing tests/test_workbook_*.py` on Windows with Excel. Below 80%,
+    item 3 fails for `excel/`.
+  - **Standards** (51 files in `src/fpl/`, `backtest/` and `excel/*.py`):
+    - no function of 50 lines or more;
+    - no file of 300 lines or more (the largest is `backtest/elo_data.py`, 298);
+    - imports in order (checked through the syntax tree, and ruff is clean);
+    - one `print`, at `publish_decision.py:77`.
+  - **CI doesn't cover:**
+    - the 8 Excel tests (no Excel on Linux);
+    - 49 real-data tests (no upstream checkout, accepted 2026-11-16);
+    - coverage, which it doesn't measure.
+- **4. Two consecutive scheduled runs:** main session (task 9).
+- **5. The Elo component check:** signed off on 2026-11-15 (main, task 4). Not re-run.
+- **Outputs on `main`** (`4ec7fba`, upstream `6df7a43`): 0 problems against the contract.
+  - Columns and order are exact, all snake_case.
+  - Prices are in £m to one decimal (3.9-15.8). Times are ISO 8601 with `Z`.
+  - Nulls appear only in `news`, `chance_next` and the two MAEs.
+  - `fixture_difficulty`: 100 rows, GW11-15. Each match has two mirrored rows, and `p_cs` is
+    within 5.6e-17 of e^(−`lambda_against`).
+  - `elo_ratings`: 960 rows (380 + 100 matches), zero-sum per match, continuous within each
+    season.
+- **Findings, most severe first:**
+  1. **Medium, `excel/` (coverage 36.8% without Excel):** nothing automatic builds the
+     workbook. The Excel tests skip in CI, and QA can't run them. A change to `wb_*.py` or
+     `check_*.py` passes CI green, and the committed workbook can drift from its code
+     unseen. **Fix:** the Excel coverage run above, and a full suite with Excel before any
+     commit that touches `excel/`.
+  2. **Low, `docs/known_gaps.md` ("Players missing from a snapshot"):** the entry is stale.
+     It says the 7 `player_not_in_snapshot` rows are Premier League rows of Mfuni, J.Angulo
+     and Tutierov. At `ac8be9c` they are 6 EFL Cup rows and 1 Champions League row, for 7
+     players added to FPL later (Bentley, Zepa, Wright, Fredrick, Balcombe, Subuloye,
+     Cissé). So the effect is lost cup minutes, not a low xG90. **Fix:** reword the entry.
+  3. **Low, `excel/HAND_TEST.md` A5:** the row count can't show that `tbl_players`
+     refreshed when the count doesn't change (672 at both publishes). With the logged gap
+     that one failed query keeps its old rows, A5 could pass on stale players. **Fix:** add
+     one value that changes each publish, such as a player's `selected_pct` against
+     `players.csv` on GitHub.
+  4. **Low, `src/fpl/export.py:131-134, 167-173`:** two paths have no test: the clean-up
+     after a failed write, and `main()`, which `update.yml` calls on every run. A broken
+     flag would show only as a failed scheduled run. That failure is safe, since nothing
+     publishes, but the publish is lost. **Fix:** one test of `export.main([...])` with a
+     pinned `--run-utc`.
+  5. **Low, `src/fpl/publish_decision.py:77`:** `print` breaks the logging standard. It is
+     the CLI's documented output, so either log it or record the exception.
+  6. **Low, `docs/data_contract.md`:** the `fact_player_match` source notes don't list the
+     `match_has_no_kickoff_time` reason (749 rows in 2025/26). **Fix:** add one line.
+- **Notes, not findings:**
+  - `main`'s `fixture_difficulty.csv` predates the score correction: its goals pool still
+    has upstream's 0-1. `elo_ratings.csv` doesn't change, because the margin is 1 either
+    way. The next publish brings both in line.
+  - In `fpl` and `backtest`, 41 public functions are tested only through their callers.
+    All but two are fully covered.
+  - The tests use seeded RNGs and fake HTTP, and make no network calls.
+  - `update.yml`'s rebase retry has still never run.
+
+### 2026-11-17: main - task 8 QA part: pass with findings
+- **QA's verdict:** pass with findings, on `546687e`.
+  - **Item 1, refresh on open:** the static checks pass. All three connections and query tables refresh on load, from the raw GitHub URL on `main`, and `HAND_TEST.md` covers every 2026-11-15 pass mark. The live test is Josh's hand test.
+  - **Item 2, row counts:** pass, by QA's own script at upstream `ac8be9c`. Rows in = kept + dropped holds for all 10 tables, and every drop has a reason.
+  - **Item 3, tests and coverage:** pass. `fpl` 99.0% and `backtest` 96.9%.
+  - **Item 4, the scheduled runs:** the main session's (task 9).
+  - **Item 5, the Elo check:** signed off on 2026-11-15.
+- **QA's open condition, closed by the main session:**
+  - **Why:** QA wasn't allowed to start Excel, so it measured `excel/` at 36.8% without the 8 Excel tests.
+  - **The main session's run with Excel:** `pytest --cov=excel tests/test_workbook_*.py` gave 49 passed and `excel/` at 91% (`build_workbook.py` 64%, mostly the replace path; the rest 89-100%).
+  - **The 1,028 against 1,036 gap:** exactly the 8 Excel tests QA left out.
+- **Local checkout:** QA's reconciliation, the main session's checks and today's rebuilt tables all describe upstream `ac8be9c` (2026-11-13), the local checkout's HEAD. Upstream itself is at `32ac4d7`, and the workflow checks out the newest commit on every run.
+- **Fixed now by the main session (docs):**
+  - `docs/known_gaps.md` "Players missing from a snapshot" was wrong. Its 7 dropped rows are cup and Champions League rows of other players (ids 623, 626, 660, 661, 667, 670 and 672), checked with QA's script. Mfuni, J.Angulo and Tutierov's missing per-match rows are now their own entry, "Players with no per-match rows".
+  - `docs/data_contract.md` now lists the `match_has_no_kickoff_time` drop reason (749 rows in 2025/26).
+- **Open, for Josh:**
+  - the medium finding: nothing automatic builds the workbook, so an `excel/` change can pass CI unbuilt;
+  - three low findings: `HAND_TEST.md` step A5, the untested `export.main`, and the `print` in `publish_decision.py`;
+  - the model-validator's low finding on the keep test.

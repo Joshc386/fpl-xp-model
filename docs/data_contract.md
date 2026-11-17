@@ -131,7 +131,9 @@ Brief section 4 lists the data rules.
 - **`fact_player_match` other columns:** `pens_scored` and `pens_missed` come
   from `penalties_scored` and `penalties_missed`.
 - **`fact_player_match` rows:** complete matches only; rows from a finished
-  match that isn't complete are dropped and counted. A row whose player is
+  match that isn't complete are dropped and counted. Rows whose match has no
+  `kickoff_time` are dropped and counted under `match_has_no_kickoff_time`
+  (749 in 2025/26 at upstream `ac8be9c`, all cup and European). A row whose player is
   missing from that gameweek's snapshot `players.csv` is dropped and counted
   under `player_not_in_snapshot`.
 - **`fact_player_match` blanks:** blanks mean zero (brief data rule 15). In
