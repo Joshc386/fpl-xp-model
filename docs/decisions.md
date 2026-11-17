@@ -2529,3 +2529,250 @@ the goals model's output is unchanged (checked exactly against HEAD's `team_goal
   - task 9 watches the scheduled runs, from 18:00 UTC today. A scheduled
     run with no new upstream commit skips and doesn't count towards task
     9's two publishing runs.
+
+### 2026-11-16: excel - task 7 part 1: the workbook foundation
+Built on `19ee8e5`. Real outputs from `4f8fa36`, read from the raw GitHub URLs.
+- **Queries** (`excel/queries/*.pq`): `BasePath` (the one parameter, release URL by default),
+  `GetCsv` (a function: `Web.Contents` for an `https://` base, `File.Contents` otherwise),
+  and `players`, `fixture_difficulty`, `meta`. Types are set explicitly with culture `en-US`.
+  The two `_utc` columns load as UTC date-times. Tables: `tbl_players` (672 rows),
+  `tbl_fixtures` (100), `tbl_meta` (1), on hidden `Data_Players`, `Data_Fixtures`,
+  `Data_Meta`. Refresh on open is on, with background refresh off.
+- **`in_horizon` lives on the README sheet** (cell C5, whole number from 1 to
+  `meta_max_horizon`, default 5, input fill). Why: README is the only user sheet in phase 1,
+  and parts 2 and 3 refer to the name, not the cell. Trade-off: a user on another sheet must
+  jump to README to change it, so each sheet should show the current value with a link. It
+  can move to the Dashboard in a later phase by changing one `Names.Add`.
+- **Colour scale** (`wb_style.py`): orange `#F1A340`, near-white `#F7F7F7`, blue `#67A9CF`
+  (ColorBrewer PuOr family, colour-blind safe). Blue is always good for the manager (high xP,
+  easy fixture, likely clean sheet). Inputs: fill `#FFF2CC`, blue font, unlocked.
+- **Protection:** no password on user sheets. The `Data_` sheets are hidden and not protected,
+  because a protected sheet blocks the table resizing a refresh needs.
+- **Build:** `excel/build_workbook.py` starts its own Excel with `DispatchEx`, builds to
+  `excel/build/FPL_Model.new.xlsx`, refreshes and checks it, then replaces `FPL_Model.xlsx`.
+  A local `--base-path` build never replaces it. Excel only exits when every COM reference is
+  dropped, so `ExcelSession` releases ours, then waits and stops only its own pid if needed.
+- **Checks:** every cell of the three tables is compared with its CSV (13,440 + 1,000 + 10
+  values, tolerance 0.01, times to 1 second); no error values on any sheet.
+- **For parts 2 and 3:** `players.csv` `selected_pct` and `chance_next` are in percentage
+  points (47.6, 75), not fractions, so the `0%` format would show 4760%. Use
+  `wb_style.PCT_POINTS_FMT` (`0.0"%"`) unless the contract changes them to fractions.
+- **Not tested:** the first-open prompts a new user sees. This machine already had the
+  Anonymous credential, so no prompt appeared. The README wording for them is from Microsoft's
+  documented behaviour and is for the task 8 hand test to confirm, as is the offline line.
+
+### 2026-11-17: main - task 7 part 1 accepted; two display choices
+- **Part 1 (the workbook foundation) accepted** for review at the end of
+  task 7. It builds from the raw GitHub URLs in about 30 s, and all three
+  queries refresh. It reconciles every value with the CSVs (14,450, none
+  off) and shows no error values. 876 tests pass, and lint is clean.
+- **`in_horizon` stays on the README sheet (`README!C5`)** in phase 1.
+  README is the only user sheet so far, and every formula refers to the
+  name, not the cell, so it can move to the Dashboard in phase 5 by
+  changing one name. Each later sheet shows the current value with a link
+  back.
+- **Percentage-point columns show one decimal place with a literal `%`**
+  (`0.0"%"`). `selected_pct` and `chance_next` are published as points
+  (47.6, 75), so the brief's `0%` would show 4760%. A whole-number format
+  would also show 0.3% ownership as 0%. Brief section 10's formats line is
+  updated. No contract change: the CSVs stay in points.
+- **The 18:00 UTC scheduled run of 2026-11-16 started 7 h 43 min late**
+  (created 01:43 UTC on 2026-11-17). It was green and published upstream
+  `6df7a43` as `4ec7fba`, the first scheduled publish. Watching whether
+  lateness recurs before moving the cron off the hour.
+
+### 2026-11-17: excel - task 7 part 2: the Player Database sheet
+Built on part 1, uncommitted. Built and refreshed from the raw GitHub URLs (upstream `6df7a43`).
+- **Interaction: dropdown and text inputs feeding one filter, not slicers.** Inputs (all `in_*`
+  named, input fill, unlocked): `in_search` (name contains, case-insensitive, no wildcards),
+  `in_team`, `in_position`, `in_status` (lists from `tbl_players` through spill ranges on the
+  hidden `Data_Lists` sheet) and `in_max_price` (a price cap in £m). An empty cell means no
+  filter, so the sheet starts with all 672 players. Why not slicers: a slicer acts on an Excel
+  Table, and the only table holding these rows is `tbl_players` on a hidden sheet that a refresh
+  resizes, so it can be neither protected nor shown; a FILTER spill can't carry a slicer. A
+  visible copy of the table would need a hand-built slicer, would have no name search, and
+  would break the protection rule. Trade-offs: one value per control (slicers allow several),
+  and a dropdown shows the status letter. No manual steps, no `MANUAL_STEPS.md`.
+- **How it works:** named formulas `pd_keep` (the filter), `pd_count` and `pd_rows` (matching
+  row positions, highest total points first, ties in CSV order). Each of the 19 columns is one
+  `INDEX(tbl_players[col], pd_rows)` spill, so column order is mine and no column is found by
+  position. A blank `news` shows empty, and a blank `chance_next` shows empty rather than 0
+  (FILTER and INDEX turn a blank into 0, so each is tested explicitly). `pen_taker` shows Yes
+  or empty. No match shows empty cells and "Showing 0 of 672 players". No IFERROR anywhere.
+  The sort by total points is my choice; the brief names no order.
+- **Left out until a later phase:** xGI/90, xP next GW, horizon xP and value per £m, because no
+  CSV holds them. Proposal: add `xgi90` to `players.csv` (see the report) rather than add
+  `xg90 + xa90` in Excel.
+- **Formats:** price `£0.0"m"`; `selected_pct` and `chance_next` `0.0"%"`; `ppg` 0.0; per-90
+  0.00; price changes signed `+£0.1m`; net transfers signed with thousands separators. Status
+  fills from the shared palette: a blue, d pale orange, i and s orange, u grey. The letter
+  stays in the cell. Header row and name column frozen, sheet protected with no password.
+- **Checks in the build** (`check_players.py`): eight scenarios set the inputs, recalculate,
+  and compare the spill with an independent pandas filter of the CSV (row count and every
+  displayed value, 32,376 in all); error values are scanned after each; inputs are cleared
+  before saving. The horizon is not shown on this sheet because phase 1 has no horizon-based
+  column here; Fixture Analysis will show it with a link.
+- **Bug fixed from part 1:** pywin32 ignores the named `After=` and `Before=` arguments of
+  `Worksheets.Add`, so part 1's README was the last sheet, after the hidden ones. They are now
+  passed positionally and README is first. A test checks the order.
+
+### 2026-11-17: main - task 7 part 2: two calls on the Player Database
+- **Part 2 accepted** for review at the end of task 7.
+  - The sheet shows `players.csv`'s 19 columns.
+  - Eight filtered views match counts from the CSV: no filter 672, ARS 29,
+    MID 299, injured 59, at most £6.0m 608, ARS + MID + £6.0m 7, a name
+    search 30, and no match 0.
+  - All 32,376 displayed values compared match the CSV.
+  - There are no error values, and lint is clean.
+- **Departure from brief section 10, put to Josh:** the brief asks for
+  slicers for team, position and status. The sheet uses dropdown `in_*`
+  cells (`in_team`, `in_position`, `in_status`, `in_max_price`,
+  `in_search`) feeding one FILTER.
+  - **Why:** a slicer needs an Excel Table. The only one holding these rows
+    is the hidden `tbl_players`, which a refresh resizes, and a FILTER spill
+    can't carry a slicer.
+  - **Trade-off:** one value per control, where a slicer allows several.
+  - The brief is updated only if Josh accepts.
+- **Contract proposal, deferred to phase 3:** `xgi90` (xG/90 + xA/90) in
+  `players.csv`. It belongs with phase 3's other Player Database columns
+  (xP next GW, horizon xP, value per £m). Adding it now would take a
+  data-engineer change, a publish, then a second workbook pass for one
+  column.
+- **Process note:** the excel-builder ran `ruff format` over `tests/`, then
+  reverted it with `git checkout -- tests`. The main session confirmed that
+  only formatting was reverted and no uncommitted work was lost; only
+  `tests/test_workbook.py` is new. The full suite is re-run before the
+  commit.
+
+### 2026-11-17: excel - task 7 part 3: the Fixture Analysis sheet and the hand-test checklist
+Built on part 2, uncommitted. Built and refreshed from the raw GitHub URLs.
+- **Club list:** `SORT(UNIQUE(tbl_players[team]))`. `tbl_fixtures` can't be the source, because a
+  club with no fixture in the horizon would lose its row. `players.csv` `team` is the same
+  short name as in `fixture_difficulty.csv` (contract note), and all 20 clubs have players.
+- **Grid:** 20 clubs by up to 5 gameweeks (`GRID_GWS`, the model's `max_horizon`; a message
+  shows on the sheet if `max_horizon` ever exceeds the grid, and the workbook must be rebuilt).
+  Gameweeks run from `tbl_meta[next_gw]` for `in_horizon` gameweeks; columns past the horizon
+  are empty. Each cell shows `OPP (H)`; a blank gameweek shows a grey dash; a double shows
+  `OPP (H) + OPP (A) = x.xx`, the sum of the two rows, as the contract says. Columns: Club,
+  Total, then the gameweeks (Total sits beside Club so a short horizon leaves no gap).
+- **Lookups live on a hidden, protected `Data_Grid` sheet** (formulas only, no model logic):
+  SUMIFS and COUNTIFS on `tbl_fixtures` by table and column name, TEXTJOIN over FILTER for the
+  text. A blank `in_fixture_view` shows Attack; only the exact value `Defence` switches.
+- **View switch:** `in_fixture_view`, a dropdown of Attack (`lambda_for`) or Defence (`p_cs`),
+  default Attack.
+- **Sort:** by the horizon total, **highest first in both views**: more goals expected for the
+  club (Attack) or a higher clean-sheet chance (Defence) is better for the manager. Ties stay
+  A-Z. A club with a blank gameweek has a smaller total, as in FPL's own fixture totals. In a
+  double the sum of two `p_cs` can exceed what one match gives, which is the contract's rule.
+- **Colour follows the view:** the shared scale, blue good and orange bad, on both views. The
+  Total column uses Excel's colour scale. A colour-scale rule can't colour a text cell by a
+  number elsewhere, so the grid cells take a 10-step version of the same three colours
+  (`wb_style.scale_colour`), from the cell's number on `Data_Grid` between the grid's lowest and
+  highest value in the current view and horizon. The middle step is the scale's near-white.
+  Doubles carry a summed value, so in a view with doubles they sit at the blue end.
+- **Names:** `in_horizon` is now defined before any sheet uses it (`wb_readme.define_names`),
+  at the fixed cell `README!C5`.
+- **Sample data:** `excel/sample_outputs/` (a copy of `players.csv` and `meta.csv`, and
+  `fixture_difficulty.csv` with the Chelsea v Crystal Palace match moved from GW13 to GW12).
+  So CHE and CRY each have a double in GW12 and a blank in GW13 (a match always involves two
+  clubs, so blanks and doubles come in pairs here). It follows the contract: one row per team
+  and match, two rows per match. Build from it with `--base-path`; that never replaces
+  `FPL_Model.xlsx`.
+- **Checks in the build** (`check_fixtures.py`): both views at horizons 1, 3 and 5 against an
+  independent pandas build of the grid (club order, every cell's text, every total, every number
+  on `Data_Grid`), the colour Excel shows on the highest, lowest and a dash cell, and no error
+  values.
+- **Hand test:** `excel/HAND_TEST.md`, sections A to H, from the 2026-11-15 pass marks.
+- **Part 2 still stands:** the dropdown design is unchanged; no `xgi90`.
+
+### 2026-11-17: main - Player Database filters: dropdowns accepted (Josh)
+- **Josh accepted** dropdown filters in place of the brief's slicers:
+  `in_team`, `in_position`, `in_status`, `in_max_price` and `in_search`
+  feed one FILTER, and an empty cell means no filter. Brief section 10's
+  Player Database interaction line is updated.
+  - **Why:** a slicer needs a visible Excel Table, and the only one holding
+    these rows is the hidden `tbl_players`, which a refresh resizes. A
+    FILTER spill can't carry a slicer.
+  - **Trade-off accepted:** each filter takes one value, where a slicer
+    allows several.
+- **Scheduled runs:** the 08:00 UTC run of 2026-11-17 hadn't started by
+  10:40 UTC. Together with the 18:00 run of 2026-11-16 starting 7 h 43 min
+  late, this is put to Josh as a reason to move the cron off the hour.
+
+### 2026-11-17: excel - task 7 review fixes (Code Review, approved with findings)
+Dropdown design unchanged (Josh accepted it). Items by the review's numbers.
+- **1. Independent checks.** The build check (`check_players.py`, `check_fixtures.py`) and the
+  tests now hold hand-written (header, source column, number format) rows, the dropdown lists
+  and the gameweek headers, instead of reading back the builder's own constants. The build
+  checks: each header and number format on the saved sheet; `lst_team`, `lst_position` and
+  `lst_status` against the CSV's unique values, and each input's validation formula; Fixture
+  Analysis headers against `GW {next_gw + k}` at every horizon. Refresh on open (and
+  foreground refresh) moved into `check_workbook.check`, so every build enforces it. Mutants M1,
+  M9, M19, M22 and M23 are each caught by the build check, and by a pure test (M19 through
+  `wb_data.REFRESH_ON_OPEN`); results in the report.
+- **2. Colour.** A cell is coloured by its **per-match average** (a double's text still shows the
+  sum). Why this over setting the range from singles and capping doubles: no special case, and
+  the same colour then means the same difficulty of one match in every cell; a cap would hide a
+  genuinely hard or easy double. Cost: a double is not shown as better because it has two
+  matches (its Total still counts both). The Total column's colour scale now has its middle at
+  the arithmetic middle of its lowest and highest value (a formula midpoint), not the 50th
+  percentile, which matches the grid's steps. `wb_style.apply_scale` does this for any sheet.
+- **3. Process handle.** `ExcelSession` opens one process handle (terminate and synchronise
+  rights) right after `DispatchEx`, waits on it, terminates through it if Excel hasn't exited
+  after 15 s, then closes it. Holding it stops Windows reusing the pid, so a fallback can't hit
+  Josh's own Excel.
+- **4. `HAND_TEST.md`:** blank `chance_next` versus 0 (0 correctly shows `0.0%`); "Showing N of
+  N"; section B starts with how to clear the Anonymous permission.
+- **5. Personal information.** Before saving, `RemovePersonalInformation` is on and the
+  author, last author, company and manager properties are cleared. After saving, `personal_info_hits`
+  searches every part of the .xlsx, and the query package inside `customXml` (base64 then zip),
+  for "Josh", "Cohen", "joshc", "C:\Users" and email addresses, and fails the build on a hit. The
+  public repository URLs are excluded on purpose, because they carry the owner's login. A
+  development build also excludes its own local base path. The pre-fix `FPL_Model.xlsx` had
+  `Josh Cohen` in `docProps/core.xml`, and `Josh`, `joshc` and `C:\Users` in `xl/workbook.xml`
+  (the saved folder path); the rebuilt file has none. A test scans the committed workbook.
+- **6. `--base-path`:** a relative folder becomes absolute; the release URL with or without its
+  trailing slash is the release URL; a locked `FPL_Model.xlsx` gives a plain message, before the
+  build and again at the replace.
+- **7.** The Excel tests compare with the CSV's row counts, not 672 and 100.
+- **8. Guard messages** on Fixture Analysis (and the README note): a cleared horizon, a horizon
+  outside 1 to `max_horizon` or a decimal (`horizon_problem`), `max_horizon` above the grid's 5
+  gameweeks, and more than 20 clubs in `tbl_players[team]`. The build check exercises the first
+  three.
+- **9.** `FIXED(num,2,TRUE)` replaces `TEXT(num,"0.00")`.
+- **10. Standards:** `tests/test_workbook.py` split into `test_workbook_queries.py`,
+  `test_workbook_sheets.py`, `test_workbook_excel.py` and `workbook_helpers.py`, each under 300
+  lines; docstrings and the `expected_grid` return type added; `define_names` runs once;
+  `LAST_COL` derived; unused arguments removed.
+- **11.** README says "twice a day, around 08:00 and 18:00 UTC" and that GitHub can start a
+  scheduled run late, sometimes by hours.
+- **12.** `pyproject.toml` `[tool.ruff]` `src` now includes `excel`; nothing else there changed.
+
+### 2026-11-17: main - task 7 reviewed and committed
+- **Committed as `1a43a3c`:** the workbook, its build code, queries, sample
+  outputs, tests and `excel/HAND_TEST.md`.
+- **Code Review:** approve with non-blocking findings. It dumped all 424
+  formulas: no IFERROR, INDIRECT or OFFSET, every data reference by table
+  and column, and no model logic beyond the contract's double-gameweek and
+  horizon sums. 19 of its 23 mutants were caught. All findings were fixed
+  before the commit:
+  - the four survivors (a header label, the gameweek headers, the
+    ownership format, a dropdown list) are now checked against independent,
+    hand-written expectations;
+  - refresh on open is enforced by every build;
+  - a double gameweek is coloured by its per-match average, so it no longer
+    washes out the grid;
+  - the Excel process is stopped only through a handle held since launch;
+  - three false-fail steps in `HAND_TEST.md` are fixed;
+  - personal information is removed. The creator "Josh Cohen" and a local
+    build path were in the file. Every build now scans for them and fails
+    on a hit, and the main session's own scan of the committed file found
+    only the public repo URL.
+- **Main session's check:** full suite 902 passed, 99% coverage of `fpl`;
+  lint clean. `excel/` isn't in the coverage source, and its Excel tests
+  skip on Linux.
+- **Known gaps logged:** the name search ignores accents, and a failed
+  refresh can leave tables from different runs. Brief section 10's tech
+  stack line no longer lists slicers.
+- **Task 8's hand test** runs after the next publish, so the committed
+  workbook (data from `4ec7fba`) pulls newer data on open.

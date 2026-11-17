@@ -187,6 +187,26 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     the validator revisits the rule, for example comparing outputs on a
     fixed set of fixtures.
 
+## Workbook
+
+- **Name search ignores accents** (2026-11-17, task 7 review).
+  - **Gap:** the Player Database search is a case-insensitive "contains"
+    match, but Excel has no accent folding, so "odegaard" doesn't find
+    Ødegaard. 48 of 672 names carry an accent.
+  - **Effect:** a user typing a plain spelling misses those players.
+  - **Idea:** publish an accent-free `search_name` column in `players.csv`
+    (a contract change), and search that.
+- **A failed refresh can leave tables from different runs** (2026-11-17,
+  task 7 review).
+  - **Gap:** each Power Query refreshes on its own. If one CSV loses a
+    column, that table's refresh fails and keeps its old rows while the
+    others refresh, so README's "Last updated" can sit beside stale players.
+  - **Effect:** none while the contract holds. The build gate and
+    `update.yml`'s output checks catch a changed schema before it's
+    published.
+  - **Idea:** publish the run's `run_utc` in every CSV (a contract change),
+    and have README flag tables whose stamps differ.
+
 ## Engineering
 
 - **Writes aren't atomic across seasons** (2026-11-10).

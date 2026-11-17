@@ -77,7 +77,7 @@ Either validation check can stop a run. When one does, nothing is published and 
 | Optimisation | PuLP with the CBC solver |
 | Tests | pytest |
 | Scheduling | GitHub Actions cron |
-| Workbook | Power Query, Excel Tables, XLOOKUP, FILTER, SORTBY, LET, slicers |
+| Workbook | Power Query, Excel Tables, XLOOKUP, FILTER, SORTBY, LET, data-validation dropdowns |
 
 ## Data source
 
@@ -442,7 +442,7 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 - **Naming:** tables `tbl_*`; named input cells `in_*` (`in_budget`, `in_horizon`, `in_bank`, `in_ft`, `in_hit_cost`).
 - **One horizon:** `in_horizon` (1 to `max_horizon`, default 5) is a single workbook-wide picker. Every sheet's xP totals, value, fixture totals, optimal squad and transfer checks use it at once.
 - **Inputs vs outputs:** input cells share one fill colour; everything else is protected (no password) against accidental edits.
-- **Formats:** price `£0.0"m"`, xP `0.0`, percentages `0%`; header rows frozen.
+- **Formats:** price `£0.0"m"`, xP `0.0`, percentages `0%`, except columns published in percentage points (`selected_pct`, `chance_next`), which show one decimal with a literal % (`0.0"%"`); header rows frozen.
 - **Colour:** a colour-blind-safe scale for xP and difficulty, and the same scale on every sheet.
 - **README sheet:** how to refresh, what each sheet does, the data credit with link, and the last-updated time.
 
@@ -456,7 +456,7 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 
 - One row per player: `tbl_players` joined to `tbl_summary`.
 - **Columns:** name, team, position, price, status, news, chance of playing, ownership, minutes, starts, total points, PPG, xG/90, xA/90, xGI/90, defensive contributions/90, penalty taker, net transfers this GW, price change this GW and since the start, xP next GW, horizon xP, value per £m. Metric definitions are in `CONTEXT.md`.
-- **Interaction:** slicers for team, position and status; a price filter; a name search box (FILTER).
+- **Interaction:** dropdown filters for team, position and status, a maximum-price filter and a name search box, all `in_*` input cells feeding one FILTER; an empty cell means no filter (decided 2026-11-17: slicers need a visible Excel Table and can't drive a FILTER spill).
 - **Formatting:** status colours; data bars on xP.
 
 ### Fixture Analysis
