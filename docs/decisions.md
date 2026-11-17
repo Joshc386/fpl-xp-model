@@ -3000,6 +3000,7 @@ sources. Josh's calls follow.
   The four keep tests failed first, and so did the real test without the workaround
   (`CleanError ... upstream now has 3-8`). `tests/test_elo_check*.py`: 203 passed. Ruff clean.
   `python -m backtest.elo_check` was not run (holdout).
+- **Fix (Code Review's second-pass finding):** the keep test's `fixtures.csv` check now compares scores. Its copy of the synthetic season gives each `fixtures.csv` its `matches.csv` scores, and the helper fails if a file has no scores to compare. A mutant whose `fixtures.csv` ignores `keep` now fails 3 of the 6 keep tests. `tests/test_elo_check*.py`: 203 passed. Ruff clean.
 
 ### 2026-11-17: main - score correction and harness fix reviewed and committed; beyondELO table built
 - **Committed as `de950d6`:** data rule 16 in `clean.py` (`src/fpl/corrections.py`) and the Elo check harness's keep set (`backtest/perturb.py`, `backtest/elo_check.py`), with their tests.
@@ -3148,3 +3149,25 @@ Josh took all three recommendations.
    They touch only tests and the checklist, so the main session reviews them itself instead of a Code Review pass.
 2. **The `print` at `src/fpl/publish_decision.py:77` is an accepted exception** to the logging rule. It is the command's documented output (`publish=true` or `publish=false`), which `update.yml` reads.
 3. **New `CLAUDE.md` convention:** run the full suite on Windows with Excel before committing anything under `excel/`, because CI skips the 8 Excel tests. This answers QA's medium finding.
+
+### 2026-11-17: excel - hand test step A5 checks a changing value
+- **Gap:** step A5 checked only the "Showing N of N players" count, which was 672 at both publishes, so it passed on stale player data (known gap: one failed query can keep old rows).
+- **Chosen value:** Haaland's (`player_id` 411) `net_transfers_gw`, read on GitHub's CSV view and in Player Database ("Net transfers this GW"). It was -27,513 in `outputs/players.csv` at `4ec7fba`.
+- **Why not `selected_pct`:** it is rounded to 0.1 and Haaland's was 78.8 at both publishes (`4f8fa36` and `4ec7fba`), so it can't tell old from new. `net_transfers_gw` moved from -27,307 to -27,513 between them.
+- **Edits:** step 3 notes the value; step 4 (Protected View) checks it differs from the saved copy, with a fallback (wait, or use another player such as Salah); step 5 checks it equals the step 3 value. Markdown only.
+
+### 2026-11-17: data - export.main tests
+- **Added** `tests/test_export_main.py` (4 tests, tests only; no source file changed):
+  - `main` with `--out-dir` and a pinned `--run-utc` writes the four outputs, and `meta.csv`'s `run_utc` is `2026-09-03T20:00:00Z`. `run_export` runs for real; only its reads (config, deadlines, upstream commit, `load_history`) are stubbed with the synthetic season, so it needs no `data/` and no Excel.
+  - Both flags reach `run_export` (a pinned time with an offset, and no `--run-utc` giving `None`).
+  - A missing `--out-dir` exits with code 2 and names the flag.
+  - A write that fails part-way (the third `to_csv`) leaves no `.tmp` files and no partial outputs, and an existing `players.csv` is untouched.
+- **Evidence the tests catch faults** (each fault applied temporarily, then `export.py` restored byte for byte): `run_export(args.out_dir, None)` fails tests 1 and 2; `out_dir / "sub"` fails tests 1 and 2; `required=False` fails the argparse test; removing the `unlink` calls in the clean-up fails the clean-up test; `--run-utc` parsed as a string fails the flag-wiring test.
+- **Effect:** none on tables or outputs. `export.py` coverage 88% to 99% (only the `if __name__ == "__main__"` line is left).
+
+### 2026-11-17: main - QA's three small fixes reviewed and committed
+- **Reviewed by the main session**, as Josh decided, not by a Code Review pass:
+  - **`HAND_TEST.md` A3-A5:** the steps note and check Haaland's (`player_id` 411) `net_transfers_gw`. It was -27,307 at `4f8fa36` and -27,513 at `4ec7fba`, while his `selected_pct` was 78.8 at both.
+  - **`tests/test_export_main.py`:** 4 tests, each seen catching a deliberate fault. `export.py` goes from 88% to 99%.
+  - **The keep test:** it now compares scores in `fixtures.csv`, and a mutant that ignores `keep` there fails 3 of the 6 keep tests.
+- **Full suite with Excel:** 1040 passed, 99% coverage of `fpl`. Lint is clean.

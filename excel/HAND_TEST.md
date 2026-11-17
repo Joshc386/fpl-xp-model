@@ -37,14 +37,24 @@ Refresh All**, shows the new `run_utc` and the new row count.
    - [ ] Publish commit time: ____________ ; now is more than 5 minutes later.
 3. On GitHub, note `run_utc` from `meta.csv` and the line count of `players.csv` (minus 1).
    - `run_utc` on `main`: ____________ ; players rows on `main`: ____________
+   - Also note Haaland's `net_transfers_gw` from `players.csv` on `main`. In GitHub's CSV view,
+     click the search box (or press Ctrl+F) and type `Haaland`; his row has `player_id` 411.
+     `net_transfers_gw` is the third column from the end, just before `price_change_gw`.
+     Haaland's `net_transfers_gw` on `main`: ____________
 4. Open `stale_copy.xlsx`. It opens in **Protected View** (a yellow bar). Before clicking
    anything, look at the README sheet: it shows the data the file was saved with.
    - [ ] README "Last updated" is older than the `run_utc` from step 3. Value: ____________
+   - [ ] Player Database: Haaland's "Net transfers this GW" **differs** from the step 3 value.
+     (Editing is off, so find him with Ctrl+F, `Haaland`.) If it is the same, this test can't show a refresh: wait
+     for a later publish, or repeat steps 3 to 5 with another player (for example Salah).
 5. Click **Enable Editing**, then **Enable Content** if a Security Warning bar appears, and
    answer the web prompt (section B). Wait for the status bar to finish. Do not press Refresh All.
    - [ ] README "Last updated" now equals `run_utc` from step 3 (to the minute).
    - [ ] Player Database shows "Showing N of N players", where both N equal the players row
      count from step 3. (The second N is the `tbl_players` row count.)
+   - [ ] Player Database shows Haaland's "Net transfers this GW" equal to the step 3 value
+     (the sheet adds a `+` or thousands comma, for example `-27,513`). The row count can stay the
+     same between publishes, but this value changes, so it proves `tbl_players` really refreshed.
 
 ## B. First-open prompts (a new user sees these)
 

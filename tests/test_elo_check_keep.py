@@ -24,12 +24,25 @@ FILES = ["fixtures", "matches"]
 BASE = Corruption(score=(0, 9), elo=(1200.0, 2200.0), xg=(0.0, 4.0), prem_tag="prem",
                   offset_minutes=90)
 RESULTS = ["home_score", "away_score", "home_team_elo", "away_team_elo", "finished"]
+SCORES = ["home_score", "away_score"]
+
+
+def with_fixture_scores(data_dir: Path) -> None:
+    """Give each `fixtures.csv` its `matches.csv` scores, as real upstream's carries them (the
+    synthetic one has only `match_id` and `gameweek`), so the keep check compares scores there."""
+    for path in (data_dir / SEASON / "By Gameweek").glob("GW*/fixtures.csv"):
+        fx = pd.read_csv(path, dtype=str, keep_default_na=False)
+        m = pd.read_csv(path.with_name("matches.csv"), dtype=str, keep_default_na=False)
+        fx.merge(m[["match_id", *SCORES]], on="match_id", how="left").to_csv(path, index=False)
 
 
 @pytest.fixture
 def copies(tmp_path: Path, synth_upstream: tuple[Path, dict]) -> tuple[Path, Path]:
-    """(source data dir, scratch data dir)."""
-    src = synth_upstream[0] / "data"
+    """(source data dir, scratch data dir): a copy of the synthetic season whose `fixtures.csv`
+    files carry scores, and a copy of that to corrupt. The shared synthetic season is untouched."""
+    src = tmp_path / "src" / "data"
+    copy_upstream(synth_upstream[0] / "data", src, [SEASON], FILES)
+    with_fixture_scores(src)
     dst = tmp_path / "copy" / "data"
     copy_upstream(src, dst, [SEASON], FILES)
     return src, dst
@@ -55,6 +68,7 @@ def assert_kept_and_others_corrupted(src: Path, dst: Path, gw: int, mid: str,
     for name in FILES:
         before, after = read(src, gw, name), read(dst, gw, name)
         cols = [c for c in RESULTS if c in before.columns]
+        assert set(SCORES) <= set(cols), f"{name}.csv has no scores to compare: {cols}"
         assert after.loc[mid, cols].equals(before.loc[mid, cols])
     before, after = read(src, gw), read(dst, gw)
     sel = (before.tournament == "prem") if others is None else others
