@@ -2749,7 +2749,7 @@ Dropdown design unchanged (Josh accepted it). Items by the review's numbers.
 - **12.** `pyproject.toml` `[tool.ruff]` `src` now includes `excel`; nothing else there changed.
 
 ### 2026-11-17: main - task 7 reviewed and committed
-- **Committed as `1a43a3c`:** the workbook, its build code, queries, sample
+- **Committed as `5831836`:** the workbook, its build code, queries, sample
   outputs, tests and `excel/HAND_TEST.md`.
 - **Code Review:** approve with non-blocking findings. It dumped all 424
   formulas: no IFERROR, INDIRECT or OFFSET, every data reference by table
