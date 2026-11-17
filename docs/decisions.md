@@ -3171,3 +3171,30 @@ Josh took all three recommendations.
   - **`tests/test_export_main.py`:** 4 tests, each seen catching a deliberate fault. `export.py` goes from 88% to 99%.
   - **The keep test:** it now compares scores in `fixtures.csv`, and a mutant that ignores `keep` there fails 3 of the 6 keep tests.
 - **Full suite with Excel:** 1040 passed, 99% coverage of `fpl`. Lint is clean.
+
+### 2026-11-17: main - outside-source Elo check method settled (Josh, /grill-with-docs)
+Josh took the main session's recommendation on all eight questions. The terms are in `CONTEXT.md`: **beyondELO rating**, **Outside-source Elo check**, **Predictive log-loss**, **Ranking agreement**, **Poor Elo rating**, **Promoted club** and **Holdout look**.
+1. **Predictive log-loss decides the verdict.** Ranking agreement is a diagnostic with no pass mark. beyondELO isn't the truth: when the rankings disagree, only results can say which is wrong.
+2. **"Predictive" means the match result** (home, draw or away).
+   - Each source gets its own ordered logistic fit of the result on the before-match gap (home minus away). Three parameters absorb scale, home advantage and the draw rate.
+   - The no-skill baseline is the same fit with no gap.
+   - **Rejected:** Poisson goals through our Elo goals model. Its priors were tuned on our own gaps, which would favour our ratings.
+3. **Windows:** each source is fitted once on 2025/26 GW1-26 (260 matches). Both are scored on 2025/26 GW27-38 (119) and 2026/27 from GW3 (80 to date), reported per window and pooled. The verdict uses the pooled figure.
+   - **Rejected:** a walk-forward refit, which means about 20 refits for little gain with 3 parameters.
+4. **A poor Elo rating** means either of these, on the pooled windows:
+   - the mean per-match difference (ours minus beyondELO's) is above zero by more than two standard errors (sd ÷ √n), the same floor the Elo component check adopted on 2026-11-14;
+   - our log-loss isn't below the no-skill baseline's.
+   - **Trade-off:** with 199 matches, only a clear deficit fails. That suits a check for broken ratings.
+5. **Ranking agreement:** per-gameweek Spearman over the team-kickoffs, paired as in the Elo component check. It's reported per gameweek, with each window's median and minimum and its five biggest rank disagreements at the last gameweek.
+6. **Promoted clubs:** the verdict uses every scored match, and figures without matches involving a promoted club are reported alongside. Why: each system's promoted-club handling is part of the rating. Ours starts from ClubElo, which rates the Championship; beyondELO's starts from the club's last Premier League spell.
+7. **Holdout:**
+   - the 2026/27 window is the third look, and runs once, now, on GW3-10, logged before the run;
+   - it runs again only after a poor verdict and a rebuild tuned on 2025/26 only, as the fourth look with Josh's approval;
+   - the 2026/27 figures go to Josh and the main session only, and builders get the verdict and the 2025/26 figures.
+8. **Build and report:**
+   - **Builder:** the model-validator builds `backtest/beyondelo_check.py` (`python -m backtest.beyondelo_check`) test first, with a known-output regression test.
+   - **Inputs:** `outputs/elo_ratings.csv`, `load_beyondelo` and results through `load_as_of`.
+   - **Report:** `backtest/reports/{date}-beyondelo.md`, committed, with the credit "beyondELO (https://beyondelo.com)" (CC BY 4.0).
+   - **Process:** Code Review reviews the script, Josh approves the run, and the analysis-verifier recomputes the headline numbers before they reach him.
+   - Builders' task messages tell them not to open `*-beyondelo.md` reports.
+- **Updated:** `CONTEXT.md` (seven terms and one flagged ambiguity, "Elo check"), and brief sections 2 (the gate) and 7 (the outside-source paragraph).

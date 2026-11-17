@@ -94,6 +94,69 @@ seeds and, where it is a before-match rating, as the target the Elo rating is
 tuned and checked against.
 _Avoid_: Elo (unqualified), ClubElo rating
 
+**beyondELO rating**:
+beyondELO's club rating before and after each Premier League match, pulled
+through its API (`ext_beyondelo`). It is an outside check, never a seed or a
+model input.
+_Avoid_: outside Elo, BE rating, Elo (unqualified)
+
+**Outside-source Elo check**:
+Josh's comparison of the **Elo rating** with the **beyondELO rating** on the
+matches where **Upstream Elo** can't serve as a check. Predictive log-loss
+decides it; ranking agreement is reported as a diagnostic with no pass mark.
+The verdict uses every scored match. Figures without matches involving a
+**promoted club** are reported alongside, without a verdict of their own.
+_Avoid_: beyondELO comparison, Elo comparison
+
+**Promoted club**:
+A club in a season's Premier League that wasn't in the previous season's.
+beyondELO doesn't rate the Championship, so its **beyondELO rating** starts
+from the club's last Premier League spell.
+_Avoid_: new club, newly promoted team
+
+**Predictive log-loss**:
+How well a rating's before-match gap predicts the result (home win, draw or
+away win). Each rating source gets its own ordered logistic fit of result on
+the gap (home minus away), so scale and average home advantage drop out.
+Numerator: the sum over scored matches of −ln(probability given to the
+actual result). Denominator: the number of scored matches. Unit: nats per
+match; lower is better. Time window: fitted once per source on 2025/26
+GW1-26; scored on 2025/26 GW27-38 and 2026/27 from GW3, reported per window
+and pooled. The verdict uses the pooled figure.
+The no-skill baseline is the same fit with no gap, which predicts the
+league's home, draw and away rates.
+_Avoid_: log-loss (unqualified), accuracy
+
+**Ranking agreement**:
+Spearman's rank correlation between the **Elo rating** and the **beyondELO
+rating** before kickoff, over one gameweek's team-kickoffs (usually 20; a
+double gameweek counts each kickoff). No unit, from −1 to 1. Time window:
+each gameweek of the scored windows, reported with each window's median and
+minimum and its five biggest rank disagreements at the last gameweek. A
+diagnostic of the **outside-source Elo check** with no pass mark.
+_Avoid_: correlation (unqualified), rating agreement
+
+**Holdout look**:
+Any scoring of the model or a component on 2026/27 to date (the holdout).
+Each one is approved by Josh and logged in `docs/decisions.md` before it
+runs. Its 2026/27 figures go to Josh and the main session only, never to an
+agent that builds or tunes the thing scored. The **outside-source Elo
+check**'s 2026/27 window is the third look: it runs once, and runs again
+only after a **poor Elo rating** and a rebuild.
+_Avoid_: test-set peek, validation run
+
+**Poor Elo rating**:
+The **outside-source Elo check**'s fail verdict, on the pooled scored
+windows. It is reached in either of two ways:
+- the mean of the per-match differences (our **predictive log-loss** minus
+  the **beyondELO rating**'s) is above zero by more than two standard errors
+  (the differences' standard deviation ÷ √matches);
+- our **predictive log-loss** isn't below the no-skill baseline's.
+
+It means a separate Elo agent rebuilds the Elo component before phase 2's
+Dixon-Coles work starts.
+_Avoid_: bad Elo, Elo fail
+
 **Fixture difficulty**:
 A team's expected goals for (`lambda_for`), expected goals against
 (`lambda_against`) and clean-sheet probability (`p_cs`) in one fixture.
@@ -197,6 +260,11 @@ _Avoid_: freshness, staleness
 - "Current gameweek" (FPL's `is_current`, `meta.current_gw`) means the
   **as-of gameweek**, not the gameweek being predicted.
 - "EP" means FPL's **ep_next** only; the model's figure is always **xP**.
+- "Elo check" has two meanings. The model-validator's **Elo component
+  check** (task 4, brief section 7) tests the Elo rating against ClubElo and
+  results, with pass marks. The **outside-source Elo check** compares it with
+  the **beyondELO rating**, and its verdict gates phase 2's Dixon-Coles work.
+  Name the one you mean.
 - Bare "Elo" is ambiguous. Say **Elo rating** for ours and **Upstream Elo**
   for ClubElo's. FPL's own team "strength" ratings are a third, unrelated
   measure.
