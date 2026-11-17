@@ -195,7 +195,8 @@ Not built by the pipeline and never a model input. Parquet in
   ours, so rows join to `fact_fixture` and `elo_ratings.csv`. `promoted` is
   true when the club isn't among the previous season's Premier League teams
   in upstream's teams files. Raw API responses are cached in
-  `data/external/beyondelo/raw/`. The data is CC BY 4.0: anything derived
+  `data/external/beyondelo/raw/`, and the match counts by reason, both
+  directions, go to `data/external/beyondelo/reconciliation.csv`. The data is CC BY 4.0: anything derived
   from it that is published credits "beyondELO (https://beyondelo.com)".
 - **Read path:** through `fpl.beyondelo`'s own reader, not `load_as_of`. It
   is a check, not a model input, and each before-match rating is fixed when

@@ -2836,3 +2836,71 @@ Josh took all eight of the main session's recommendations on the handoff.
    tests a tree another agent is editing. It measures `excel/` and
    `backtest/` coverage locally with extra `--cov` flags, and changes no
    config.
+
+### 2026-11-17: data - beyondELO pull built
+- **What:** `python -m fpl.beyondelo` pulls beyondELO's Premier League matches for 2025-2026 and
+  2026-2027 and builds `ext_beyondelo` into `data/external/beyondelo/{season}.parquet`, with
+  `reconciliation.csv` beside it. Three modules: `beyondelo_api.py` (client, cache, paging),
+  `beyondelo_build.py` (pure build and reconciliation), `beyondelo.py` (config, I/O, `load_beyondelo`).
+  No real request was made; the HTTP layer is faked in the tests.
+- **Evidence for the keys:** upstream's `code` is stable across seasons and `id` is not (Chelsea:
+  code 8, team id 6 in 2024-25 and 7 in 2025-26). `promoted` is therefore `team_code` not in the
+  previous season's `code` set (2025/26: Leeds, Sunderland, Burnley; 2026/27: Coventry, Hull,
+  Ipswich). The 2024-2025 file is `teams/teams.csv`; later seasons have `teams.csv`.
+- **Cleaning and checks:**
+  - Premier League competition code is not in config: it is the one England tier-1 entry in
+    `/competitions` (country "England", tier 1); none or several stops before any
+    `/matches` call. Why: the code is undocumented, and a configured guess would be wrong silently.
+  - Join on home club, away club and exact UTC date. No +-1 day tolerance: our Premier League
+    kickoffs are 11:00-20:00 UTC in both seasons, so none crosses midnight in either source.
+  - Club names match `dim_team.name` exactly plus `beyondelo.club_aliases` (empty to start). An
+    unmapped name fails the build and every one is listed. No fuzzy matching.
+  - Fail: a finished match of ours with no played partner, a score that differs, a duplicate
+    home/away/date on either side, a missing field, a `season` other than the one asked for, a
+    played match without all four ratings, an unreadable date.
+  - Counted, not failed (`reconciliation.csv`, columns season, source, reason, matches): ours
+    `matched`, `finished_without_partner`, `not_finished`; beyondELO `matched`, `unplayed`,
+    `not_in_our_fixtures`, `same_clubs_other_date`, `played_not_finished_in_ours`.
+  - Budget: cap 20 requests per run checked before each, 6.5 s between requests, no retry on a
+    429 or any non-200, no redirects followed (urllib would resend the key header), https only.
+    Each response is saved to `raw/` once it parses as JSON, before field checks, so a field
+    problem is fixed and re-run from the cache at no cost.
+  - `beyondelo_match_id` is stored as a string, whatever type beyondELO's `id` has.
+- **Effect downstream:** none. `ext_beyondelo` is outside the pipeline and `load_as_of`; the
+  model-validator reads it through `load_beyondelo(season)`.
+- **Fix round (after Code Review):**
+  - The usage line no longer shows the key; the `--help` text says the key is set in the
+    environment, never on the command line.
+  - After page 1 the pull stops if the pages `meta.total` implies exceed the requests left, or if
+    a record's `season` is not the one asked for. Only `season` is checked: whether a record's
+    `competition` holds a code or a name is unknown until the first real response. The cap message
+    now says to check the cached responses.
+  - Build fails if a played, decided match does not raise the winner's rating and lower the
+    loser's (catches a before/after or home/away mix-up), listing the first five ids.
+  - Errors name the cache files to delete (`raw/matches_{season}_p*.json`); the body of a non-2xx
+    response is logged (300 characters, key replaced by `***`); the request sends
+    `User-Agent: fpl-model`; the cache is written through a temp file and `replace`; a corrupt
+    cache file raises an error naming it.
+  - `load_beyondelo` reads `beyondelo.external_dir` from config.
+  - Trimmed: season-coverage narrowing of the competition code, a bare-list response, the "eng"
+    country spelling, three unreachable checks, and the unused JSON fixture. Team ids now come from
+    `add_team_ids` (which fails on unmapped names), and `build_season` casts them to int, so it
+    cannot silently drop an unmapped club without its own name check. The run-level check lists
+    names across both seasons.
+  - The fix-round code was written before its tests, against the TDD rule; the tests were then
+    added, and not seen failing first.
+- **Second fix round (after Code Review's second pass), tests written and seen failing first:**
+  - `run` passes each season's Premier League fixture count (all scheduled, from `fact_fixture`)
+    to the pull, which stops after page 1 if `meta.total` is above it, as well as if the pages
+    exceed the requests left.
+  - Nothing is logged for a 401 or 403 body. For other statuses the key, its percent-encoded and
+    plus-encoded forms and its JSON-escaped form are redacted before the 300-character cut.
+  - The "delete `raw/matches_{season}_p*.json`" hint is on the "finished without partner" failure
+    only (`BuildError.refresh`); a re-pull returns the same data for the other failures.
+  - The winner check fails only above `beyondelo.max_wrong_direction_share` (0.5) of played,
+    decided matches, and otherwise logs the count, share and first five ids (WARNING if any).
+    A margin-based Elo can lower a narrow-winning favourite; a label mix-up makes nearly all wrong.
+  - `matches_frame` no longer checks `season` (the pull checks every page). The unmapped-name check
+    kept is the run-level one, which lists names across both seasons; `add_team_ids` has none and
+    `build_season` fails on a missing team id.
+  - `tests/test_beyondelo_api.py` split into client and paging files.
