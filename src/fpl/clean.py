@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from fpl.complete import complete_matches
+from fpl.corrections import apply_score_corrections
 from fpl.frames import (
     CleanError,
     JoinError,
@@ -226,6 +227,9 @@ def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
     snapshot = raw.players[raw.players.snapshot_gw == raw.latest_gw]
     complete = complete_matches(raw.matches, raw.playermatchstats, raw.players, raw.teams)
     fixture, d_fix = build_fact_fixture(raw.matches, raw.teams, raw.season, prem, complete)
+    fixture = apply_score_corrections(
+        fixture, cfg.get("score_corrections", []), raw.season, raw.as_of_gw
+    )
     dim_team = build_dim_team(raw.teams, fixture)
     dim_player, d_pl = build_dim_player(snapshot, raw.playerstats, raw.teams, cfg["position_map"])
     pmatch, d_pm = build_fact_player_match(

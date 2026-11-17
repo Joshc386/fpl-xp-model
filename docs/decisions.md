@@ -2944,3 +2944,59 @@ sources. Josh's calls follow.
      gap "Players missing from a snapshot" now carries the recheck:
      8 player-gameweeks with no per-match row.
 3. **QA (task 8) runs once the score correction is reviewed and committed.**
+
+### 2026-11-17: data - score correction (data rule 16)
+- **What changed:** `config/pipeline.yaml` has a `score_corrections` list with one entry,
+  2025/26 GW8 Liverpool v Man Utd, upstream `[0, 1]` corrected to `[1, 2]`. The new
+  `src/fpl/corrections.py` (`apply_score_corrections`, pure) is called from `build_season`
+  in `clean.py` right after `build_fact_fixture`. It is in its own module to keep `clean.py`
+  under 300 lines.
+- **Evidence:** real rebuild, `data/processed/2025-2026/fact_fixture.parquet`, match
+  `25-26-prem-liverpool-vs-manchester-united`: `home_goals, away_goals` now 1, 2 (was 0, 1);
+  `finished` True, xG 2.75 / 1.34 unchanged. `reconciliation.csv` is identical to before the
+  change (2025/26 fact_fixture 485 rows, fact_player_match 14589, fact_player_gw 29978).
+- **Cleaning rule:** replaces `home_goals` and `away_goals` only. Fails with `CleanError` if a
+  listed match is not in that season's fixtures exactly once, is not finished, or has an
+  upstream score other than `upstream`; the last message says to remove or update the entry.
+  Entries for another season are ignored. Each application is logged at INFO. Not counted in
+  `reconciliation.csv` (no dropped rows, and an info line fits poorly), so log only.
+- **Judgement call, as-of reads:** ingest blanks Premier League matches after `as_of_gw` to
+  schedule only, so on an as-of read before GW8 the listed match is legitimately unfinished.
+  Failing there would break every 2025/26 backtest read before GW8. So `build_season` passes
+  `raw.as_of_gw`, and an unfinished listed match whose gameweek is after `as_of_gw` is left
+  alone; at or before `as_of_gw` (and on full reads) unfinished still fails.
+- **Effect downstream:** `fact_fixture` goals for that one match only. `fact_player_match` and
+  `fact_player_gw` already gave 1-2. Elo unchanged; the goals model loses Man Utd's false
+  clean sheet (see the entry above).
+- **Fix round (code review F2-F6):**
+  - F2: `tests/test_score_corrections_real.py` (real checkout: 1-2 at as-of 8 and 38, null
+    and unfinished at 7, live read at 20) and `tests/test_score_corrections_config.py` (CI:
+    entries well formed). With the `build_season` call switched off, the three correcting
+    real-data tests fail. The `conftest.py` docstring now names what covers the correction.
+  - F3: one-sided mismatches (0-2, 1-1, 1-3, 2-1) are tested.
+  - F4/F5: the config test requires a configured season id and the Premier League tag in the
+    `match_id`; the config comment says entries are Premier League only, because ingest leaves
+    cup and European matches out of as-of reads.
+  - F6: the mismatch message prints scores as "1-3".
+
+### 2026-11-17: validator - harness keeps score-corrected matches
+- **Problem:** with data rule 16, the cleaning step raises `CleanError` when upstream's score for a
+  listed match isn't the entry's `upstream` score. The Elo check's control (`corrupt_up_to` in
+  `after_as_of_case`) corrupts every Premier League score up to the as-of gameweek, so it changed
+  2025/26 GW8 Liverpool v Man Utd and every case from 2025/26 as-of 8 on crashed
+  `python -m backtest.elo_check` before a report was written. The planted leak at a 2025/26
+  as-of 7 case, or a within-gameweek case at GW8, would have crashed the same way.
+- **Change:** `backtest.perturb.Corruption` has a `keep` set of match ids that no corruption
+  touches (`_rewrite` drops them from every selection, in `matches.csv` and `fixtures.csv`).
+  `backtest.elo_check.corruption` builds the `Corruption` and fills `keep` from
+  `config/pipeline.yaml` `score_corrections`. The real-data test no longer patches the loader's
+  config to an empty `score_corrections`; it goes through the keep set.
+- **Trade-off (accepted by the main session):** a listed match is never perturbed, so a leak of
+  only that match's result would go unseen. Every other match is still corrupted. Today one
+  match is listed.
+- **Tests:** new `tests/test_elo_check_keep.py`. Under `corrupt_up_to`, `corrupt_after` and
+  `corrupt_within` the listed match keeps its results in both files, every other match in the
+  selection is still corrupted, the default keeps nothing, and `keep` comes from the config.
+  The four keep tests failed first, and so did the real test without the workaround
+  (`CleanError ... upstream now has 3-8`). `tests/test_elo_check*.py`: 203 passed. Ruff clean.
+  `python -m backtest.elo_check` was not run (holdout).

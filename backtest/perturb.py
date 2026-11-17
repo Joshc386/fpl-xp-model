@@ -4,7 +4,8 @@ The real checkout under data/ is only ever read. `copy_upstream` copies the game
 files to a scratch directory; `corrupt_after` and `corrupt_within` rewrite that copy's
 `matches.csv` and `fixtures.csv` files (both carry result columns upstream); `redirect`
 points every `load_as_of` call at the copy through the loader's `use_data_copy`. Files are read
-and written as text, so every cell that isn't corrupted is kept exactly.
+and written as text, so every cell that isn't corrupted is kept exactly. No corruption touches
+a match in `Corruption.keep` (the score-corrected matches, brief data rule 16).
 """
 
 from __future__ import annotations
@@ -34,13 +35,20 @@ Selector = Callable[[int, pd.DataFrame], pd.Series]  # (folder gameweek, matches
 
 @dataclass(frozen=True)
 class Corruption:
-    """How values are corrupted, and the schedule settings needed to date a cup tie."""
+    """How values are corrupted, and the schedule settings needed to date a cup tie.
+
+    `keep`: match ids no corruption ever touches. These are the matches listed in
+    `score_corrections` (brief data rule 16), because the cleaning step fails a read whose
+    upstream score for one of them isn't the listed one. The trade-off: a leak of only those
+    matches' results would go unseen, while every other match is still corrupted.
+    """
 
     score: tuple[int, int]
     elo: tuple[float, float]
     xg: tuple[float, float]
     prem_tag: str
     offset_minutes: int
+    keep: frozenset[str] = frozenset()
 
 
 def _folders(season_dir: Path) -> dict[int, Path]:
@@ -121,11 +129,11 @@ def _corrupt_rows(df: pd.DataFrame, rows: pd.Series, rng: np.random.Generator, c
 def _rewrite(folders: dict[int, Path], select: Selector, rng: np.random.Generator,
              c: Corruption, keep_finished: bool) -> int:
     """Corrupt the selected matches in each folder's `matches.csv`, and the same match ids in
-    its `fixtures.csv`; returns the number of cells rewritten."""
+    its `fixtures.csv`, except the ids in `c.keep`; returns the number of cells rewritten."""
     total = 0
     for gw, folder in sorted(folders.items()):
         matches = _read(folder / "matches.csv")
-        rows = select(gw, matches)
+        rows = select(gw, matches) & ~matches.match_id.isin(c.keep)
         if not rows.any():
             continue
         ids = set(matches.match_id[rows])

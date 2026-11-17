@@ -31,6 +31,20 @@ premier_league_tag: prem
 loader:
   deadline_offset_minutes: 90
 
+# Cited fixes to a wrong upstream score (brief data rule 16). Applied to fact_fixture goals only.
+# `upstream` and `corrected` are [home, away]. The build fails if upstream's score no longer
+# equals `upstream`: upstream has fixed it, so remove or update the entry. Premier League
+# matches only: ingest leaves cup and European matches out of as-of reads, so an entry for
+# one would break early reads (tests/test_score_corrections_config.py enforces this).
+score_corrections:
+  - match_id: 25-26-prem-liverpool-vs-manchester-united
+    season: 2025-2026
+    upstream: [0, 1]
+    corrected: [1, 2]
+    source: >-
+      beyondELO (https://beyondelo.com) and upstream's own player stats both give 1-2;
+      upstream matches.csv says 0-1; decided 2026-11-17
+
 # players.position -> processed position.
 position_map:
   Goalkeeper: GKP

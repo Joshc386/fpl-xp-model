@@ -37,8 +37,13 @@ def read_sample(
 
 @pytest.fixture(scope="session")
 def cfg() -> dict:
-    """The real pipeline config."""
-    return load_config(ROOT / "config" / "pipeline.yaml")
+    """The real pipeline config, without score corrections.
+
+    The sample data is a cut of upstream that does not hold the corrected match (rule 16);
+    tests/test_score_corrections.py covers the function, test_score_corrections_config.py the
+    entries, and test_score_corrections_real.py the loader on the real checkout.
+    """
+    return {**load_config(ROOT / "config" / "pipeline.yaml"), "score_corrections": []}
 
 
 @pytest.fixture(scope="session")

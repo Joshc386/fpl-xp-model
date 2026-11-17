@@ -178,6 +178,17 @@ def goal_checks(goal_reads: dict, rating_reads: dict, tol: float) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
+def corruption(s: dict, pcfg: dict) -> Corruption:
+    """How the leakage cases corrupt the copy: ranges from backtest/config.yaml, schedule
+    settings from config/pipeline.yaml, and every match in its `score_corrections` kept as
+    upstream has it (brief data rule 16; the trade-off is in `Corruption`)."""
+    p = s["perturbation"]
+    keep = frozenset(e["match_id"] for e in pcfg.get("score_corrections") or [])
+    return Corruption(tuple(p["score_range"]), tuple(p["elo_range"]), tuple(p["xg_range"]),
+                      pcfg["premier_league_tag"], int(pcfg["loader"]["deadline_offset_minutes"]),
+                      keep)
+
+
 def run_leakage(s: dict, models: Models, pcfg: dict, src: Path, point: Redirect) -> dict:
     """The perturbation and within-gameweek cases on a scratch copy of the upstream data.
 
@@ -185,8 +196,7 @@ def run_leakage(s: dict, models: Models, pcfg: dict, src: Path, point: Redirect)
     run; tests pass a double for the synthetic season.
     """
     p = s["perturbation"]
-    c = Corruption(tuple(p["score_range"]), tuple(p["elo_range"]), tuple(p["xg_range"]),
-                   pcfg["premier_league_tag"], int(pcfg["loader"]["deadline_offset_minutes"]))
+    c = corruption(s, pcfg)
     rng = np.random.default_rng(int(p["seed"]))
     fns = {"elo_ratings": models.elo_ratings, "elo_goals": models.elo_goals,
            "planted_leak": peeking_goals}

@@ -1,5 +1,6 @@
 """The perturbation case on a real data copy through the loader's `use_data_copy` (skipped
-when there is no upstream checkout). About 30 s: one case, ten reads."""
+when there is no upstream checkout). About 30 s: one case, ten reads. It reads the real config,
+so the control's corruption up to the as-of must leave the score-corrected match alone."""
 
 from __future__ import annotations
 
@@ -7,8 +8,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from backtest.elo_check import corruption, load_settings
 from backtest.elo_leakage import after_as_of_case, peeking_goals
-from backtest.perturb import Corruption, copy_upstream, redirect
+from backtest.perturb import copy_upstream, redirect
 
 from fpl.ingest import ROOT, load_config, upstream_data_dir
 from fpl.models.elo import elo_ratings
@@ -28,8 +30,8 @@ def test_a_real_case_passes_reaches_the_copy_and_catches_the_planted_leak(
         tmp_path: Path) -> None:
     dst = tmp_path / "data"
     copy_upstream(DATA, dst, [SEASON], FILES)
-    c = Corruption((0, 9), (1200.0, 2200.0), (0.0, 4.0), CFG["premier_league_tag"],
-                   int(CFG["loader"]["deadline_offset_minutes"]))
+    c = corruption(load_settings(), CFG)  # keeps the score-corrected match (data rule 16)
+    assert c.keep
     fns = {"elo_ratings": elo_ratings, "elo_goals": elo_goals, "planted_leak": peeking_goals}
     out = after_as_of_case(fns, SEASON, 33, DATA, dst, redirect, np.random.default_rng(11), c,
                            "backtest", controls=["elo_ratings", "elo_goals"])

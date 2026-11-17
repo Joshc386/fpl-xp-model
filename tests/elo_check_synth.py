@@ -43,7 +43,8 @@ import synth
 from fpl.features import load_as_of
 from fpl.ingest import ROOT, load_config, upstream_data_dir
 
-BASE_CFG = load_config(ROOT / "config" / "pipeline.yaml")
+# Without score corrections: the synthetic data is a cut that lacks the corrected match (rule 16).
+BASE_CFG = {**load_config(ROOT / "config" / "pipeline.yaml"), "score_corrections": []}
 # Every module that imports `load_as_of` by name. The tuner isn't on the check's path; it is
 # swapped anyway so the rule stays "every holder is swapped".
 CALLERS = (fpl.models.elo, fpl.models.elo_tune, backtest.elo_check, backtest.elo_leakage)
