@@ -179,6 +179,28 @@ Brief section 4 lists the data rules.
   `no_playerstats_row`.
 - **`season`:** upstream's folder name, for example `2025-2026`.
 
+### Outside sources
+
+Not built by the pipeline and never a model input. Parquet in
+`data/external/{source}/{season}.parquet`, not committed (decided
+2026-11-17).
+
+| Table | Grain | Columns |
+| --- | --- | --- |
+| `ext_beyondelo` | Team × Premier League match, 2025/26 and 2026/27 | `team_id`, `match_id`, `season`, `gw`, `kickoff_utc`, `home`, `beyondelo_before`, `beyondelo_after`, `promoted`, `beyondelo_match_id` |
+
+- **`ext_beyondelo`:** beyondELO's club rating before and after each match,
+  pulled once through its API (`python -m fpl.beyondelo`) for Josh's
+  outside-source Elo check (brief section 7). `team_id` and `match_id` are
+  ours, so rows join to `fact_fixture` and `elo_ratings.csv`. `promoted` is
+  true when the club isn't among the previous season's Premier League teams
+  in upstream's teams files. Raw API responses are cached in
+  `data/external/beyondelo/raw/`. The data is CC BY 4.0: anything derived
+  from it that is published credits "beyondELO (https://beyondelo.com)".
+- **Read path:** through `fpl.beyondelo`'s own reader, not `load_as_of`. It
+  is a check, not a model input, and each before-match rating is fixed when
+  the match is played.
+
 ## Published outputs
 
 CSV in `outputs/`, committed, read by Excel.

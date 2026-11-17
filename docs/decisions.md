@@ -2776,3 +2776,63 @@ Dropdown design unchanged (Josh accepted it). Items by the review's numbers.
   stack line no longer lists slicers.
 - **Task 8's hand test** runs after the next publish, so the committed
   workbook (data from `4ec7fba`) pulls newer data on open.
+
+### 2026-11-17: main - beyondELO pull, run times and the task 8-9 calls (Josh)
+Josh took all eight of the main session's recommendations on the handoff.
+1. **The beyondELO pull is capped at 20 requests.** About 6-9 are expected:
+   1 for `/competitions`, 4 for 2025/26 and 1-4 for 2026/27, at 100 matches
+   a page. It keeps under 10 a minute, stops on a 429 or at the cap without
+   retrying, and caches every raw response, so a re-run spends nothing.
+   Trade-off: if the paging differs, the pull finishes the next day.
+2. **Both full seasons are pulled,** not just the scored windows. The
+   windows stay as decided on 2026-11-13: 2025/26 GW27-38 and 2026/27 from
+   GW3. The earlier matches give the comparison something to fit on outside
+   them.
+3. **The comparison's 2026/27 window is a holdout look** (brief section 7).
+   It is logged as the third look when it runs, and its result feeds the
+   phase 2 Dixon-Coles call, not a retune of our Elo. The pull isn't a look.
+4. **Promoted clubs are flagged, and results are reported with and without
+   them.** A club is promoted if it isn't among the previous season's
+   Premier League teams in upstream's teams files (2024-2025 for 2025/26,
+   2025-2026 for 2026/27). beyondELO doesn't rate the Championship, so their
+   ratings carry over from their last Premier League spell.
+5. **Two tasks.** The data-engineer pulls now. The comparison is a script by
+   the model-validator, which didn't build the Elo model, with its report in
+   `backtest/reports/` carrying the credit "beyondELO
+   (https://beyondelo.com)" (CC BY 4.0). Its method is settled with
+   `/grill-with-docs`, and its measures defined in `CONTEXT.md`, before it
+   is delegated. Josh gives the verdict.
+   - **Caveat:** beyondELO learns a home advantage per club, but the API
+     gives only ratings, so the comparison tests its ratings, not its full
+     predictions.
+   - **New table `ext_beyondelo`** (data contract, processed tables), kept
+     in `data/external/beyondelo/`, apart from the season folders, because
+     it's an outside source the pipeline doesn't build.
+   - **Read path (main session; flagged to Josh):** the project rule is that
+     data outside the data-engineer's code is read only through
+     `load_as_of`. `ext_beyondelo` is read through the data-engineer's own
+     reader in `fpl.beyondelo` instead. Why: it is a check, never a model
+     input, and each row's before-match rating was fixed when the match was
+     played, so there is no as-of to apply.
+6. **Scheduled runs move to 08:23 and 18:23 UTC.** GitHub's documentation
+   says scheduled runs are most likely to be delayed or dropped at the start
+   of each hour, and advises another minute. So far the 11-16 18:00 run
+   started 7 h 43 min late, and the 11-17 08:00 run hadn't started by
+   13:37 UTC. Josh doubts it will make much difference; it is a two-line
+   change, and task 9's log will show.
+   - The workbook's README sheet ("around 08:00 and 18:00 UTC", and that
+     runs can be late) stays, so the committed workbook isn't rebuilt
+     before the hand test.
+   - Updated: brief sections 1 and 11, `CONTEXT.md` "Run",
+     `docs/plans/phase-1.md`, `docs/plans/task-6-workflows.md` and
+     `excel/HAND_TEST.md` (by the excel-builder).
+   - **Code Review:** approve with three low findings, all stale times (the
+     two plans' tables and `HAND_TEST.md`), fixed before the commit.
+7. **A dropped run doesn't break "consecutive".** Task 9 counts the
+   scheduled runs that started and logs every dropped one, because a drop is
+   GitHub's scheduler, not our workflow failing. Trade-off: a looser reading
+   of the done-when item.
+8. **QA (task 8) runs once the pull and run-time commits land,** so it never
+   tests a tree another agent is editing. It measures `excel/` and
+   `backtest/` coverage locally with extra `--cov` flags, and changes no
+   config.

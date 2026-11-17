@@ -50,7 +50,8 @@ committed to `main` and pushed. Josh approved pushes for phase 1 on
 **In parallel, outside the gates:** once `elo_ratings.csv` is published
 (task 5), Josh compares our Elo ratings with an outside Elo source:
 beyondELO's per-match ratings, pulled through its API by a small
-data-engineer task (decided 2026-11-13). His verdict gates only the phase 2
+data-engineer task (decided 2026-11-13), then scored by a model-validator
+script (decided 2026-11-17). His verdict gates only the phase 2
 Dixon-Coles work. The minutes model can start
 as soon as phase 1 is signed off.
 
