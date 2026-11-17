@@ -135,6 +135,7 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
     - **Never fill a column that is empty for the whole season.** 2026/27 `tackles` and `defensive_contributions` are like this, so take tackles from `tackles_won`.
     - **Goals conceded come from FPL, not match data.** Upstream's `team_goals_conceded` is the whole-match figure for unused substitutes and for most 2025/26 GW1–25 substitutes, and has 241 genuine gaps in 2025/26. So `fact_player_match` doesn't carry it, and `fact_player_gw.goals_conceded` (FPL's own on-pitch figure) is used instead.
     - **Validation fails the run** if a listed column is empty for a whole season, or if a blank xG sits beside `total_shots` > 0.
+16. **A wrong upstream score is corrected only by a cited entry.** `config/pipeline.yaml` `score_corrections` lists each one: the match, upstream's score, the corrected score and its source. `clean.py` applies it to `fact_fixture`, and the build fails if upstream's score no longer equals the listed one, so an upstream fix is noticed and the entry removed. The first: 2025/26 GW8 Liverpool 1–2 Man Utd, which upstream records as 0–1; beyondELO and upstream's own player stats both give 1–2 (decided 2026-11-17).
 
 ## Data contract
 

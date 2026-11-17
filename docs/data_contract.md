@@ -113,6 +113,10 @@ Brief section 4 lists the data rules.
   `stats_processed` and `player_stats_processed` flags aren't used.
   - `home_goals` and `away_goals` are kept for every finished match, and
     null otherwise, even if upstream shows a part-played score.
+  - A finished match's `home_goals` and `away_goals` can be replaced by a
+    cited entry in `config/pipeline.yaml` `score_corrections` (brief data
+    rule 16). The build fails if upstream's score no longer equals the
+    entry's upstream score (decided 2026-11-17).
   - The xG and npxG columns are kept only for complete matches.
   - Unfinished matches stay in the table, because fixture difficulty needs
     future fixtures.

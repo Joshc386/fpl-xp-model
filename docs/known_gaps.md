@@ -144,6 +144,13 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     xA, but a missing player's xG90 and xA90 could read low.
   - **Idea:** the same as for cup appearances: look the player up in later
     snapshots up to the as-of gameweek.
+  - **Rechecked 2026-11-17** against the local upstream checkout: all three
+    are now in each gameweek's snapshot, but `playermatchstats` has no row
+    for them in 8 of their Premier League player-gameweeks with minutes
+    (Mfuni 5, J.Angulo 1, Tutierov 2). For example, Mfuni's 86th-minute goal
+    in Coventry 4–1 Newcastle (2026/27 GW6) is in `shots.csv` but not in
+    `fact_player_match`. FPL's per-gameweek minutes and points for them are
+    complete.
 - **Per-match goals conceded** (2026-11-10).
   - **Gap:** upstream's per-match figure is unreliable, so FPL's
     per-gameweek `goals_conceded` is used.

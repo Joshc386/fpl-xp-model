@@ -2907,3 +2907,40 @@ Josh took all eight of the main session's recommendations on the handoff.
 - **First real response:** `/competitions` gave string tiers ("domestic_league", "continental_club"), not
   numbers, and the Premier League's code is `eng.1`. `find_premier_league_code` now selects country
   "England" and tier "domestic_league"; none or several still stops.
+
+### 2026-11-17: main - Liverpool v Man Utd score corrected, and the two own-goal flags (Josh)
+The first beyondELO build stopped on one score that differs between the
+sources. Josh's calls follow.
+1. **The score is corrected to beyondELO's 1–2.** 2025/26 GW8 Liverpool v
+   Man Utd (`25-26-prem-liverpool-vs-manchester-united`, 19 October 2025).
+   - **Evidence:**
+     - upstream's `matches.csv` and `fixtures.csv` both say 0–1;
+     - upstream's own player stats give Liverpool one scorer and Man Utd two;
+     - beyondELO says 1–2;
+     - beyondELO agrees with our score on the other 379 2025/26 matches and
+       all 100 of 2026/27.
+   - **How:** brief data rule 16, a cited `score_corrections` entry applied
+     by `clean.py`. The build fails if upstream's score stops being 0–1, so
+     an upstream fix shows up and the entry is removed.
+   - **Effect:**
+     - **Elo:** ratings don't change. The update uses only the result and
+       `max(1, |goal difference|)`, and both are the same at 0–1 and 1–2.
+     - **Goals model and clean-sheet data:** one team-fixture in 760
+       changes. Man Utd lose a false clean sheet, and `fixture_difficulty`
+       shifts slightly at the next publish.
+     - **Task 4:** its sign-off stands.
+   - **Process:** the main session updated the brief (data rule 16) and the
+     data contract before any code change.
+2. **The two own-goal flags were checked: neither match had an own goal.**
+   The main session's check had counted own goals by gameweek.
+   - **Newcastle 1–2 Bournemouth** (2025/26 GW33): the flag was a false
+     positive. Upstream's incidents give Tavernier (32'), Osula (68') and
+     Truffert (85'). Bournemouth had a double gameweek 33, and Hill's own
+     goal (68') came in their other match, Bournemouth 2–2 Leeds.
+   - **Coventry 4–1 Newcastle** (2026/27 GW6): `shots.csv` gives Rudoni (6',
+     penalty), Cherif (48'), Simms (81') and Mfuni (86') for Coventry, and
+     Botman (70') for Newcastle. Mfuni has no `playermatchstats` row in this
+     match, so `fact_player_match` misses his goal. The 2026-11-13 known
+     gap "Players missing from a snapshot" now carries the recheck:
+     8 player-gameweeks with no per-match row.
+3. **QA (task 8) runs once the score correction is reviewed and committed.**
