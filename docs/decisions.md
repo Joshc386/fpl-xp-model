@@ -3198,3 +3198,4 @@ Josh took the main session's recommendation on all eight questions. The terms ar
    - **Process:** Code Review reviews the script, Josh approves the run, and the analysis-verifier recomputes the headline numbers before they reach him.
    - Builders' task messages tell them not to open `*-beyondelo.md` reports.
 - **Updated:** `CONTEXT.md` (seven terms and one flagged ambiguity, "Elo check"), and brief sections 2 (the gate) and 7 (the outside-source paragraph).
+- **Builder confirmed (Josh):** Josh asked whether the expected-points-modeller should build the check instead. It stays with the model-validator, for three reasons: the modeller's agent file rules out backtest code and accuracy verdicts; the agent that did the work doesn't judge it; and the **Holdout look** rule keeps 2026/27 figures from whoever builds the Elo.
