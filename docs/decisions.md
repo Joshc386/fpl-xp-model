@@ -3299,3 +3299,8 @@ Josh took the main session's recommendation on all eight questions. The terms ar
 - **Not like-for-like on inputs:** beyondELO's rating moves between Premier League matches in 147 of 920 cases, 102 of them around a European or EFL Cup match. So it uses results ours doesn't. The check is a fair test of predictive quality, but this favours beyondELO.
 - **Minor:** the report's "five biggest rank disagreements" list cuts ties alphabetically. Added to the check's entry in `docs/known_gaps.md`.
 - **Next:** Josh's verdict. If he accepts "not poor", the Elo isn't rebuilt and the 2026/27 window isn't run again. Phase 2's Dixon-Coles work then isn't blocked by the Elo.
+
+### 2026-11-18: main - outside-source Elo check: Josh's verdict, not a poor Elo rating (Josh)
+- **Verdict (Josh):** accepted, not a poor Elo rating. In his words, the differences are very small. The Elo rating is important, but not as vital as the main session had treated it.
+- **So:** the Elo component isn't rebuilt, and the check's 2026/27 window isn't run again. Phase 2's Dixon-Coles work is no longer gated on the Elo.
+- **Proportion:** weigh further Elo work against its effect on xP, not as a gate in its own right. The check's known gap (`docs/known_gaps.md`) waits for the check's next change.
