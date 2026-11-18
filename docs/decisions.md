@@ -3281,3 +3281,10 @@ Josh took the main session's recommendation on all eight questions. The terms ar
   1. Two stops fire after the scored windows' log-losses are computed: fewer than 2 scored matches, and a promoted club with no `dim_team` name. They show and write nothing, so nothing leaks. Neither can fire on the real data: the six promoted clubs all have names, and 199 matches are scored.
   2. The exact halving count isn't tested: `range(max_halvings)` for `range(max_halvings + 1)` survives.
   3. The fewer-than-2 stop is tested with 0 matches only, so `< 1` for `< 2` survives.
+
+### 2026-11-18: main - outside-source Elo check: third holdout look approved (Josh)
+- **Approved by Josh** before the run: the outside-source Elo check (`python -m backtest.beyondelo_check`) scores 2026/27 GW3-10, 80 matches. This is the third holdout look (brief section 7, `CONTEXT.md` **Holdout look**).
+- **Code:** `980f1a3`. Ratings come from `outputs/elo_ratings.csv`, published from upstream `648ec21` and identical to a rebuild from `ac8be9c`. Results come from the local upstream checkout at `ac8be9c`, and beyondELO's ratings from `ext_beyondelo` as pulled on 2026-11-17.
+- **The three optional re-review points** go to `docs/known_gaps.md` and aren't fixed first (Josh). Neither late stop can fire on this data.
+- **Who sees the figures:** the 2026/27 and pooled figures go in the report and to Josh only. This log gets the verdict and the 2025/26 figures, because builders read it. The report is `backtest/reports/2026-11-18-beyondelo.md`, which builders don't open.
+- **No re-run:** it runs again only after a **Poor Elo rating** and a rebuild tuned on 2025/26 only, as a fourth look with Josh's approval.
