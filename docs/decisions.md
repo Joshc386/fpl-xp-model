@@ -3199,3 +3199,43 @@ Josh took the main session's recommendation on all eight questions. The terms ar
    - Builders' task messages tell them not to open `*-beyondelo.md` reports.
 - **Updated:** `CONTEXT.md` (seven terms and one flagged ambiguity, "Elo check"), and brief sections 2 (the gate) and 7 (the outside-source paragraph).
 - **Builder confirmed (Josh):** Josh asked whether the expected-points-modeller should build the check instead. It stays with the model-validator, for three reasons: the modeller's agent file rules out backtest code and accuracy verdicts; the agent that did the work doesn't judge it; and the **Holdout look** rule keeps 2026/27 figures from whoever builds the Elo.
+
+### 2026-11-17: validator - outside-source Elo check build
+- **What:** `python -m backtest.beyondelo_check` (brief section 7, `CONTEXT.md` **Outside-source Elo check**), built test first. Not run with the configured windows: its 2026/27 window is the third holdout look, which the main session runs after Code Review and Josh's approval.
+  - `backtest/beyondelo_fit.py`: `fit_ordered` (the ordered logistic fit), `match_nll` and `poor_elo_verdict`.
+  - `backtest/beyondelo_data.py`: `window_table` (one row per match with both gaps and the result, plus the partner counts), `ranking_by_gameweek` and `rank_disagreements`.
+  - `backtest/beyondelo_report.py`: `render`.
+  - `backtest/beyondelo_check.py`: `read_inputs`, `run_check`, `run` and `main`.
+  - `backtest/config.yaml`: a new `beyondelo_check` section holding the windows, file paths, fit tolerance, iteration cap, SE multiple, rounding and top-five count.
+- **Fit method:** Newton-Raphson in numpy, with an analytic gradient and Hessian, so scipy isn't needed.
+  - It starts from the baseline's exact fit (cut-points at the logits of the cumulative away and draw shares, slope 0) and halves a step until the log-likelihood doesn't fall. The ordered logit's log-likelihood is concave in (cut-points, slope).
+  - **Convergence:** it stops when the Newton decrement's half square, the log-likelihood a full step is predicted to gain, is at most `fit_tolerance` = 1e-12 nats in total. It fails after `max_iterations` = 50. The real 2025/26 fits took 4 iterations.
+  - The decrement is invariant to the gap's scale, so an affine copy of our ratings gets the same fit and the same log-losses, to 1e-12 in the tests.
+- **No finite fit stops the run before Newton-Raphson.** It stops if an outcome never occurs in the fit window, or if the gaps, grouped by outcome, are sorted with ties allowed in either direction. In that case the slope can grow without bound; with all three outcomes present, this is exactly when no finite, unique maximum exists.
+  - Why a pre-check: with the pre-check removed, Newton-Raphson silently "converged" on separated test data, because the likelihood flattens towards its supremum. A test showed it.
+- **Verdict:**
+  - SE is the per-match differences' sd (ddof 1) ÷ √n.
+  - Condition 1 fires when the mean is above `se_multiple` × SE. Condition 2 fires when our pooled log-loss is at or above the baseline's.
+  - Both comparisons are made after rounding to `compare_decimals` = 9, as in the Elo component check. So an exact tie on the two-SE line is not poor, sd = 0 with a zero mean is not poor, and sd = 0 with a positive mean is poor. Without the rounding, the affine-copy case's 1e-15 noise could fire condition 1.
+  - With fewer than 2 matches, the verdict stops.
+- **Partners:**
+  - A match is in a window if any of the three sources places it there by its own `season` and `gw`. "Our rating" and "beyondELO rating" each mean exactly two rated rows, one per club of the fixture. A finished result means `finished` with both scores.
+  - Any match lacking a partner, in the fit window or a scored window, stops the run with the counts per window and the match ids. No report is written.
+  - Results are read through `load_as_of(season, last window gameweek, "backtest")`, so later results never reach the check. Our and beyondELO's rows are also cut to the window by `gw`, so data past 2026/27 GW10 leaves the GW3-10 window unchanged.
+- **Promoted clubs:** the figures without promoted-club matches reuse the same fits, fitted on every fit-window match. Only the scoring drops matches with `promoted` true for either club. A club is flagged only in the season beyondELO flags it.
+- **Read path:**
+  - `elo_ratings.csv` holds both seasons in one file, so `read_inputs` reads it whole and drops the seasons no window names straight away. A 2025/26-only run computes nothing from 2026/27 rows.
+  - `read_inputs` looks `fpl.features.load_as_of` up at each call, rather than holding it as a default argument. Holding it made the Elo check's synthetic guard (`tests/elo_check_synth.py`, `stray_callers`) fail 61 existing tests.
+- **Provenance:** `run_info`, plus the sha256 of `outputs/elo_ratings.csv` and of each parquet read, and `outputs/meta.csv`'s `upstream_commit`, labelled as the publish the ratings came from. The report's `upstream_commit` is the local checkout's, from which the results are read. Today these differ (`6df7a43` against `ac8be9c`); the report shows both.
+- **Tests:** 70 in 9 new test files (`tests/test_beyondelo_check_*.py`), with two helpers (`beyondelo_check_frames.py`, `beyondelo_check_synth.py`). Among them:
+  - the known-output regression test, a seeded synthetic world with parameters and log-losses to 1e-9;
+  - a finite-difference check that the fit is a maximum, written independently of the module;
+  - the real 2025/26 test: fit GW1-26 and score GW27-38, with its report in `tmp_path`. Its loaders fail if any season but 2025/26 is asked for.
+  - Mutants checked: removing the separation pre-check, freezing the slope, removing the rounding and using `>=` for `>`. Each fails at least one test.
+- **2025/26 real-data figures (development data, not the holdout):**
+  - Counts: fit 261, scored GW27-38 119, all complete.
+  - Log-loss on GW27-38, in nats per match: ours 1.0398, beyondELO 1.0315, baseline 1.0830.
+  - Mean difference 0.0083, against a two-SE threshold of 0.0184 (sd 0.1004, n 119).
+  - Without promoted-club matches (85): 1.0323, 1.0289, 1.0662.
+  - Ranking agreement: median 0.963, minimum 0.947.
+  - These are not the check's verdict, which pools in the 2026/27 window.

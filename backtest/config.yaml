@@ -112,3 +112,28 @@ weakest:
   top_n: 3                     # how many clubs, gameweeks and bins to list
 
 report_dir: backtest/reports
+
+# The outside-source Elo check (python -m backtest.beyondelo_check; brief section 7 and
+# CONTEXT.md "Outside-source Elo check", decided 2026-11-17). Each source's ordered logistic
+# fit of the result on its before-match gap runs once on the fit window; both are scored on the
+# scored windows, per window and pooled. Windows are inclusive gameweek ranges. 2026/27 is
+# pinned to GW3-10: ext_beyondelo holds GW1-10 only, and the 2026/27 window is the third
+# holdout look (run only by the main session, with Josh's approval logged first).
+beyondelo_check:
+  fit: {season: "2025-2026", gameweeks: [1, 26]}        # 261 matches (GW26 is a double, 11)
+  scored:
+    - {season: "2025-2026", gameweeks: [27, 38]}        # 119 matches
+    - {season: "2026-2027", gameweeks: [3, 10]}         # 80 matches; 199 pooled
+  ratings_file: outputs/elo_ratings.csv
+  meta_file: outputs/meta.csv
+  # Newton-Raphson stops when a full step is predicted to gain at most this many nats of total
+  # log-likelihood (the Newton decrement's half square), and fails after max_iterations steps.
+  fit_tolerance: 1.0e-12
+  max_iterations: 50
+  # Poor Elo rating, condition 1: the mean per-match difference (ours minus beyondELO's) is
+  # above zero by more than se_multiple standard errors.
+  se_multiple: 2
+  # Both verdict comparisons are made after rounding to this many decimals (nats).
+  compare_decimals: 9
+  top_disagreements: 5         # biggest rank disagreements listed at each window's last GW
+  report_suffix: beyondelo     # backtest/reports/{date}-beyondelo.md
