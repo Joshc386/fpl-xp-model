@@ -130,6 +130,10 @@ beyondelo_check:
   # log-likelihood (the Newton decrement's half square), and fails after max_iterations steps.
   fit_tolerance: 1.0e-12
   max_iterations: 50
+  # Each Newton step is halved until the log-likelihood doesn't fall, at most this many times
+  # (the full step is tried first); then the fit stops with "no improvement". Never needed on
+  # 2025/26: every real step was taken in full.
+  max_halvings: 60
   # Poor Elo rating, condition 1: the mean per-match difference (ours minus beyondELO's) is
   # above zero by more than se_multiple standard errors.
   se_multiple: 2

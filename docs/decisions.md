@@ -3266,3 +3266,18 @@ Josh took the main session's recommendation on all eight questions. The terms ar
 - **Counted runs:** 2026-11-16 18:00, which started 2026-11-17 01:43 and published upstream `6df7a43` as `4ec7fba`, and this one. The only scheduled run between them, 2026-11-17 08:00, was dropped, and a drop doesn't break "consecutive" (2026-11-17, point 7).
 - **Result:** task 9's done-when is met: two consecutive scheduled runs are green, each publishing a new upstream commit. Phase 1 sign-off still waits on Josh's hand test (task 8), which can run now.
 - **Freshness:** the counted runs started 7 hours 43 minutes and 6 hours 39 minutes late. Still to raise as a product problem once there are more runs.
+
+### 2026-11-18: validator - outside-source Elo check review fixes
+- **Finding 2 (line search untested):** the halving cap is `beyondelo_check.max_halvings` (60) in `backtest/config.yaml`, passed through `fit_ordered` to `_line_search`, which now has a docstring. New tests call `_line_search` directly: one where a 40-times Newton step overshoots and is halved to the first step that doesn't fall, and one where a downhill step stops with "no improvement after 5 halvings". A third checks that the configured cap reaches the line search. The reviewer's `if True:` mutant now fails 2 tests. On real 2025/26 data all 8 Newton steps were taken in full, so the figures don't move.
+- **Finding 4 (tracebacks from `main`):** each case now raises `CheckError` where it starts, so `main` logs a plain message, returns 1 and writes no report. The cases are a missing `ext_beyondelo` parquet (`read_inputs` wraps `load_beyondelo`'s `FileNotFoundError`; a missing `elo_ratings.csv` or `meta.csv` does the same), a promoted club with no `dim_team` name (`_promoted`), and scored windows holding fewer than 2 matches (`run_check`, before the verdict). There is one unit test each, and one `main` test parametrised over all of them and the missing-partner case.
+- **Finding 5 (`meta.csv` dtype):** read with `dtype=str, keep_default_na=False`, as `fpl.publish_decision` does. An empty `upstream_commit` reads as `""` and shows as "(empty)" in the provenance, never "nan". Two tests.
+- **Finding 6 (style):** `beyondelo_report` types `inp` as `Inputs` (imported under `TYPE_CHECKING`); `read_inputs` uses `["name"]`; the test helpers, the `spoil` parameter and the `checked` and `report` fixture arguments have type hints; the real-data test logs its figures instead of printing them.
+- **2025/26 figures unchanged:** checked to full precision. On GW27-38, ours is 1.039763, beyondELO's 1.031509 and the baseline 1.082970, with a mean difference of 0.008254 against a two-SE threshold of 0.018415. The fits are identical.
+
+### 2026-11-18: main - outside-source Elo check review fixes: re-review approved
+- **Code Review re-review:** approve. All four fixes do what the entry above says, and nothing else changed behaviour. Re-run against the 2025/26-only real test, the 3d1fe8c modules and the fixed ones give bit-identical verdict figures, fits and ranking median and minimum.
+- **Full suite:** 1123 pass, 99% coverage of `fpl`, ruff clean.
+- **Three optional points, open for Josh:**
+  1. Two stops fire after the scored windows' log-losses are computed: fewer than 2 scored matches, and a promoted club with no `dim_team` name. They show and write nothing, so nothing leaks. Neither can fire on the real data: the six promoted clubs all have names, and 199 matches are scored.
+  2. The exact halving count isn't tested: `range(max_halvings)` for `range(max_halvings + 1)` survives.
+  3. The fewer-than-2 stop is tested with 0 matches only, so `< 1` for `< 2` survives.

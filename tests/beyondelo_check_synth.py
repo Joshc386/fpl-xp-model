@@ -29,7 +29,8 @@ SETTINGS = {
         "fit": {"season": S1, "gameweeks": [1, 12]},
         "scored": [{"season": S1, "gameweeks": [13, 18]}, {"season": S2, "gameweeks": [3, 10]}],
         "ratings_file": "outputs/elo_ratings.csv", "meta_file": "outputs/meta.csv",
-        "fit_tolerance": 1e-12, "max_iterations": 50, "se_multiple": 2, "compare_decimals": 9,
+        "fit_tolerance": 1e-12, "max_iterations": 50,
+        "max_halvings": 60, "se_multiple": 2, "compare_decimals": 9,
         "top_disagreements": 5, "report_suffix": "beyondelo",
     },
 }

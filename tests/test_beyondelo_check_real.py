@@ -9,6 +9,7 @@ backtest/reports/. About 15 s.
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,8 @@ from fpl.beyondelo import load_beyondelo
 from fpl.features import load_as_of
 from fpl.ingest import ROOT, load_config, upstream_data_dir
 
+log = logging.getLogger(__name__)
+Checked = tuple[dict, Path, list[str]]
 SEASON = "2025-2026"
 CFG = load_config(ROOT / "config" / "pipeline.yaml")
 BE = ROOT / CFG["beyondelo"]["external_dir"] / f"{SEASON}.parquet"
@@ -43,7 +46,7 @@ def settings_2025_26() -> dict:
 
 
 @pytest.fixture(scope="module")
-def checked(tmp_path_factory: pytest.TempPathFactory) -> tuple[dict, Path, list[str]]:
+def checked(tmp_path_factory: pytest.TempPathFactory) -> Checked:
     seasons: list[str] = []
 
     def load(season: str, gw: int, mode: str) -> dict:
@@ -63,20 +66,20 @@ def checked(tmp_path_factory: pytest.TempPathFactory) -> tuple[dict, Path, list[
     return run_check(s, inp), out, seasons
 
 
-def test_only_2025_26_is_read(checked) -> None:
+def test_only_2025_26_is_read(checked: Checked) -> None:
     r, _, seasons = checked
     assert set(seasons) == {SEASON}
     assert set(r["scored"].season) == {SEASON} and set(r["fit_table"].season) == {SEASON}
 
 
-def test_the_windows_hold_261_and_119_complete_matches(checked) -> None:
+def test_the_windows_hold_261_and_119_complete_matches(checked: Checked) -> None:
     r, _, _ = checked
     full = {"finished_result", "our_rating", "beyondelo_rating", "complete"}
     assert r["counts"]["fit"] == {"matches": 261} | dict.fromkeys(full, 261)
     assert r["counts"][f"{SEASON} GW27-38"] == {"matches": 119} | dict.fromkeys(full, 119)
 
 
-def test_the_baseline_is_the_fit_windows_rates_and_every_figure_is_finite(checked) -> None:
+def test_the_baseline_is_the_fit_windows_rates_and_every_figure_is_finite(checked: Checked) -> None:
     r, _, _ = checked
     y = r["fit_table"].result
     b = r["fits"]["baseline"]
@@ -90,21 +93,23 @@ def test_the_baseline_is_the_fit_windows_rates_and_every_figure_is_finite(checke
         assert x["by_gw"].n.min() >= 14 and x["by_gw"].spearman.notna().all()
 
 
-def test_the_promoted_clubs_are_burnley_leeds_and_sunderland(checked) -> None:
+def test_the_promoted_clubs_are_burnley_leeds_and_sunderland(checked: Checked) -> None:
     r, _, _ = checked
     assert r["promoted"] == {SEASON: ["Burnley", "Leeds", "Sunderland"]}
 
 
-def test_the_report_is_written_to_the_temporary_folder_with_the_credit(checked) -> None:
+def test_the_report_is_written_to_the_temporary_folder_with_the_credit(checked: Checked) -> None:
     r, out, _ = checked
     assert out.name.endswith("-beyondelo.md") and "backtest" not in out.parent.parts[-2:]
     text = out.read_text(encoding="utf-8")
     assert "beyondELO (https://beyondelo.com)" in text and "CC BY 4.0" in text
     assert "2026-2027" not in text
-    print("\n" + r["log_loss"]["all"].to_string())
-    print(r["log_loss"]["without_promoted"].to_string())
-    print({k: r["verdict"][k] for k in ("n", "mean", "sd", "se", "threshold",
-                                        "worse_than_beyondelo", "not_below_baseline", "poor")})
-    print({k: (f.slope, f.cut_away_draw, f.cut_draw_home, f.iterations)
-           for k, f in r["fits"].items()})
-    print({x["window"]: (x["median"], x["min"]) for x in r["ranking"]})
+    log.info("log-loss, all matches:\n%s", r["log_loss"]["all"].to_string())
+    log.info("log-loss, without promoted clubs:\n%s",
+             r["log_loss"]["without_promoted"].to_string())
+    log.info("verdict %s", {k: r["verdict"][k] for k in (
+        "n", "mean", "sd", "se", "threshold", "worse_than_beyondelo", "not_below_baseline",
+        "poor")})
+    log.info("fits %s", {k: (f.slope, f.cut_away_draw, f.cut_draw_home, f.iterations)
+                         for k, f in r["fits"].items()})
+    log.info("ranking %s", {x["window"]: (x["median"], x["min"]) for x in r["ranking"]})

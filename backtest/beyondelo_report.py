@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from backtest.md import table
+
+if TYPE_CHECKING:
+    from backtest.beyondelo_check import Inputs
 
 CREDIT = "Ratings from beyondELO (https://beyondelo.com), CC BY 4.0."
 SOURCES = (("ours", "Ours"), ("beyondelo", "beyondELO"), ("baseline", "Baseline"))
@@ -110,17 +114,17 @@ def _counts(r: dict) -> list[str]:
                    "Complete"], rows), ""]
 
 
-def _provenance(info: dict, inp: object) -> list[str]:
+def _provenance(info: dict, inp: Inputs) -> list[str]:
     rows = [[k, v] for k, v in info.items()]
     rows.append(["upstream_commit in outputs/meta.csv (the publish elo_ratings.csv came from)",
-                 inp.meta_upstream_commit])
+                 inp.meta_upstream_commit or "(empty)"])
     rows += [[f"sha256 {path}", h] for path, h in inp.hashes.items()]
     return ["## Provenance", "",
             "`upstream_commit` is the local checkout that `load_as_of` read the results from.",
             "", table(["Item", "Value"], rows), ""]
 
 
-def render(r: dict, info: dict, inp: object) -> str:
+def render(r: dict, info: dict, inp: Inputs) -> str:
     """The report: verdict, log-loss tables, fits, ranking agreement, counts, provenance and
     beyondELO's credit line. `inp` is the run's `Inputs` (file hashes, meta's commit)."""
     lines = [f"# Outside-source Elo check: {info.get('date', '')}", "", CREDIT, "",

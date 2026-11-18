@@ -105,15 +105,16 @@ def _newton_step(params: np.ndarray, gap: np.ndarray, y: np.ndarray) -> tuple[np
     return step, float(grad @ step) / 2
 
 
-def fit_ordered(gap: np.ndarray | None, y: np.ndarray, tol: float,
-                max_iterations: int) -> OrderedFit:
+def fit_ordered(gap: np.ndarray | None, y: np.ndarray, tol: float, max_iterations: int,
+                max_halvings: int) -> OrderedFit:
     """Maximum-likelihood ordered logistic fit of outcomes `y` on `gap` (None: the baseline).
 
-    Newton-Raphson from the baseline's exact fit, halving a step until the log-likelihood
-    doesn't fall. Converged when the Newton decrement's half square, the predicted gain of a
-    full step, is at most `tol` nats. It is invariant to the gap's scale, so a source whose
-    ratings are an affine transform of another's gets the same fit. Raises `FitError` if no
-    finite fit exists or it doesn't converge in `max_iterations` steps.
+    Newton-Raphson from the baseline's exact fit, halving a step (at most `max_halvings`
+    times, `_line_search`) until the log-likelihood doesn't fall. Converged when the Newton
+    decrement's half square, the predicted gain of a full step, is at most `tol` nats. It is
+    invariant to the gap's scale, so a source whose ratings are an affine transform of
+    another's gets the same fit. Raises `FitError` if no finite fit exists or it doesn't
+    converge in `max_iterations` steps.
     """
     y = np.asarray(y, dtype="int64")
     g = None if gap is None else np.asarray(gap, dtype="float64")
@@ -134,21 +135,27 @@ def fit_ordered(gap: np.ndarray | None, y: np.ndarray, tol: float,
             return OrderedFit(slope, float(params[0]), float(params[1]), n, it, ll)
         if it == max_iterations:
             break
-        params, ll = _line_search(params, step, ll, gv, y)
+        params, ll = _line_search(params, step, ll, gv, y, max_halvings)
     raise FitError(f"Newton-Raphson didn't converge in {max_iterations} iterations "
                    f"(predicted gain {gain:.3g} nats, tolerance {tol:g})")
 
 
 def _line_search(params: np.ndarray, step: np.ndarray, ll: float, gap: np.ndarray,
-                 y: np.ndarray) -> tuple[np.ndarray, float]:
+                 y: np.ndarray, max_halvings: int) -> tuple[np.ndarray, float]:
+    """`params + t * step` and its log-likelihood, for the largest t in 1, 1/2, 1/4 ... (at
+    most `max_halvings` halvings) whose log-likelihood isn't below `ll`.
+
+    Raises `FitError` if none is: the step isn't an ascent direction, which for this concave
+    log-likelihood means a numerical failure.
+    """
     t = 1.0
-    for _ in range(60):
+    for _ in range(max_halvings + 1):
         new = params + t * step
         new_ll = _loglik(new, gap, y)
         if new_ll >= ll:
             return new, new_ll
         t /= 2
-    raise FitError("Newton-Raphson step found no improvement")
+    raise FitError(f"Newton-Raphson step found no improvement after {max_halvings} halvings")
 
 
 def probabilities(fit: OrderedFit, gap: np.ndarray | None, n: int | None = None) -> np.ndarray:

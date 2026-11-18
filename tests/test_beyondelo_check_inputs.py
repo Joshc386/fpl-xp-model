@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
@@ -103,20 +104,64 @@ def test_a_ratings_file_without_the_hand_off_columns_stops(tmp_path: Path) -> No
         f.read(settings())
 
 
-def test_main_stops_with_a_plain_message_and_no_report(tmp_path: Path,
-                                                       monkeypatch: pytest.MonkeyPatch,
-                                                       caplog: pytest.LogCaptureFixture) -> None:
+@pytest.mark.parametrize("missing", ["outputs/elo_ratings.csv", "outputs/meta.csv",
+                                     f"data/external/beyondelo/{S2}.parquet"])
+def test_a_missing_input_file_stops_with_its_name(tmp_path: Path, missing: str) -> None:
+    f = Fakes(tmp_path)
+    (tmp_path / missing).unlink()
+    with pytest.raises(CheckError, match=missing.split("/")[-1].replace(".", r"\.")):
+        f.read(settings())
+
+
+def test_an_empty_upstream_commit_in_meta_reads_as_empty_not_nan(tmp_path: Path) -> None:
+    f = Fakes(tmp_path)
+    (tmp_path / "outputs" / "meta.csv").write_text("upstream_commit,run_utc\n,2026-11-17\n",
+                                                   encoding="utf-8")
+    assert f.read(settings()).meta_upstream_commit == ""
+
+
+def _lacking_partner(f: Fakes, s: dict) -> bc.Inputs:
+    inp = f.read(s)
+    inp.ours = inp.ours.iloc[1:]
+    return inp
+
+
+def _no_parquet(f: Fakes, s: dict) -> bc.Inputs:
+    (f.root / "data" / "external" / "beyondelo" / f"{S2}.parquet").unlink()
+    return f.read(s)
+
+
+def _unnamed_promoted_club(f: Fakes, s: dict) -> bc.Inputs:
+    inp = f.read(s)
+    be = inp.beyondelo[S2]
+    inp.beyondelo[S2] = be.assign(promoted=be.team_id == 3)
+    inp.names[S2] = inp.names[S2].drop(3)
+    return inp
+
+
+def _one_empty_scored_window(f: Fakes, s: dict) -> bc.Inputs:
+    s["beyondelo_check"]["scored"] = [{"season": S1, "gameweeks": [30, 31]}]
+    return f.read(s)
+
+
+@pytest.mark.parametrize(("make", "message"), [
+    (_lacking_partner, "lacks a partner"),
+    (_no_parquet, f"{S2}.parquet"),
+    (_unnamed_promoted_club, "no dim_team name"),
+    (_one_empty_scored_window, "at least 2"),
+])
+def test_main_stops_with_a_plain_message_and_no_report(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+        make: Callable[[Fakes, dict], bc.Inputs], message: str) -> None:
     f = Fakes(tmp_path)
     s = settings() | {"report_dir": str(tmp_path / "reports")}
-    broken = f.read(s)
-    broken.ours = broken.ours.iloc[1:]
     monkeypatch.setattr(bc, "load_settings", lambda: s)
     monkeypatch.setattr(bc, "load_config", lambda path: PCFG)
-    monkeypatch.setattr(bc, "read_inputs", lambda *a, **k: broken)
+    monkeypatch.setattr(bc, "read_inputs", lambda *a, **k: make(f, s))
     monkeypatch.setattr(bc, "run_info", lambda pcfg: {"commit": "c0ffee"})
     with caplog.at_level(logging.ERROR):
         assert bc.main() == 1
-    assert "lacks a partner" in caplog.text
+    assert message in caplog.text and "Traceback" not in caplog.text
     assert not (tmp_path / "reports").exists()
 
 

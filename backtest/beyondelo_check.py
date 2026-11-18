@@ -101,13 +101,13 @@ def _tables(c: dict, inp: Inputs) -> tuple[pd.DataFrame, list[tuple[Window, pd.D
 
 
 def _fits(c: dict, fit: pd.DataFrame) -> dict[str, OrderedFit]:
-    tol, it = float(c["fit_tolerance"]), int(c["max_iterations"])
+    tol, it, halve = float(c["fit_tolerance"]), int(c["max_iterations"]), int(c["max_halvings"])
     y = fit.result.to_numpy()
     out = {}
     for name, gap in (("ours", fit.gap_ours), ("beyondelo", fit.gap_beyondelo),
                       ("baseline", None)):
         try:
-            out[name] = fit_ordered(None if gap is None else gap.to_numpy(), y, tol, it)
+            out[name] = fit_ordered(None if gap is None else gap.to_numpy(), y, tol, it, halve)
         except FitError as exc:
             raise FitError(f"the {name} fit on the fit window: {exc}") from exc
     return out
@@ -133,9 +133,15 @@ def _ranking(scored_w: list[tuple[Window, pd.DataFrame]], inp: Inputs, top_n: in
     return out
 
 
-def _promoted(be: pd.DataFrame, names: pd.Series) -> list[str]:
-    """The names of the clubs beyondELO flags as promoted in one season, sorted."""
-    return sorted(names[sorted(set(be.team_id[be.promoted]))].tolist())
+def _promoted(season: str, be: pd.DataFrame, names: pd.Series) -> list[str]:
+    """The names of the clubs beyondELO flags as promoted in `season`, sorted. Raises
+    `CheckError` if one has no `dim_team` name."""
+    ids = sorted(set(be.team_id[be.promoted]))
+    unnamed = [int(t) for t in ids if t not in names.index]
+    if unnamed:
+        raise CheckError(f"{season}: beyondELO flags clubs {unnamed} as promoted, but they "
+                         "have no dim_team name")
+    return sorted(names[ids].tolist())
 
 
 def run_check(s: dict, inp: Inputs) -> dict:
@@ -155,12 +161,15 @@ def run_check(s: dict, inp: Inputs) -> dict:
             nll_beyondelo=match_nll(fits["beyondelo"], t.gap_beyondelo.to_numpy(), y),
             nll_base=match_nll(fits["baseline"], None, y)))
     scored = pd.concat(parts, ignore_index=True)
+    if len(scored) < 2:
+        raise CheckError(f"the scored windows hold {len(scored)} matches; the verdict needs "
+                         "at least 2")
     labels = [w.label for w, _ in scored_w]
     verdict = poor_elo_verdict(scored.nll_ours.to_numpy(), scored.nll_beyondelo.to_numpy(),
                                scored.nll_base.to_numpy(), float(c["se_multiple"]),
                                int(c["compare_decimals"]))
     seasons = dict.fromkeys([*fit.season.unique(), *scored.season.unique()])
-    promoted = {x: _promoted(inp.beyondelo[x], inp.names[x]) for x in seasons}
+    promoted = {x: _promoted(x, inp.beyondelo[x], inp.names[x]) for x in seasons}
     return {"settings": s, "counts": counts, "fit_table": fit, "scored": scored, "fits": fits,
             "log_loss": {"all": _log_loss(scored, labels),
                          "without_promoted": _log_loss(scored[~scored.promoted], labels)},
@@ -176,6 +185,14 @@ def run(s: dict, inp: Inputs, info: dict, folder: Path) -> Path:
     out = report_path(folder, f"{info['date']}-{s['beyondelo_check']['report_suffix']}")
     out.write_text(text, encoding="utf-8")
     return out
+
+
+def _read_csv(root: Path, rel: str, **kw: object) -> pd.DataFrame:
+    """`root / rel` as a frame; raises `CheckError` naming `rel` if the file is missing."""
+    try:
+        return pd.read_csv(root / rel, **kw)
+    except FileNotFoundError as exc:
+        raise CheckError(f"{rel} does not exist ({exc.filename})") from exc
 
 
 def _sha256(path: Path) -> str:
@@ -200,7 +217,7 @@ def read_inputs(s: dict, pcfg: dict, root: Path = ROOT,
     for w in [fit_w, *scored_w]:
         last[w.season] = max(last.get(w.season, w.last), w.last)
     path = root / c["ratings_file"]
-    ours = pd.read_csv(path)
+    ours = _read_csv(root, c["ratings_file"])
     lacking = [col for col in RATINGS_COLUMNS if col not in ours.columns]
     if lacking:
         raise CheckError(f"{c['ratings_file']} lacks the columns {lacking}")
@@ -208,15 +225,19 @@ def read_inputs(s: dict, pcfg: dict, root: Path = ROOT,
     be_dir = pcfg["beyondelo"]["external_dir"]
     beyondelo, fixtures, names = {}, {}, {}
     for season, gw in last.items():
-        beyondelo[season] = load_be(season, base_dir=root / be_dir)
+        try:
+            beyondelo[season] = load_be(season, base_dir=root / be_dir)
+        except FileNotFoundError as exc:
+            raise CheckError(f"no beyondELO table for {season}: {exc}") from exc
         hashes[f"{be_dir}/{season}.parquet"] = _sha256(root / be_dir / f"{season}.parquet")
         tables = load(season, gw, s["mode"])
         fixtures[season] = tables["fact_fixture"]
-        names[season] = tables["dim_team"].set_index("team_id").name
-    meta = pd.read_csv(root / c["meta_file"])
+        names[season] = tables["dim_team"].set_index("team_id")["name"]
+    # As fpl.publish_decision reads it: an empty commit stays "", not NaN.
+    meta = _read_csv(root, c["meta_file"], dtype=str, keep_default_na=False)
     return Inputs(ours=ours[ours.season.isin(last)].reset_index(drop=True), beyondelo=beyondelo,
                   fixtures=fixtures, names=names, prem=pcfg["premier_league_tag"],
-                  hashes=hashes, meta_upstream_commit=str(meta.upstream_commit.iloc[0]))
+                  hashes=hashes, meta_upstream_commit=meta["upstream_commit"].iloc[0])
 
 
 def main() -> int:

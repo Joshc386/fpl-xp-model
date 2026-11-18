@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
-from backtest.beyondelo_check import run, run_check
+from backtest.beyondelo_check import Inputs, run, run_check
 from backtest.beyondelo_data import CheckError
 from backtest.beyondelo_fit import FitError
 
 from beyondelo_check_synth import S1, S2, settings, world
 
+Spoil = Callable[[Inputs, str, int], None]
 INFO = {"date": "2026-11-17", "commit": "abc"}
 
 
@@ -82,17 +84,17 @@ def test_matches_with_a_promoted_club_on_either_side_are_left_out_of_the_extra_f
     assert r["verdict"]["n"] == len(sc)
 
 
-def _drop_ours(w, season: str, gw: int) -> None:
+def _drop_ours(w: Inputs, season: str, gw: int) -> None:
     hit = (w.ours.season == season) & (w.ours.gw == gw)
     w.ours = w.ours.drop(index=w.ours.index[hit][:1])
 
 
-def _drop_beyondelo(w, season: str, gw: int) -> None:
+def _drop_beyondelo(w: Inputs, season: str, gw: int) -> None:
     b = w.beyondelo[season]
     w.beyondelo[season] = b.drop(index=b.index[b.gw == gw][:1])
 
 
-def _unfinish(w, season: str, gw: int) -> None:
+def _unfinish(w: Inputs, season: str, gw: int) -> None:
     f = w.fixtures[season]
     i = f.index[f.gw == gw][:1]
     f.loc[i, "finished"] = False
@@ -105,7 +107,7 @@ def _unfinish(w, season: str, gw: int) -> None:
 @pytest.mark.parametrize(("season", "gw", "window"), [(S1, 5, "fit"),
                                                       (S1, 14, f"{S1} GW13-18"),
                                                       (S2, 10, f"{S2} GW3-10")])
-def test_a_missing_partner_stops_the_run_with_no_report(tmp_path: Path, kind: str, spoil,
+def test_a_missing_partner_stops_the_run_with_no_report(tmp_path: Path, kind: str, spoil: Spoil,
                                                         season: str, gw: int,
                                                         window: str) -> None:
     w = world()
@@ -129,5 +131,21 @@ def test_a_fit_that_doesnt_converge_stops_the_run_with_no_report(tmp_path: Path)
     s = settings()
     s["beyondelo_check"]["max_iterations"] = 1
     with pytest.raises(FitError, match="the ours fit on the fit window: Newton-Raphson"):
+        run(s, world(), INFO, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_promoted_club_with_no_name_stops_the_run(tmp_path: Path) -> None:
+    w = world(promoted=frozenset({3}))
+    w.names[S2] = w.names[S2].drop(3)
+    with pytest.raises(CheckError, match=r"\[3\].*no dim_team name"):
+        run(settings(), w, INFO, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_scored_windows_with_fewer_than_two_matches_stop_the_run(tmp_path: Path) -> None:
+    s = settings()
+    s["beyondelo_check"]["scored"] = [{"season": S1, "gameweeks": [30, 31]}]
+    with pytest.raises(CheckError, match="hold 0 matches.*at least 2"):
         run(s, world(), INFO, tmp_path)
     assert list(tmp_path.iterdir()) == []
