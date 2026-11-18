@@ -3288,3 +3288,14 @@ Josh took the main session's recommendation on all eight questions. The terms ar
 - **The three optional re-review points** go to `docs/known_gaps.md` and aren't fixed first (Josh). Neither late stop can fire on this data.
 - **Who sees the figures:** the 2026/27 and pooled figures go in the report and to Josh only. This log gets the verdict and the 2025/26 figures, because builders read it. The report is `backtest/reports/2026-11-18-beyondelo.md`, which builders don't open.
 - **No re-run:** it runs again only after a **Poor Elo rating** and a rebuild tuned on 2025/26 only, as a fourth look with Josh's approval.
+
+### 2026-11-18: main - outside-source Elo check: third holdout look run, not a poor Elo rating
+- **The run:** 08:58 UTC on `11f1a6c` (check code `980f1a3`), clean tree. The report is `backtest/reports/2026-11-18-beyondelo.md`, which builders don't open. All 261 fit-window and 199 scored matches were complete. This was the third holdout look.
+- **The check's verdict:** not a **Poor Elo rating**. Neither condition fires on the pooled scored matches.
+- **2025/26 GW27-38 (development data):** log-loss is 1.0398 for ours, 1.0315 for beyondELO's and 1.0830 for the baseline, in nats per match, over 119 matches. The 2026/27 and pooled figures are in the report and went to Josh only.
+- **Verified:** the analysis-verifier shares no code with `backtest/`. It recomputed every count, log-loss, verdict figure, fit, ranking figure and promoted-club list, and all hold to the report's precision.
+  - Its own checks: the joins are one to one, home and away agree with beyondELO's flag in all 480 matches, and the windows are exact. The fit window's last kickoff (2026-02-18) comes before the first scored one (2026-02-21). Every `elo_before` equals the club's previous `elo_after`.
+- **How to read it:** "not poor" means no evidence that ours is worse. It doesn't mean the two ratings are level. Condition 1 fails only a clear deficit, as accepted in the method's point 4.
+- **Not like-for-like on inputs:** beyondELO's rating moves between Premier League matches in 147 of 920 cases, 102 of them around a European or EFL Cup match. So it uses results ours doesn't. The check is a fair test of predictive quality, but this favours beyondELO.
+- **Minor:** the report's "five biggest rank disagreements" list cuts ties alphabetically. Added to the check's entry in `docs/known_gaps.md`.
+- **Next:** Josh's verdict. If he accepts "not poor", the Elo isn't rebuilt and the 2026/27 window isn't run again. Phase 2's Dixon-Coles work then isn't blocked by the Elo.

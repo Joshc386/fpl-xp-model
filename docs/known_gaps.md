@@ -226,7 +226,7 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
 ## Engineering
 
 - **Outside-source Elo check: two late stops and two untested edges** (2026-11-18).
-  - **Gap:** in `backtest/beyondelo_check.py`, two stops run after the scored windows' log-losses are computed: fewer than 2 scored matches, and a promoted club with no `dim_team` name. Two edges are untested: the exact halving count in `beyondelo_fit._line_search` (an off-by-one survives), and the fewer-than-2 stop with exactly 1 match (only 0 is tested).
+  - **Gap:** in `backtest/beyondelo_check.py`, two stops run after the scored windows' log-losses are computed: fewer than 2 scored matches, and a promoted club with no `dim_team` name. Two edges are untested: the exact halving count in `beyondelo_fit._line_search` (an off-by-one survives), and the fewer-than-2 stop with exactly 1 match (only 0 is tested). In the report, the "five biggest rank disagreements" list cuts ties alphabetically: the 2026-11-18 report's GW38 fifth row is one of five clubs tied at a gap of 1.
   - **Effect:** none on the 2026-11-18 run. All six promoted clubs have names and 199 matches are scored. A stop after scoring shows and writes nothing, so nothing leaks.
   - **Fix before:** the check's next change, or a fourth holdout look.
   - **Idea:** move both checks before `_fits`. Add a test that counts the halvings tried, and one with exactly 1 scored match.
