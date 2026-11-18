@@ -50,13 +50,18 @@ silently, so treat them as hard constraints:
    `start_min` and `finish_min`.
 3. **Per-gameweek stats come from `player_gameweek_stats`.** Never difference
    the cumulative `playerstats` yourself.
-4. **Use only processed matches:** `stats_processed` and
-   `player_stats_processed` both true. Keep every competition, tagged by
-   tournament; downstream filters to the Premier League for points.
+4. **Use complete matches, never upstream's processed flags** (brief data
+   rule 9). Results come from every finished match, and xG and player match
+   stats from complete matches only. Don't use `stats_processed` or
+   `player_stats_processed`: they stay false on matches whose data is
+   complete. Keep every competition, tagged by tournament; downstream filters
+   to the Premier League for points.
 5. **Every join is checked.** Assert row counts before and after each join,
-   so rows are never silently lost or duplicated. Note the two team keys:
-   players link on `team_code` to `teams.code`, fixtures link on team IDs to
-   `teams.id`.
+   so rows are never silently lost or duplicated. The team keys (brief data
+   rule 5): `players.team_code` and the `home_team` and `away_team` columns
+   of `fixtures` and `matches` all hold team codes, so all of them link to
+   `teams.code`. Eleven values are valid as both a code and a `teams.id`, so
+   a join on `teams.id` mislabels clubs silently.
 6. **Never publish on failure.** A failed check fails the run, and `outputs/`
    is left untouched.
 

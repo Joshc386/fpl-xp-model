@@ -3323,3 +3323,9 @@ Josh took the main session's recommendation on points 1, 2, 5 and 6. On points 3
   - phase 2 publishes nothing new.
 - **`CONTEXT.md`:** adds **Development window**. The "Elo check" ambiguity now notes that the gate on Dixon-Coles has passed.
 - **Starts:** after phase 1 is signed off, which waits on Josh's hand test.
+
+### 2026-11-18: main - data-engineer agent file: two stale rules corrected (Josh)
+- **Found while drafting phase 2's task 1 message:** two of the "Non-negotiable rules" in `.claude/agents/data-engineer.md` contradicted the brief, which wins (CLAUDE.md).
+  - Rule 4 said to use only matches with `stats_processed` and `player_stats_processed` true. Those flags were dropped on 2026-11-10 ("main - upstream's processed flags dropped"); brief data rule 9 uses complete matches.
+  - Rule 5 said fixtures link on team IDs to `teams.id`. The match team columns hold team codes (brief data rule 5), and eleven values are valid as both, so that join mislabels clubs silently.
+- **Change:** both rules now restate brief data rules 9 and 5. No code depended on the old wording: the pipeline already follows the brief.
