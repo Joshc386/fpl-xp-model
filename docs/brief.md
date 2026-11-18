@@ -220,23 +220,25 @@ All point values live in `config/scoring.yaml`, keyed by position and taken from
 Minutes is the largest source of xP error, so it gets the most care.
 
 - **Outputs:** `p_appear`, `p_start`, `p_60` (probability of 60+ minutes) and `exp_minutes`, per fixture.
-- **Inputs:** recency-weighted minutes and starts over the last 1, 3 and 6 Premier League matches; `status`; `chance_of_playing_next_round`; `news`; days since the last match; cup and European minutes in the previous 7 days.
-- **v1 method:** recency-weighted start rate and minutes-given-start, then an availability override. Status injured, suspended or unavailable sets everything to 0. A chance of playing of 25, 50 or 75 scales the probabilities. A null chance with status available means 100.
+- **Inputs (v1):** recency-weighted minutes and starts over the last 1, 3 and 6 Premier League matches; `status`; `chance_of_playing_next_round`.
+- **Inputs added in v2:** `news`, days since the last match, and cup and European minutes in the previous 7 days. They suit v2's regression, not v1's rates (decided 2026-11-18).
+- **v1 method:** recency-weighted start rate, bench-appearance rate and minutes-given-start, then an availability override. Status injured, suspended or unavailable sets everything to 0. A chance of playing of 25, 50 or 75 scales the probabilities. A null chance with status available means 100.
 - **v2 method:** logistic regression for `p_start`, trained on the backtest seasons.
 - **Double gameweeks:** the second fixture gets a rotation discount set in config.
 
 ### 2. Team goal expectations
 
 - **Outputs:** `lambda_for` and `lambda_against` per team per fixture.
-- **v1 method:** reuse the Dixon-Coles approach from the betting bot. Fit attack and defence ratings on xG-weighted goals with time decay and a home advantage term.
-- **Fallback and benchmark:** the Elo goals model, a Poisson model driven by the Elo-rating gap and home advantage. It is built in phase 1, fitted only on results up to and including the as-of gameweek (the finished results in the read; a finished result is final, unlike bonus), and supplies `fixture_difficulty.csv` until phase 3.
+- **v1 method:** the Elo goals model below, plus `lambda_pen`: the team's expected penalty goals, from team xG minus non-penalty xG in `matches.csv`, shrunk toward the league average (decided 2026-11-18). Naive but correct first: v1 runs end to end before team goals gets more work.
+- **v2 method:** reuse the Dixon-Coles approach from the betting bot. Fit attack and defence ratings on xG-weighted goals with time decay and a home advantage term. Built only if the first full backtest's weakest areas point at team goals, with that backtest as its regression test.
+- **The Elo goals model:** a Poisson model driven by the Elo-rating gap and home advantage. It is built in phase 1, fitted only on results up to and including the as-of gameweek (the finished results in the read; a finished result is final, unlike bonus), and supplies `fixture_difficulty.csv` until phase 3.
 - **Inputs:** Premier League results and team xG from `matches.csv`, this season and last; the Elo ratings from the Elo component (data rule 12). 2025/26 has no earlier season loaded, so the Elo goals model fits on 2025/26 alone; its minimum sample is set in `config/model.yaml`.
 - **Gate:** Dixon-Coles work starts only after Josh's own comparison of our Elo ratings with an outside Elo source. If the ratings are poor (a **poor Elo rating**, `CONTEXT.md`), a separate Elo agent rebuilds the Elo component first.
 - **Promoted teams:** an Elo-based prior until they have about 6 matches.
 
 ### 3. Attacking returns
 
-- **Player share:** the player's share of team non-penalty xG and of team xA while on the pitch, weighted by minutes.
+- **Player share:** the player's share of team non-penalty xG and of team xA while on the pitch, weighted by minutes. "While on the pitch" is measured from shot data: each shot's minute in `shots.csv` against the player's start and finish minutes, with FPL minutes ruling out unused substitutes. 2024/25 has no shot data, so its shares use the team's match xG × minutes ÷ 90 (decided 2026-11-18).
 - **Shrinkage:** small samples are pulled toward a position-and-team prior, with prior strength `k` (in minutes) set in config.
 
 ```latex
@@ -252,7 +254,7 @@ E[\text{goals}_{i,f}] = \lambda^{np}_{f} \cdot \text{share}_i \cdot \frac{m_{i,f
 - **Terms:** λ^np is the team's expected non-penalty goals (`lambda_for` × the team's non-penalty fraction). λ^pen is the team's expected penalty goals, from team xG minus non-penalty xG in `matches.csv`, shrunk toward the league average. m is `exp_minutes`.
 - **Penalty duty:** for the first-choice taker (`penalties_order` = 1), P(on pens) is his expected share of the match on the pitch, `exp_minutes` / 90. The second-choice taker gets the share of the match when the first choice is off the pitch or out.
 - **Why separate:** folded into `share`, penalty xG would inflate a taker's share and be applied to every open-play chance. It would also stay with him after he lost the job, while the new taker got nothing.
-- **Stripping penalties from history:** player non-penalty xG = xG − penalty attempts × the provider's penalty xG value. The provider uses 0.7884 per penalty, verified in `shots.csv` for 2025/26 and 2026/27. The value goes in config, not code.
+- **Stripping penalties from history:** player non-penalty xG = xG − penalty attempts × the provider's penalty xG value. The provider uses 0.7884 per penalty, verified in `shots.csv` for 2025/26 and 2026/27. The value goes in config, not code. From 2025/26, penalty shots are identified from `shots.csv`'s situation instead, and this subtraction is needed only for 2024/25.
 - **Finishing:** use xG, not goals. Finishing skill is shrunk heavily toward average.
 - **Points:** expected goals × goal points for the position, plus expected assists × assist points.
 - **FPL assists are wider than xA.** They include winning a penalty or direct free-kick that is scored, rebounds from saves, blocks and the woodwork, and deflected shots. "Expected assists" here means expected FPL assists: map xA to FPL assists on history rather than treating the two as equal.
@@ -370,6 +372,7 @@ Known limitation (snapshot timing):
 - All the 2025/26 folders were rewritten on 2026-07-22, so their timing is unknown.
 - Price, status, news and `ep_next` in a snapshot may include news from after the deadline. Match data can't leak, because each folder holds only its own gameweek.
 - The validator checks whether a post-deadline `ep_next` refers to g or g+1, and reports pre- and post-deadline snapshots separately.
+- **The holdout avoids this** (decided 2026-11-18). For each 2026/27 gameweek g, status, chance of playing, news, price and `ep_next` come from upstream's `playerstats.csv` at its last commit before the g deadline, as a live run would have seen them. The model and the `ep_next` baseline both use them. 2025/26 can't be rebuilt this way, because its folders were rewritten on 2026-07-22.
 
 The report goes to `backtest/reports/{date}.md`, and the headline MAEs go into `meta.csv` for the Dashboard.
 

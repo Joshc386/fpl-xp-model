@@ -136,6 +136,12 @@ minimum and its five biggest rank disagreements at the last gameweek. A
 diagnostic of the **outside-source Elo check** with no pass mark.
 _Avoid_: correlation (unqualified), rating agreement
 
+**Development window**:
+2025/26 in full. The modeller tunes and iterates against it freely, and the
+model-validator's diagnostics on it carry no pass mark. In phase 2, only the
+holdout (2026/27 to date) decides the acceptance gate.
+_Avoid_: training set, dev set
+
 **Holdout look**:
 Any scoring of the model or a component on 2026/27 to date (the holdout).
 Each one is approved by Josh and logged in `docs/decisions.md` before it
@@ -263,7 +269,8 @@ _Avoid_: freshness, staleness
 - "Elo check" has two meanings. The model-validator's **Elo component
   check** (task 4, brief section 7) tests the Elo rating against ClubElo and
   results, with pass marks. The **outside-source Elo check** compares it with
-  the **beyondELO rating**, and its verdict gates phase 2's Dixon-Coles work.
+  the **beyondELO rating**, and its verdict gated phase 2's Dixon-Coles work
+  (not a **poor Elo rating**, Josh, 2026-11-18).
   Name the one you mean.
 - Bare "Elo" is ambiguous. Say **Elo rating** for ours and **Upstream Elo**
   for ClubElo's. FPL's own team "strength" ratings are a third, unrelated

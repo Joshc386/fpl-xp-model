@@ -3304,3 +3304,22 @@ Josh took the main session's recommendation on all eight questions. The terms ar
 - **Verdict (Josh):** accepted, not a poor Elo rating. In his words, the differences are very small. The Elo rating is important, but not as vital as the main session had treated it.
 - **So:** the Elo component isn't rebuilt, and the check's 2026/27 window isn't run again. Phase 2's Dixon-Coles work is no longer gated on the Elo.
 - **Proportion:** weigh further Elo work against its effect on xP, not as a gate in its own right. The check's known gap (`docs/known_gaps.md`) waits for the check's next change.
+
+### 2026-11-18: main - phase 2 plan settled (Josh, /grill-with-docs)
+Josh took the main session's recommendation on points 1, 2, 5 and 6. On points 3 and 4 he added the outside checks, and on point 7 he chose the harder, better-quality option. The plan is `docs/plans/phase-2.md`, and Josh approved it and pushes to `main` after each reviewed task.
+1. **Only the end-to-end gate decides.** No component has a pass mark of its own. The model-validator reports diagnostics on the development window as each component lands, and the holdout is scored once, at sign-off.
+2. **Minutes v1 stays lean:** recent starts and minutes, then the availability override. `news`, days since the last match, and cup and European minutes wait for v2 (brief 6.1 updated).
+3. **2024/25 is loaded as 2025/26's prior season,** so the early-season blend's k can be tuned on the development window.
+4. **The 2024/25 load is checked three ways:**
+   - scores against beyondELO and upstream's player goals;
+   - internal rules on the player rows;
+   - season totals against FPL's API, pulled only after Josh approves the request count and terms.
+5. **Team goals v1 is the Elo goals model plus `lambda_pen`.** Dixon-Coles moves to v2, built only if the first full backtest points at team goals (brief 6.2 updated).
+6. **The holdout gets a rebuilt pre-deadline view.** Player fields come from upstream's last commit before each 2026/27 deadline. Why: in 4 of the first 10 gameweeks the snapshot landed after the deadline, when FPL's "next round" fields had moved on (brief section 7 updated).
+7. **Attack measures on-pitch team xG from shot data,** with penalties taken from each shot's situation. 2024/25 has no shots, so it uses match xG × minutes ÷ 90 (brief 6.3 updated).
+- **Main-session choices** (in the plan, unchallenged):
+  - the xA-to-FPL-assists mapping pools two seasons only if the assist rules match;
+  - the modeller builds one component at a time;
+  - phase 2 publishes nothing new.
+- **`CONTEXT.md`:** adds **Development window**. The "Elo check" ambiguity now notes that the gate on Dixon-Coles has passed.
+- **Starts:** after phase 1 is signed off, which waits on Josh's hand test.
