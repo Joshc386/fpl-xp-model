@@ -3179,7 +3179,7 @@ Josh took the main session's recommendation on all eight questions. The terms ar
    - Each source gets its own ordered logistic fit of the result on the before-match gap (home minus away). Three parameters absorb scale, home advantage and the draw rate.
    - The no-skill baseline is the same fit with no gap.
    - **Rejected:** Poisson goals through our Elo goals model. Its priors were tuned on our own gaps, which would favour our ratings.
-3. **Windows:** each source is fitted once on 2025/26 GW1-26 (260 matches). Both are scored on 2025/26 GW27-38 (119) and 2026/27 from GW3 (80 to date), reported per window and pooled. The verdict uses the pooled figure.
+3. **Windows:** each source is fitted once on 2025/26 GW1-26 (261 matches: GW26 is a double gameweek with 11; corrected on 2026-11-18 from 260, an arithmetic slip). Both are scored on 2025/26 GW27-38 (119) and 2026/27 from GW3 (80 to date), reported per window and pooled. The verdict uses the pooled figure.
    - **Rejected:** a walk-forward refit, which means about 20 refits for little gain with 3 parameters.
 4. **A poor Elo rating** means either of these, on the pooled windows:
    - the mean per-match difference (ours minus beyondELO's) is above zero by more than two standard errors (sd ÷ √n), the same floor the Elo component check adopted on 2026-11-14;
@@ -3239,3 +3239,22 @@ Josh took the main session's recommendation on all eight questions. The terms ar
   - Without promoted-club matches (85): 1.0323, 1.0289, 1.0662.
   - Ranking agreement: median 0.963, minimum 0.947.
   - These are not the check's verdict, which pools in the 2026/27 window.
+
+### 2026-11-18: main - outside-source Elo check: Code Review approved with findings (Josh)
+- **Code Review** (roster role) reviewed the uncommitted build: approve with findings, none of them a must-fix before the holdout run.
+  - It re-derived the gap sign, the outcome coding and the fit's gradient and Hessian, and found them right.
+  - The separation pre-check is complete: of 20,000 random small datasets, it rejected none that could be fitted.
+  - The verdict arithmetic and the GW3-10 pinning are right.
+  - It broke the code 15 ways; the tests caught all but one (finding 2).
+- **Main-session check:** an independent fit (Nelder-Mead, not Newton) reproduced the validator's 2025/26 counts, log-losses and mean difference to 4 decimals.
+  - A local rebuild of `elo_ratings.csv` from upstream `ac8be9c` equals the published file (from `6df7a43`) in all 960 rows. So the validator's commit-mismatch flag doesn't affect the check, and the checkout needn't be pulled before the holdout run.
+- **Findings:**
+  1. The method entry said 260 fit-window matches; 261 is right. Fixed in point 3 (main session).
+  2. The line search is never tested: neither the step-halving nor its "no improvement" `FitError`. Its cap of 60 halvings is hardcoded. To the validator.
+  3. `python -m backtest.beyondelo_check` was missing from CLAUDE.md's Commands. Added, with the holdout warning (main session).
+  4. `main()` catches only `CheckError` and `FitError`, so three cases show a traceback instead of a plain message: a missing parquet, a promoted club missing from `dim_team`, and n < 2 in the verdict. None of them leaks 2026/27 figures. To the validator.
+  5. `meta.csv` is read without `dtype=str`. To the validator.
+  6. Style: the report's `inp: object` annotation, `.name` attribute access on a DataFrame, no docstring on `_line_search`, test helpers without type hints, and `print()` in the real-data test. To the validator.
+- **Josh's decision:** commit the reviewed build now, and send findings 2 and 4-6 to the validator before the holdout run, so the run uses the final code. The fix's diff gets a re-review.
+- **Not added:** the validator's optional guard against a scored window overlapping the fit window. It was left out on the main session's recommendation, because the windows are fixed in reviewed config.
+- **Full suite:** 1110 pass, 99% coverage of `fpl`, ruff clean.
