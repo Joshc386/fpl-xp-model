@@ -3258,3 +3258,11 @@ Josh took the main session's recommendation on all eight questions. The terms ar
 - **Josh's decision:** commit the reviewed build now, and send findings 2 and 4-6 to the validator before the holdout run, so the run uses the final code. The fix's diff gets a re-review.
 - **Not added:** the validator's optional guard against a scored window overlapping the fit window. It was left out on the main session's recommendation, because the windows are fixed in reviewed config.
 - **Full suite:** 1110 pass, 99% coverage of `fpl`, ruff clean.
+
+### 2026-11-18: main - task 9: second counted run, done when met
+- **The run:** the 2026-11-17 18:23 UTC scheduled run started at 01:02 UTC on 2026-11-18, 6 hours 39 minutes late, and succeeded in 38 seconds (run 44212656708).
+  - It published upstream `648ec21` as `60b04a9`, changing `players.csv`, `fixture_difficulty.csv` and `meta.csv`.
+  - `elo_ratings.csv` didn't change, as expected after the Liverpool v Man Utd score correction (same result and margin).
+- **Counted runs:** 2026-11-16 18:00, which started 2026-11-17 01:43 and published upstream `6df7a43` as `4ec7fba`, and this one. The only scheduled run between them, 2026-11-17 08:00, was dropped, and a drop doesn't break "consecutive" (2026-11-17, point 7).
+- **Result:** task 9's done-when is met: two consecutive scheduled runs are green, each publishing a new upstream commit. Phase 1 sign-off still waits on Josh's hand test (task 8), which can run now.
+- **Freshness:** the counted runs started 7 hours 43 minutes and 6 hours 39 minutes late. Still to raise as a product problem once there are more runs.
