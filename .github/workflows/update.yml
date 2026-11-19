@@ -1,11 +1,13 @@
-# Twice-daily pipeline: check out the newest upstream data, check it, build the outputs and
+# Three-hourly pipeline: check out the newest upstream data, check it, build the outputs and
 # publish them to outputs/ on main. Plan: docs/plans/task-6-workflows.md. No secrets.
 name: update
 
 on:
   schedule:
-    - cron: "23 8 * * *"
-    - cron: "23 18 * * *"
+    # Every 3 hours at 23 minutes past (00:23 to 21:23 UTC). GitHub started the twice-daily
+    # runs 6 to 9 hours late, so more slots keep the published data closer to upstream. A run
+    # with no new upstream commit publishes nothing (decided 2026-11-19).
+    - cron: "23 */3 * * *"
   workflow_dispatch:
 
 permissions:

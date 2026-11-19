@@ -219,8 +219,8 @@ drifting times.
 _Avoid_: upstream update, data drop
 
 **Run**:
-One scheduled pass of the update pipeline, at 08:23 or 18:23 UTC daily
-(GitHub may start it late or drop it). It publishes only when there is a new upstream refresh and every validation
+One scheduled pass of the update pipeline, every 3 hours at 23 minutes past
+(00:23 to 21:23 UTC; GitHub may start it late or drop it). It publishes only when there is a new upstream refresh and every validation
 passes.
 _Avoid_: job, build, refresh (in Excel, "refresh" means reloading the CSVs)
 

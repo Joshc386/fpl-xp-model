@@ -140,7 +140,8 @@ outputs come from the code just before the push. The next run catches up.
   it under load, especially on the hour. Task 9 counts only runs that
   actually happened. The crons moved off the hour, to 08:23 and 18:23 UTC,
   on 2026-11-17, after one run started 7 h 43 min late and the next hadn't
-  started 5 hours on.
+  started 5 hours on. They moved to every 3 hours on 2026-11-19, after the
+  twice-daily runs started 6 to 9 hours late.
 - **The off-season:** GitHub turns off scheduled workflows in a public repo
   after 60 days without activity. The bot's commits count as activity, but
   in the summer, when upstream stops, the schedule could switch itself off.

@@ -10,7 +10,7 @@ Josh is the first user; anyone given the workbook is the second. Users need Exce
 | --- | --- | --- |
 | Model accuracy | xP beats FPL's own `ep_next` on mean absolute error across the walk-forward backtest | Validator report |
 | Calibration | Mean actual points within ±0.3 of mean predicted in every xP bin with ≥200 player-gameweeks | Calibration table in the report |
-| Freshness | Each run (08:23 and 18:23 UTC) publishes the newest upstream commit that existed when it started | `meta.upstream_commit` vs upstream's latest commit at run start |
+| Freshness | Each run (every 3 hours, at 00:23 to 21:23 UTC) publishes the newest upstream commit that existed when it started | `meta.upstream_commit` vs upstream's latest commit at run start |
 | Reliability | Outputs that fail validation are never published | GitHub Actions run history |
 | Optimiser | Returns a legal 15-player squad in under 60 seconds | Unit tests and run log |
 | Usability | A new user finds the best-value midfielder under £7.0m for the next 5 GWs in under a minute | Hand test before sign-off |
@@ -32,7 +32,7 @@ Version 1 delivers an accurate, validated xP model and the six requested sheets.
 - A transfer planner for a squad the user types in
 - A captain shortlist (highest next-GW xP among likely starters)
 - Six sheets: Dashboard, Player Database, Fixture Analysis, Player Projections, Transfer Planner, Squad Optimisation
-- Automated refresh twice a day
+- Automated refresh every 3 hours
 
 **Later (v1.5 and v2)**
 
@@ -506,7 +506,7 @@ The workbook has six user sheets, a README sheet and hidden data sheets. Every n
 
 ## Automation and operations
 
-A GitHub Actions workflow runs the full pipeline at 08:23 and 18:23 UTC, off the hour because GitHub delays and drops scheduled runs most at the start of each hour (decided 2026-11-17). Upstream refreshes about three times a day at drifting times, so each run publishes whatever is newest when it starts; twice a day is enough. It commits only outputs that pass validation. GitHub may start scheduled runs late, by hours at times, or drop them, so on days with an 18:00 deadline the evening run lands after the deadline.
+A GitHub Actions workflow runs the full pipeline every 3 hours at 23 minutes past (00:23, 03:23 … 21:23 UTC). It runs off the hour because GitHub delays and drops scheduled runs most at the start of each hour (decided 2026-11-17), and every 3 hours because GitHub started the twice-daily runs 6 to 9 hours late (decided 2026-11-19). Upstream refreshes about three times a day at drifting times, so each run publishes whatever is newest when it starts, and a run with no new upstream commit publishes nothing. It commits only outputs that pass validation. GitHub may still start scheduled runs late, by hours at times, or drop them, so a deadline can pass before the newest upstream data is published.
 
 **Workflows**
 
@@ -551,7 +551,7 @@ One repo holds the pipeline, the published outputs, the workbook and the agents.
 ```
 fpl-xp-model/
 ├── .github/workflows/
-│   ├── update.yml          # twice-daily pipeline
+│   ├── update.yml          # three-hourly pipeline
 │   ├── backtest.yml        # weekly backtest
 │   └── ci.yml              # tests on push
 ├── .claude/agents/         # project agents

@@ -222,6 +222,16 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     published.
   - **Idea:** publish the run's `run_utc` in every CSV (a contract change),
     and have README flag tables whose stamps differ.
+- **Run times out of date in the workbook and hand test** (2026-11-19).
+  - **Gap:** the README sheet says runs happen "around 08:00 and 18:00 UTC",
+    and `excel/HAND_TEST.md` step A1 names 08:23 and 18:23. Runs are every 3
+    hours from 2026-11-19. Step A1 also asks for a download before a publish,
+    which the test doesn't need: publishes never rebuild the committed
+    workbook, so any download holds older data than `main`.
+  - **Effect:** a user expects fewer updates than they get, and the hand
+    test reads as if it needs timing.
+  - **Fix:** in the excel-builder's next task, with a rebuild of the
+    workbook.
 
 ## Engineering
 

@@ -3345,3 +3345,10 @@ Josh took the main session's recommendation on points 1, 2, 5 and 6. On points 3
   5. the Elo component check passes: `backtest/reports/2026-11-14.md`, signed off on 2026-11-15.
 - **For the excel-builder's next task:** `HAND_TEST.md` step A1 asks for a download before a publish, which the test doesn't need, and it names the run times, which change today. Its wording confused the run, so it's worth fixing before the next hand test.
 - **Phase 2 starts:** tasks 1 (data-engineer) and 4 (model-validator) first (`docs/plans/phase-2.md`).
+
+### 2026-11-19: main - scheduled runs every 3 hours (Josh)
+- **Change:** `update.yml` runs at 23 minutes past every third hour (`23 */3 * * *`: 00:23, 03:23 … 21:23 UTC), in place of 08:23 and 18:23. Josh approved it on 2026-11-18, to land after the hand test, so an extra publish couldn't fall between its steps.
+- **Why:** GitHub started the twice-daily runs late every time since the move off the hour. The 11-17 18:23 run started 6 h 39 min late, the 11-18 08:23 run 8 h 58 min late and the 11-18 18:23 run 6 h 09 min late. The 11-19 08:23 run hadn't started by 16:00 UTC. Even if every run is that late, eight slots a day put the published data within about 3 hours of upstream, against up to 12 or more.
+- **Cost:** none that matters. A run with no new upstream commit stops after `publish_decision` (about 35 s) and commits nothing, and Actions minutes are free on a public repo. A run queued behind another sees the new `meta.csv` and skips.
+- **Limit:** it doesn't guarantee freshness; GitHub can still delay or drop every slot. The alternative, an outside scheduler triggering the workflow, needs a stored token and a plan of its own.
+- **Updated:** brief sections 1 and 11, `CONTEXT.md` "Run", both phase 1 plans. The workbook's README sheet and `excel/HAND_TEST.md` keep the old times until the excel-builder's next task (`docs/known_gaps.md`, "Run times out of date in the workbook and hand test").
