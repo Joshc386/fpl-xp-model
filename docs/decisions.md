@@ -3329,3 +3329,19 @@ Josh took the main session's recommendation on points 1, 2, 5 and 6. On points 3
   - Rule 4 said to use only matches with `stats_processed` and `player_stats_processed` true. Those flags were dropped on 2026-11-10 ("main - upstream's processed flags dropped"); brief data rule 9 uses complete matches.
   - Rule 5 said fixtures link on team IDs to `teams.id`. The match team columns hold team codes (brief data rule 5), and eleven values are valid as both, so that join mislabels clubs silently.
 - **Change:** both rules now restate brief data rules 9 and 5. No code depended on the old wording: the pipeline already follows the brief.
+
+### 2026-11-19: main - phase 1 signed off (Josh)
+- **Josh's hand test (task 8) passed:** every step of `excel/HAND_TEST.md`, A to H, by Josh's report, in Windows Excel on 2026-11-19. It ran against the publish of upstream `4211dd6` (`a83622d`, `run_utc` 2026-11-19T00:33:09Z, 672 players).
+  - **A, a stale copy refreshes on open:** a browser download of `excel/FPL_Model.xlsx` (last saved 2026-11-17 11:21 UTC) showed Haaland's net transfers this GW as -27,513 in Protected View. After Enable Editing and Enable Content, without Refresh All, it showed -27,479 and "Last updated" 2026-11-19 00:33 UTC, both matching `main`.
+  - **B, first-open prompts:** Global permissions held three `raw.githubusercontent.com` entries; all three were cleared. A never-opened copy then showed the prompts, and Anonymous connected.
+  - **C, offline:** Excel reported `[DataSource.Error] The remote name could not be resolved: 'raw.githubusercontent.com'`, then "The following data range failed to refresh: ExternalData_1. Continue to refresh all?". The sheets kept the last good data.
+  - **D to H:** pass.
+  - **Not timed against a new publish,** as step A1 describes. The committed workbook is never rebuilt by a publish, so any download holds data older than `main`, which is all step A needs.
+- **Phase 1's done-when** (`docs/plans/phase-1.md`) is met, each item checked by someone who didn't do the work:
+  1. the workbook refreshes from GitHub on open: QA's static checks (2026-11-17) and this hand test;
+  2. processed row counts reconcile with upstream, every drop counted by reason: QA (2026-11-17);
+  3. tests pass with at least 80% coverage on new code: QA (2026-11-17), with `excel/` measured by the main session with Excel;
+  4. two consecutive scheduled runs succeed, each publishing a new upstream commit: task 9 (2026-11-18);
+  5. the Elo component check passes: `backtest/reports/2026-11-14.md`, signed off on 2026-11-15.
+- **For the excel-builder's next task:** `HAND_TEST.md` step A1 asks for a download before a publish, which the test doesn't need, and it names the run times, which change today. Its wording confused the run, so it's worth fixing before the next hand test.
+- **Phase 2 starts:** tasks 1 (data-engineer) and 4 (model-validator) first (`docs/plans/phase-2.md`).

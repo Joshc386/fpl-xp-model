@@ -1,8 +1,8 @@
 # Phase 2 plan: xP model v1 and backtest
 
-Status: reviewed with `/grill-with-docs` on 2026-11-18. Ready for Josh's
-go-ahead. Terms are defined in `CONTEXT.md`; decisions are logged in
-`docs/decisions.md`.
+Status: reviewed with `/grill-with-docs` and approved by Josh on 2026-11-18;
+started on 2026-11-19. Terms are defined in `CONTEXT.md`; decisions are
+logged in `docs/decisions.md`.
 
 **Goal (brief section 13):** the expected-points-modeller builds the xP
 components in order: minutes, team goals, attack, defence, bonus, then the
@@ -12,8 +12,8 @@ parallel.
 **Done when:** the acceptance gate in brief section 7 passes on the holdout,
 and the report is committed. The model-validator signs off.
 
-**Starts:** after phase 1 is signed off, which waits on Josh's hand test.
-The Elo gate on the Dixon-Coles work passed on 2026-11-18 (Josh's verdict:
+**Started:** on 2026-11-19, when phase 1 was signed off after Josh's hand
+test. The Elo gate on the Dixon-Coles work passed on 2026-11-18 (Josh's verdict:
 not a poor Elo rating).
 
 ## Tasks, in order
