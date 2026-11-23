@@ -190,6 +190,22 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
 
 ## Model
 
+- **Players back from injury read low** (2026-11-23, minutes v1).
+  - **Gap:** minutes v1 counts gameweeks a player missed through injury or
+    suspension as non-starts. A regular starter back from injury reads low
+    for up to six gameweeks: Saka's start rate is 0.3 at 2026/27 as-of 10.
+  - **Effect:** his xP is understated until the missed gameweeks age out of
+    the windows.
+  - **Idea:** keep each player's status per gameweek (a contract change),
+    and leave flagged gameweeks out of the rates.
+- **A one-match ban zeroes the whole horizon** (2026-11-23, minutes v1).
+  - **Gap:** status injured, suspended, unavailable or not available sets
+    all five gameweeks to 0, however short the absence.
+  - **Effect:** horizon xP, and later the transfer advice, understate such a
+    player. The backtest scores the next gameweek only, so the gate isn't
+    affected.
+  - **Idea:** v2 reads return dates from `news`.
+
 - **Home advantage shrunk towards zero in small pools** (2026-11-14).
   - **Gap:** the Elo goals model's prior on the home coefficient is centred
     on zero, although home advantage is known to be positive. The intercept

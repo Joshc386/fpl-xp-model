@@ -57,7 +57,10 @@ Brief section 4 lists the data rules.
   Goalkeeper, Defender, Midfielder and Forward to GKP, DEF, MID and FWD.
   Positions change between seasons; 11 players were reclassified for 2026/27.
 - **`dim_player.chance_next`:** `chance_of_playing_next_round`. Null means no
-  concern.
+  concern. So does a chance of 0 with status `a`: 345-565 players a snapshot
+  have it in 2025/26's GW2-10 folders, with no news, and 2026/27 has none.
+  It is passed through unchanged; the minutes component reads it as no
+  concern (decided 2026-11-23).
 - **`dim_player.ep_next`:** from the snapshot being loaded, never from master
   history in backtest mode.
 - **`dim_player.fk_order` and `corner_order`:** `direct_freekicks_order` and
@@ -446,7 +449,7 @@ DataFrames only; in phase 1, `export.py` writes `elo_ratings.csv` and
 | Component | Module | Depends on | Output columns |
 | --- | --- | --- | --- |
 | Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per finished Premier League match, 2025/26 onwards, each season seeded as below: `elo_before`, `elo_after` (the `elo_ratings.csv` rows) |
-| Minutes | `models/minutes.py` | Processed tables | `p_appear`, `p_start`, `p_60`, `exp_minutes` |
+| Minutes | `models/minutes.py` | Processed tables | `player_minutes`: every `dim_player` player, for each Premier League fixture of his `dim_player.team_id` club with `gw` in (`as_of_gw`, `as_of_gw` + `max_horizon`], the fixtures `elo_goals` chooses: `team_id`, `p_appear`, `p_start`, `p_60`, `exp_minutes` (decided 2026-11-23) |
 | Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The phase 1 Elo goals model is its fallback and benchmark, and supplies `fixture_difficulty.csv` until phase 3. It returns `lambda_for`, `lambda_against` and `p_cs` (e^(−`lambda_against`)) for each team's Premier League fixtures with `gw` in (`as_of_gw`, `as_of_gw` + `max_horizon`], chosen by gameweek, not by `finished`; `lambda_pen` comes with the phase 2 team goals model |
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |

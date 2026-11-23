@@ -197,7 +197,7 @@ Each model component exposes a function that takes `season`, `as_of_gw` and `mod
 | Component | Module | Depends on | Output columns |
 | --- | --- | --- | --- |
 | Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per finished Premier League match, 2025/26 onwards, each season seeded as in data rule 12: `elo_before`, `elo_after` (the `elo_ratings.csv` rows) |
-| Minutes | `models/minutes.py` | Processed tables | `p_appear`, `p_start`, `p_60`, `exp_minutes` |
+| Minutes | `models/minutes.py` | Processed tables | Every `dim_player` player, for each fixture of his club in the next `max_horizon` gameweeks: `team_id`, `p_appear`, `p_start`, `p_60`, `exp_minutes` |
 | Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The Elo goals model (phase 1) is its fallback and benchmark. It returns `lambda_for`, `lambda_against` and `p_cs` (e^(−`lambda_against`)) for each team's Premier League fixtures in the next `max_horizon` gameweeks, chosen by gameweek (the `fixture_difficulty.csv` rows); `lambda_pen` comes with the phase 2 team goals model |
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |
@@ -226,7 +226,7 @@ Minutes is the largest source of xP error, so it gets the most care.
 - **Outputs:** `p_appear`, `p_start`, `p_60` (probability of 60+ minutes) and `exp_minutes`, per fixture.
 - **Inputs (v1):** recency-weighted minutes and starts over the last 1, 3 and 6 Premier League matches; `status`; `chance_of_playing_next_round`.
 - **Inputs added in v2:** `news`, days since the last match, and cup and European minutes in the previous 7 days. They suit v2's regression, not v1's rates (decided 2026-11-18).
-- **v1 method:** recency-weighted start rate, bench-appearance rate and minutes-given-start, then an availability override. Status injured, suspended or unavailable sets everything to 0. A chance of playing of 25, 50 or 75 scales the probabilities. A null chance with status available means 100.
+- **v1 method:** recency-weighted start rate, bench-appearance rate and minutes-given-start, then an availability override. Status injured, suspended, unavailable or not available (`n`) sets everything to 0, in every gameweek of the horizon. A chance of playing of 25, 50 or 75 scales the probabilities and expected minutes in the next gameweek only, because FPL's chance refers to the next round. A null chance with status available means 100, and so does a chance of 0 with status available (a 2025/26 quirk; `docs/data_contract.md`) (decided 2026-11-23).
 - **v2 method:** logistic regression for `p_start`, trained on the backtest seasons.
 - **Double gameweeks:** the second fixture gets a rotation discount set in config.
 
