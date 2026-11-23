@@ -1,2 +1,2 @@
 run_utc,upstream_commit,current_gw,next_gw,next_deadline_utc,model_version,max_horizon,backtest_mae_model,backtest_mae_ep_next,status
-2026-11-23T01:50:33Z,61f3259dc4d14ef9d0915b723381cf9dedcc35c6,11,12,2026-11-27T18:30:00Z,0.1.1-elo,5,,,ok
+2026-11-23T13:15:05Z,bb27a765d3dff355d8cb1e4cf697fe92514feec3,11,12,2026-11-27T18:30:00Z,0.1.1-elo,5,,,ok
