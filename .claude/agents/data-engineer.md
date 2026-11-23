@@ -55,7 +55,8 @@ silently, so treat them as hard constraints:
    stats from complete matches only. Don't use `stats_processed` or
    `player_stats_processed`: they stay false on matches whose data is
    complete. Keep every competition, tagged by tournament; downstream filters
-   to the Premier League for points.
+   to the Premier League for points. The exception: `fact_shot` and
+   `fact_player_spell` are Premier League only (decided 2026-11-23).
 5. **Every join is checked.** Assert row counts before and after each join,
    so rows are never silently lost or duplicated. The team keys (brief data
    rule 5): `players.team_code` and the `home_team` and `away_team` columns

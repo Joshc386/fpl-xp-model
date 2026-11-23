@@ -39,6 +39,13 @@ results, for the Elo ratings, come from every finished match. Upstream's
 complete.
 _Avoid_: processed match, completed match, played match
 
+**On-pitch spell**:
+The stretch of a match a player spent on the pitch, on the match clock: from
+kickoff (a starter) or the minute he came on, to the minute he went off or
+was sent off, or the final whistle. An unused substitute has none. The
+attack measures a player's share of his team's xG during his spells.
+_Avoid_: stint, appearance (FPL's term for playing at least one minute)
+
 **Blank gameweek**:
 A gameweek in which a team has no fixture, so its players score 0.
 _Avoid_: blank week, free week

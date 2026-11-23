@@ -24,7 +24,9 @@ so a table never mixes seasons.
 | `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `upstream_elo` |
 | `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `stats_complete`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
 | `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves` |
-| `fact_player_gw` | Player × gameweek | `player_id`, `team_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
+| `fact_player_gw` | Player × gameweek | `player_id`, `team_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `fpl_goals`, `fpl_assists`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
+| `fact_shot` | Shot, Premier League complete matches | `match_id`, `shot_index`, `team_id`, `player_id`, `minute`, `added_time`, `clock`, `situation`, `outcome`, `xg`, `is_penalty`, `is_own_goal` |
+| `fact_player_spell` | Player × Premier League complete match, minutes > 0 | `player_id`, `team_id`, `match_id`, `spell_start`, `spell_end`, `spell_repaired` |
 
 ### Source notes
 
@@ -179,6 +181,80 @@ Brief section 4 lists the data rules.
   - A released row can still be provisional for some hours: FPL keeps
     adjusting bonus, BPS and occasionally points. The next run corrects it,
     and backtests read final folders.
+- **`fact_player_gw.fpl_goals` and `fpl_assists`:** FPL's own
+  `goals_scored` and `assists` from `player_gameweek_stats`. Integers, never
+  null, under the table's row gate. They are FPL's counts, not upstream's
+  match-stats `fact_player_match.goals` and `assists`. The two agree in
+  2025/26 but not in 2026/27: 243 FPL assists against 179 in the match stats
+  over GW1-10 (decided 2026-11-23).
+- **`fact_shot`:** from `GW{x}/shots.csv`. Key (`match_id`, `shot_index`).
+  - **Rows:** Premier League complete matches in the read only (decided
+    2026-11-23). Cup and European shots aren't built: 2026/27 has none, and
+    1,270 of 2025/26's 2,625 have no player.
+  - `team_id`: the shot's club, from `is_home` through the match's
+    `home_team_id` and `away_team_id`.
+  - `player_id`: FPL's id. Null when upstream's is blank, and on own goals.
+    Blank rows are kept, because their team and clock still count towards
+    team xG on the pitch. There were 314 of 2,738 in 2026/27 at upstream
+    `ac8be9c` (10.5% of shot xG) and none in 2025/26 (`docs/known_gaps.md`).
+  - `clock`: the match clock as a number. It is `minute`, except that
+    `minute` 90 with added time is 90 + `added_time`, and `minute` 45 with
+    added time is 45.5 (first-half stoppage, before the second half's 46).
+    `added_time` is a nullable integer.
+  - `is_penalty`: `situation` is `penalty`. Upstream's penalty xG is 0.7884
+    in every such row of both seasons.
+  - `is_own_goal`: the shooter's `fact_player_match.team_id` differs from
+    the shot's `team_id`. 2026/27 files own goals as shots credited to the
+    side that benefits (13 at `ac8be9c`); 2025/26 leaves 40 of its 42 out.
+  - Kept but counted by reason: `player_blank`, `own_goal` and
+    `shooter_not_in_player_match`.
+  - Not kept: `xgot`, the coordinates, body part and goal-mouth fields.
+- **`fact_player_spell`:** one row per `fact_player_match` row of a Premier
+  League complete match with `minutes` > 0, so an unused substitute has no
+  spell (brief data rule 2). `team_id` is that row's `team_id`.
+  - `spell_start` and `spell_end` are on the `fact_shot.clock` scale.
+    `spell_start` is 0 for a starter. A null `spell_end` means the player
+    was on at the final whistle. A player is on the pitch for a shot when
+    `spell_start` ≤ `clock` ≤ `spell_end`, both ends included.
+  - **Source by season** (`spell_source` in `config/pipeline.yaml`, decided
+    2026-11-23):
+    - 2025/26, `incidents.csv`: the start is the substitution bringing him
+      on; the end is the substitution taking him off, or a red or second
+      yellow card. Its `start_min` and `finish_min` can't be used, because
+      157 of 380 Premier League matches hold no substitution times.
+    - 2026/27, `playermatchstats`: the start is `start_min`, and the end is
+      `finish_min` when it is below 90, null otherwise. There is no
+      `incidents.csv`.
+  - **Repair rule:** where a spell's minutes inside 90
+    (min(end, 90) − min(start, 90)) differ from `minutes_played` by more
+    than the tolerance, the end becomes start + `minutes_played`, and
+    `spell_repaired` is true. At `ac8be9c` that is 12 rows in 2025/26 and
+    15 in 2026/27; 14 of the 15 are sent-off players whose `finish_min`
+    reads full time.
+  - **Limit:** in 2026/27, a player substituted in stoppage time counts as
+    on until the whistle.
+- **Checks on `fact_shot` and `fact_player_spell`:** in two groups, so that
+  the validator's perturbation test, which corrupts `matches.csv` and
+  `fixtures.csv`, still works.
+  - **On every read**, using only `shots.csv`, `incidents.csv`,
+    `playermatchstats`, `player_gameweek_stats` and `stats_complete`:
+    - hard checks: unique keys, `xg` in [0, 1], `minute` 1-90, only known
+      `situation` and `outcome` values (a new one fails the run), shot rows
+      for every complete Premier League match, and no spell for an unused
+      substitute;
+    - counted by reason and capped per season: spells against
+      `minutes_played` (the repair), spells against FPL gameweek minutes,
+      FPL minutes without a spell, 11 starters per club per match, and
+      shooters off the pitch at their shot.
+  - **At pipeline build only** (`run_pipeline` on the real checkout, never
+    inside `load_as_of`), against `matches.csv`: penalty shot xG against
+    team xG minus non-penalty xG, shot counts against `total_shots`, goal
+    shots against the score, and shot xG against team xG per side, with its
+    season ratio and mean difference. The shot xG checks are loose, because
+    the shots file and `matches.csv` carry two xG measures from the same
+    provider.
+  - Tolerances and caps live in `config/pipeline.yaml`. Their starting
+    values are logged in `docs/decisions.md` (2026-11-23).
 - **`dim_player`:** the latest snapshot of the season's players, so fact
   tables may hold a `player_id` that isn't in it (players who left). A player
   with no `playerstats` row is dropped and counted under
@@ -269,6 +345,9 @@ CSV in `outputs/`, committed, read by Excel.
     isn't on that order.
   - `fact_player_gw`: `team_id` may be null for a player missing from that
     gameweek's snapshot.
+  - `fact_shot`: `player_id` may be null (blank upstream, or an own goal),
+    and so may `added_time`.
+  - `fact_player_spell`: `spell_end` may be null (on at the final whistle).
 
 ## Point-in-time loader
 
@@ -278,8 +357,10 @@ guard against leakage.
 
 - **Signature:** `load_as_of(season, as_of_gw, mode, *, cfg=None,
   root=ROOT)`, with `mode` either `"backtest"` or `"live"`.
-- **Returns** the five processed tables, keyed by table name, with the
-  columns above.
+- **Returns** the seven processed tables, keyed by table name, with the
+  columns above. `fact_shot` and `fact_player_spell` are read from gameweek
+  folders up to `as_of_gw` only, hold only the complete Premier League
+  matches in the read, and live mode overlays neither (decided 2026-11-23).
 - **What an as-of read holds:** a read at as-of g holds every match with
   `gw` up to g, in any competition.
   - Because a cup or European match's `gw` is the gameweek it was played
@@ -301,8 +382,8 @@ guard against leakage.
 - **Backtest mode:** the processed tables as they stood at the end of
   `GW{as_of_gw}`, built from that snapshot and the folders it needs.
   - It never reads master files.
-  - It never returns a result, xG, upstream Elo or player row from a match
-    outside the read.
+  - It never returns a result, xG, upstream Elo, player row, shot or spell
+    from a match outside the read.
   - **Later Premier League fixtures** appear in `fact_fixture` as **schedule
     only**: `finished` and `stats_complete` false, and results, xG and
     upstream Elo null. Fixture difficulty needs them. Their gameweek and

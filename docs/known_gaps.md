@@ -112,6 +112,18 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
 
 ## Missing inputs
 
+- **Shots with no player (2026/27)** (2026-11-23, task 1).
+  - **Gap:** 314 of 2,738 Premier League shots in GW1-10 have a blank
+    `player_id` at upstream `ac8be9c`: 10.5% of shot xG, in 85 of 100
+    matches, at 9-14% every gameweek. 2025/26 has none. Upstream's
+    `player_name` is blank on every 2026/27 shot.
+  - **Effect:** a player's own shot xG falls about 10% short of his team's
+    xG on the pitch, which still counts those shots. The attack (task 7)
+    must allow for it, on the holdout and live.
+  - **Ideas:** take a player's own xG from `fact_player_match.xg`, which
+    includes those shots; or assign a blank shot from `total_shots` where
+    only one player fits (73 of 119 team-matches with blanks).
+
 - **Upcoming European and cup ties** (2026-11-11).
   - **Gap:** later cup and European fixtures are left out of as-of reads,
     because a future knockout tie reveals earlier results.

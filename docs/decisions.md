@@ -3352,3 +3352,33 @@ Josh took the main session's recommendation on points 1, 2, 5 and 6. On points 3
 - **Cost:** none that matters. A run with no new upstream commit stops after `publish_decision` (about 35 s) and commits nothing, and Actions minutes are free on a public repo. A run queued behind another sees the new `meta.csv` and skips.
 - **Limit:** it doesn't guarantee freshness; GitHub can still delay or drop every slot. The alternative, an outside scheduler triggering the workflow, needs a stored token and a plan of its own.
 - **Updated:** brief sections 1 and 11, `CONTEXT.md` "Run", both phase 1 plans. The workbook's README sheet and `excel/HAND_TEST.md` keep the old times until the excel-builder's next task (`docs/known_gaps.md`, "Run times out of date in the workbook and hand test").
+
+### 2026-11-23: main - task 1 contract change: FPL goals and assists, shots and on-pitch spells (Josh)
+The data-engineer's step A report (no code) proposed the change. Josh took all five of the main session's recommendations. The contract (`docs/data_contract.md`), brief sections 4, 5 and 6.3, plan point 7, `CONTEXT.md` (**On-pitch spell**), `docs/known_gaps.md` and the data-engineer's agent file are updated. Step B builds it.
+- **The change:**
+  - `fact_player_gw` gains `fpl_goals` and `fpl_assists`, FPL's own counts from `player_gameweek_stats`.
+  - New `fact_shot`: one row per shot, Premier League complete matches only.
+  - New `fact_player_spell`: one row per player per Premier League complete match with minutes > 0.
+  - `load_as_of` returns seven tables, and reads `shots.csv` and `incidents.csv` from folders up to the as-of gameweek only.
+- **Josh's five calls:**
+  1. **2025/26 spells come from `incidents.csv`,** because 157 of its 380 Premier League matches hold no substitution times in `start_min` and `finish_min`. 2026/27 keeps `start_min` and `finish_min`, and has no `incidents.csv`.
+  2. **The spell repair rule:** where a spell's minutes inside 90 differ from `minutes_played` by more than 2, the end becomes start + `minutes_played`, flagged `spell_repaired`. That is 12 rows in 2025/26 and 15 in 2026/27, 14 of them players sent off. Dropping the rows instead would lose a sent-off starter's minutes.
+  3. **2026/27 shots with a blank player are kept with `player_id` null,** and not filled in. They still count towards team xG on the pitch. The attack (task 7) has to allow for them (`docs/known_gaps.md`, "Shots with no player").
+  4. **Shots and spells are Premier League only,** an exception to the data-engineer's "keep every competition" rule. 2026/27 cup matches have no shots, and 1,270 of 2025/26's 2,625 cup shots have no player.
+  5. **Shot xG is checked loosely against `matches.csv` team xG,** because the two files carry different xG measures from the same provider. The tight checks are penalty xG and shot counts.
+- **Starting tolerances and caps** (in `config/pipeline.yaml`, set from the data at upstream `ac8be9c`):
+  - **On every read**, counted by reason and capped per season:
+    - spells against `minutes_played`: 2 minutes, cap 1% of rows (12 rows, 0.10%, in 2025/26; 15, 0.49%, in 2026/27);
+    - spells against FPL gameweek minutes: 2 minutes, cap 0.2% (2 of 11,361; 2 of 3,076);
+    - FPL minutes without a spell: cap 0.5% (0; 8 of 3,084);
+    - 11 starters per club per match: cap 3% of team-sides (5 of 760 sides have 12; 4 of 200 have 10);
+    - shooters off the pitch at their shot: cap 0.1% of shots (4 of 9,504; 0 of 2,405).
+  - **Hard on every read:** unique keys, `xg` in [0, 1], `minute` 1-90, known `situation` and `outcome` values, shot rows for every complete Premier League match, and no spell for an unused substitute. All pass in both seasons.
+  - **At pipeline build only:**
+    - penalty shot xG against team xG minus non-penalty xG: 0.02 per side (largest 0.008);
+    - shot counts against `total_shots`: 3 per side;
+    - goal shots against the score: no failures allowed (none now);
+    - shot xG against team xG: 1.25 per side (largest 1.064 and 0.991), a season ratio within 0.97-1.03 (1.013 in both), and a season mean difference of at most 0.25 (0.064 and 0.132).
+- **Checked by the main session from the raw files:** the 157 of 380 matches with no substitution times; `incidents.csv` covering all 380 2025/26 Premier League matches and absent from 2026/27; the 314 of 2,738 blank 2026/27 shooters (10.5% of shot xG, 85 matches, 9-14% in each of GW1-10); and penalty xG of 0.7884 on every penalty shot, both seasons. The repair counts and tolerance spreads are the data-engineer's, tested in step B.
+- **Told the model-validator** (task 4, building the harness): `backtest/config.yaml` `upstream_files` needs `shots` and `incidents`, so the perturbation copy has them.
+- **Also found:** upstream's 2025/26 match goals and assists equal FPL's exactly, but 2026/27 assists don't (179 against 243). This feeds the assist-rules check before task 7. Players 656, 668 and 651 have no 2026/27 match stats, which is already logged ("Players with no per-match rows").

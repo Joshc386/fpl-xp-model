@@ -134,14 +134,21 @@ the contract; so do the modeller's.
 7. **Attack measures on-pitch team xG from shot data (Josh).**
    - **How:** upstream's `shots.csv` (2025/26 and 2026/27) gives each shot's
      match, minute, player, situation and xG. Each player's on-pitch spells
-     come from his start and finish minutes. A player's share uses his
-     team's non-penalty xG during his spells (brief section 6.3).
+     come from `incidents.csv` in 2025/26 and from his start and finish
+     minutes in 2026/27. (Changed on 2026-11-23: 2025/26's start and finish
+     minutes hold no substitution times in 157 of 380 matches.) A player's
+     share uses his team's non-penalty xG during his spells (brief section
+     6.3).
    - **Penalties** are identified from each shot's situation, so penalty xG
      comes from the shots themselves, not from penalty attempts × 0.7884.
-   - **Checks when built**, in line with point 4: shot xG per team per match
-     reconciles with `matches.csv` team xG and non-penalty xG within a
-     tolerance, and on-pitch minutes agree with FPL minutes, so unused
-     substitutes get no spell (brief data rule 2).
+   - **Checks when built**, in line with point 4: penalty shot xG
+     reconciles tightly with `matches.csv` team xG minus non-penalty xG, and
+     total shot xG loosely with team xG, because the two files carry
+     different xG measures. On-pitch minutes agree with FPL minutes, so
+     unused substitutes get no spell (brief data rule 2). The full list is in
+     `docs/data_contract.md` (decided 2026-11-23).
+   - **Limit:** in 2026/27 about one shot in nine has no player id
+     (`docs/known_gaps.md`).
    - **Limit:** 2024/25 has no shot data, so its prior-season shares use the
      match xG × minutes ÷ 90 approximation. That affects only 2025/26's early
      weeks; 2026/27's prior is 2025/26, which has shots.

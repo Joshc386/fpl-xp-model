@@ -100,12 +100,14 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
 | `GW{x}/playermatchstats.csv` | Player × match | xG, xA, tackles, interceptions, clearances, blocks, recoveries, saves, `minutes_played` |
 | `GW{x}/matches.csv` | Match | Team xG, non-penalty xG, scores, Elo at kickoff (frozen for stretches of 2025/26, null from 2026/27 GW3; rule 12), processing flags |
 | `GW{x}/fixtures.csv` | Match | Gameweek x's fixtures only, with home and away team codes. The next 5 GWs come from folders `GW{next}` to `GW{next+4}` |
+| `GW{x}/shots.csv` | Shot | Each shot's match, minute, player, situation and xG, for the attack's on-pitch shares (Premier League only) |
+| `GW{x}/incidents.csv` | Match event | Substitution and card times in 2025/26, for on-pitch spells. 2026/27 has none |
 | `By Tournament/Premier League/` | Various | Premier League-only filter |
 
 **Data rules**
 
 1. Take per-gameweek stats from `player_gameweek_stats`. Never difference the cumulative `playerstats` yourself.
-2. Take per-match minutes from `minutes_played`. `start_min` and `finish_min` are best-effort; deriving minutes from them credits unused subs with a full match. For anything tied to FPL's minute thresholds (appearance points, 60 minutes, `p_60`), use `player_gameweek_stats.minutes`. In 2026/27, `minutes_played` reads 1 minute high for most substituted starters, which wrongly puts 21 of 2,679 player-gameweeks (GW1–9) over the 60-minute line. The two agree exactly in 2025/26.
+2. Take per-match minutes from `minutes_played`. `start_min` and `finish_min` are best-effort; deriving minutes from them credits unused subs with a full match. For anything tied to FPL's minute thresholds (appearance points, 60 minutes, `p_60`), use `player_gameweek_stats.minutes`. In 2026/27, `minutes_played` reads 1 minute high for most substituted starters, which wrongly puts 21 of 2,679 player-gameweeks (GW1–9) over the 60-minute line. The two agree exactly in 2025/26. On-pitch spells for the attack (section 6.3) come from `incidents.csv` in 2025/26, because 157 of its 380 Premier League matches hold no substitution times in `start_min`, and from `start_min` and `finish_min` in 2026/27 (decided 2026-11-23).
 3. Model points on Premier League matches only. Keep cup and European minutes as rotation and fatigue features.
 4. Gameweek 0 is pre-season friendlies. Exclude it from training; it may serve as a minutes prior before GW3.
 5. Joins: `players.team_code` → `teams.code`; `fixtures` and `matches` `home_team`/`away_team` → `teams.code`; `playerstats.id` → `players.player_id`; `playermatchstats.match_id` → `matches.match_id`. The match team columns hold team codes, not `teams.id`, in both 2025/26 and 2026/27. Eleven values are valid as both, so a join on `teams.id` mislabels clubs silently. A player's club in a match comes from that gameweek's snapshot `players.team_code`, where a cup or European match's gameweek is the one it was played in, not upstream's filing folder.
@@ -149,7 +151,9 @@ Every agent builds against these schemas. A change means updating this section a
 | `dim_team` | Team | `team_id`, `team_code`, `name`, `short_name`, `upstream_elo` |
 | `fact_fixture` | Match, all competitions | `match_id`, `season`, `gw`, `kickoff_utc`, `tournament`, `home_team_id`, `away_team_id`, `home_upstream_elo`, `away_upstream_elo`, `finished`, `stats_complete`, `home_xg`, `away_xg`, `home_npxg`, `away_npxg`, `home_goals`, `away_goals` |
 | `fact_player_match` | Player × match | `player_id`, `team_id`, `match_id`, `minutes`, `goals`, `assists`, `xg`, `xa`, `pens_scored`, `pens_missed`, `tackles`, `interceptions`, `clearances`, `blocks`, `recoveries`, `saves` |
-| `fact_player_gw` | Player × gameweek | `player_id`, `team_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
+| `fact_player_gw` | Player × gameweek | `player_id`, `team_id`, `season`, `gw`, `points`, `minutes`, `starts`, `bonus`, `bps`, `fpl_goals`, `fpl_assists`, `yellow`, `red`, `own_goals`, `goals_conceded`, `tackles`, `cbi`, `recoveries`, `defensive_contribution`, `price_tenths`, `selected_pct`, `transfers_in`, `transfers_out` |
+| `fact_shot` | Shot, Premier League complete matches | `match_id`, `shot_index`, `team_id`, `player_id`, `minute`, `added_time`, `clock`, `situation`, `outcome`, `xg`, `is_penalty`, `is_own_goal` |
+| `fact_player_spell` | Player × Premier League complete match, minutes > 0 | `player_id`, `team_id`, `match_id`, `spell_start`, `spell_end`, `spell_repaired` |
 
 The `upstream_elo` columns hold upstream ClubElo exactly as provided (frozen for stretches of 2025/26 and null from 2026/27 GW3). The model's own Elo ratings are the Elo component's output (data rule 12). `home_team_id` and `away_team_id` are null for clubs outside the Premier League. The `fact_player_gw` defensive counts are FPL's own figures. The other source mappings are in `docs/data_contract.md`.
 
@@ -238,7 +242,7 @@ Minutes is the largest source of xP error, so it gets the most care.
 
 ### 3. Attacking returns
 
-- **Player share:** the player's share of team non-penalty xG and of team xA while on the pitch, weighted by minutes. "While on the pitch" is measured from shot data: each shot's minute in `shots.csv` against the player's start and finish minutes, with FPL minutes ruling out unused substitutes. 2024/25 has no shot data, so its shares use the team's match xG × minutes ÷ 90 (decided 2026-11-18).
+- **Player share:** the player's share of team non-penalty xG and of team xA while on the pitch, weighted by minutes. "While on the pitch" is measured from shot data: each shot's clock in `fact_shot` against the player's on-pitch spell in `fact_player_spell`, with FPL minutes ruling out unused substitutes. In 2026/27 about one shot in nine has no player id; it still counts towards team xG on the pitch (`docs/known_gaps.md`). 2024/25 has no shot data, so its shares use the team's match xG × minutes ÷ 90 (decided 2026-11-18).
 - **Shrinkage:** small samples are pulled toward a position-and-team prior, with prior strength `k` (in minutes) set in config.
 
 ```latex
