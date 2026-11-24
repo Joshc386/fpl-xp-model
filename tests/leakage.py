@@ -104,6 +104,9 @@ def assert_no_leakage(
         assert (pd.to_datetime(fx.kickoff_utc, utc=True)[~prem] < cutoff).all(), "cup after cutoff"
     visible = set(fx.match_id[~(prem & later)])
     assert set(tables["fact_player_match"].match_id) <= visible, "player-match rows leaked"
+    done = set(fx.match_id[prem & ~later & fx.stats_complete])
+    for name in ("fact_shot", "fact_player_spell"):
+        assert set(tables[name].match_id) <= done, f"{name} holds a match outside the read"
     if full_fixture is not None:
         full_prem = set(full_fixture.match_id[full_fixture.tournament == PREM])
         assert set(fx.match_id[prem]) == full_prem, "the Premier League schedule is incomplete"

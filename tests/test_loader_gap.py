@@ -26,7 +26,8 @@ SEASON = "2026-2027"
 def gap_cfg(cfg: dict) -> dict:
     out = copy.deepcopy(cfg)
     out["upstream"].update(checkout_path=str(GAP), data_dir="data")
-    out["seasons"] = [{"id": SEASON, "gameweeks": 3, "tackles_column": "tackles_won"}]
+    out["seasons"] = [{"id": SEASON, "gameweeks": 3, "tackles_column": "tackles_won",
+                       "spell_source": "playermatchstats"}]
     out["validation"].update(
         prem_matches_rows=[1, 380], matches_rows=[1, 700], players_rows_per_snapshot=[1, 1000],
         playerstats_rows_snapshot=[1, 1000], player_gameweek_stats_rows_per_gw=[1, 1000],

@@ -11,6 +11,9 @@ formula of the player, club and gameweek, so a test can say what a table should 
   cup-10 is played in GW9 and filed in the GW10 folder; cup-late is played in GW2 but filed
   in the GW25 folder, after player 2 has moved clubs. Its players are club 1's at GW2.
 * Team Elo, price, ep_next and the transfer counts change with the gameweek.
+* Every Premier League match has two shots a side (a regular miss at 10, a penalty goal at 50)
+  by a player of the club who played. Spells come from `incidents.csv`: a player with 60 minutes
+  is substituted off at 61 and one with 75 at 76 (nobody comes on), the others play the match.
 * The master files are poisoned (injured, price 9.9) to show up any read of them.
 """
 
@@ -81,6 +84,7 @@ def _match_rows(gw: int) -> list[dict]:
             "away_team_elo": 1500.0 + 10 * (away or 5) + gw,
             "home_score": float(hs), "away_score": float(as_), "finished": True,
             "home_expected_goals_xg": 0.5 + 0.25 * hs, "away_expected_goals_xg": 0.4 + 0.25 * as_,
+            "home_total_shots": 2.0, "away_total_shots": 2.0,
             "home_non_penalty_xg": np.nan if cup else 0.4 + 0.25 * hs,
             "away_non_penalty_xg": np.nan if cup else 0.3 + 0.25 * as_,
         })
@@ -103,6 +107,43 @@ def _pms_rows(gw: int) -> list[dict]:
     return rows
 
 
+def _played(match: dict, team: int) -> list[int]:
+    """The club's players with minutes in a Premier League match, in id order."""
+    return [p for p in PLAYER_CLUB if club(p, match["gw"]) == team and minutes(p, match["gw"])]
+
+
+def _shot_rows(gw: int) -> list[dict]:
+    rows = []
+    for m in (m for m in schedule() if m["gw"] == gw and m["tournament"] == "prem"):
+        for is_home, team in ((True, m["home"]), (False, m["away"])):
+            who = _played(m, team)
+            if not who:
+                continue
+            for i, (minute, situation, outcome, xg) in enumerate(
+                    [(10, "regular", "miss", 0.1), (50, "penalty", "goal", 0.7884)], start=1):
+                rows.append({
+                    "match_id": m["id"], "shot_index": 2 * team + i, "minute": float(minute),
+                    "is_home": is_home, "player_id": float(who[0]), "outcome": outcome,
+                    "situation": situation, "xg": xg,
+                })
+    return rows
+
+
+def _incident_rows(gw: int) -> list[dict]:
+    rows = []
+    for m in (m for m in schedule() if m["gw"] == gw):
+        for p in PLAYER_CLUB:
+            at = m.get("played", gw)
+            team = club(p, at)
+            if team not in (m["home"], m["away"]) or minutes(p, at) not in (60, 75):
+                continue
+            rows.append({
+                "match_id": m["id"], "incident_type": "substitution",
+                "minute": float(minutes(p, at) + 1), "player_id": float(p),
+            })
+    return rows
+
+
 def _pgs_rows(gw: int) -> list[dict]:
     rows = []
     prem = [m for m in schedule() if m["gw"] == gw and m["tournament"] == "prem"]
@@ -111,7 +152,8 @@ def _pgs_rows(gw: int) -> list[dict]:
         rows.append({
             "id": p, "gw": gw, "event_points": sum(played) // 30 + gw % 3,
             "minutes": sum(played), "starts": sum(x >= 60 for x in played), "bonus": 0,
-            "bps": 10, "yellow_cards": 0, "red_cards": 0, "own_goals": 0, "goals_conceded": 1,
+            "bps": 10, "goals_scored": 0, "assists": 0, "yellow_cards": 0, "red_cards": 0,
+            "own_goals": 0, "goals_conceded": 1,
             "tackles": 1, "clearances_blocks_interceptions": 1, "recoveries": 1,
             "defensive_contribution": 1, "now_cost": (50 + p + gw) / 10,
             "selected_by_percent": 1.5 + p / 10, "transfers_in_event": 10 * gw + p,
@@ -150,6 +192,7 @@ def _write_folder(base: Path, gw: int) -> None:
         "fixtures": [{"match_id": m["match_id"], "gameweek": gw} for m in matches],
         "players": players, "teams": teams, "playerstats": _state_rows(gw),
         "playermatchstats": _pms_rows(gw), "player_gameweek_stats": _pgs_rows(gw),
+        "shots": _shot_rows(gw), "incidents": _incident_rows(gw),
     }
     for name, rows in files.items():
         _write(blank_frame(name, rows), folder / f"{name}.csv")
@@ -193,4 +236,6 @@ def synth_cfg(cfg: dict, checkout: Path) -> dict:
         "playermatchstats_rows_per_match": [2, 8],
         "fact_player_match_rows_per_complete_match_min": 2,
     }
+    # The synthetic clubs have two players, not eleven, so no club has 11 starters.
+    out["spells"] = {**cfg["spells"], "max_starters_not_11": {"share": 1.0, "always_allowed": 0}}
     return out

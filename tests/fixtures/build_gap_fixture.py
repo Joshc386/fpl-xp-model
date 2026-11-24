@@ -40,6 +40,23 @@ def write(df: pd.DataFrame, gw: int, name: str) -> None:
     df.to_csv(path, index=False)
 
 
+def shots(f: Path, match_ids: pd.Series) -> pd.DataFrame:
+    """The shots of the given matches from the folder `f` (header only if it has none)."""
+    df = pd.read_csv(f / "shots.csv")
+    return df[df.match_id.isin(match_ids)]
+
+
+def add_shots(src: Path) -> None:
+    """Add `shots.csv` to the existing sample, leaving every other file as it is."""
+    m9 = pd.read_csv(OUT / "By Gameweek" / "GW1" / "matches.csv")
+    m10 = pd.read_csv(OUT / "By Gameweek" / "GW2" / "matches.csv")
+    write(shots(folder(src, 9), m9.match_id), 1, "shots")
+    # At 92a90c26 the GW10 Premier League matches were still to be played, so only the finished
+    # (cup and European) matches count; 2026/27 has no shots for those.
+    write(shots(folder(src, 10), m10.match_id[m10.finished.fillna(False)]), 2, "shots")
+    write(shots(folder(src, 11), pd.Series(dtype=str)), 3, "shots")
+
+
 def cut(src: Path) -> None:
     g9, g10 = folder(src, 9), folder(src, 10)
     m9 = pd.read_csv(g9 / "matches.csv")
@@ -57,6 +74,7 @@ def cut(src: Path) -> None:
         fixtures = pd.read_csv(f / "fixtures.csv")
         write(fixtures[fixtures.match_id.isin(m.match_id)].assign(gameweek=gw), gw, "fixtures")
         write(pms, gw, "playermatchstats")
+        write(shots(f, m.match_id), gw, "shots")
         players = pd.read_csv(f / "players.csv")
         write(players[players.player_id.isin(keep)], gw, "players")
         write(pd.read_csv(f / "teams.csv"), gw, "teams")
@@ -79,4 +97,5 @@ def cut(src: Path) -> None:
 
 
 if __name__ == "__main__":
-    cut(Path(sys.argv[1]))
+    # With --add-shots, only add shots.csv (from any checkout holding GW9-11 shots).
+    add_shots(Path(sys.argv[2])) if sys.argv[1] == "--add-shots" else cut(Path(sys.argv[1]))

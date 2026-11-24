@@ -26,8 +26,9 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).resolve().parent / "upstream" / "data"
 FILES = [
     "fixtures", "matches", "players", "teams", "playerstats",
-    "playermatchstats", "player_gameweek_stats",
+    "playermatchstats", "player_gameweek_stats", "shots",
 ]
+SEASON_FILES = {"2025-2026": ["incidents"]}  # files a season has besides FILES
 EXTRA_PLAYERS = 12  # players kept besides those in the selected matches
 
 
@@ -77,12 +78,20 @@ def cut_played(base: Path, season: str, gw: int, ids: set[int] | None) -> set[in
     write(matches, season, gw, "matches")
     write(matches, season, gw, "fixtures")
     write(pms, season, gw, "playermatchstats")
+    cut_shots(base, season, gw, set(matches.match_id))
     write(read(base, gw, "teams"), season, gw, "teams")
     write(read(base, gw, "players").query("player_id in @keep"), season, gw, "players")
     for name in ("playerstats", "player_gameweek_stats"):
         df = read(base, gw, name)
         write(df[df.id.isin(keep)], season, gw, name)
     return keep
+
+
+def cut_shots(base: Path, season: str, gw: int, match_ids: set[str]) -> None:
+    """Cut the shots (and 2025/26's incidents) of the sample matches of one played gameweek."""
+    for name in ["shots", *SEASON_FILES.get(season, [])]:
+        df = read(base, gw, name)
+        write(df[df.match_id.isin(match_ids)], season, gw, name)
 
 
 def cut_future(base: Path, season: str, real_gw: int, as_gw: int, keep: set[int]) -> None:
@@ -93,7 +102,7 @@ def cut_future(base: Path, season: str, real_gw: int, as_gw: int, keep: set[int]
     write(read(base, real_gw, "teams"), season, as_gw, "teams")
     players = read(base, real_gw, "players")
     write(players[players.player_id.isin(keep)], season, as_gw, "players")
-    for name in ("playerstats", "playermatchstats", "player_gameweek_stats"):
+    for name in ("playerstats", "playermatchstats", "player_gameweek_stats", "shots"):
         write(read(base, real_gw, name).head(0), season, as_gw, name)
 
 

@@ -1,4 +1,4 @@
-"""Local entry point: ingest, validate and clean both seasons.
+"""Local entry point: ingest, validate and clean both seasons, then check the shots.
 
     python -m fpl.run_pipeline [--config config/pipeline.yaml]
 
@@ -14,9 +14,12 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pandas as pd
+
 from fpl.clean import BuiltSeason, build_season
 from fpl.ingest import RawSeason, load_config, read_season, read_upstream_commit
-from fpl.validate import check_match_ids_disjoint, validate_inputs
+from fpl.matchcheck import check_against_matches
+from fpl.validate import ValidationError, check_match_ids_disjoint, validate_inputs
 from fpl.validate_tables import validate_tables
 
 log = logging.getLogger(__name__)
@@ -42,6 +45,28 @@ def write_season(raw: RawSeason, built: BuiltSeason, processed_dir: Path) -> Pat
     return out
 
 
+MATCH_CHECK_COUNTS = ("penalty_xg_mismatch", "shot_count_mismatch", "goals_mismatch",
+                      "team_xg_mismatch")
+
+
+def check_shots_against_matches(raw: RawSeason, built: BuiltSeason, cfg: dict) -> None:
+    """The checks of fact_shot against matches.csv, which only this build runs.
+
+    `load_as_of` never runs them, because the validator's perturbation test corrupts the
+    columns they compare. Raises `ValidationError` on a failure; otherwise adds the counts to
+    the season's reconciliation.
+    """
+    problems, counts = check_against_matches(built.tables, raw.matches, cfg)
+    log.info("%s: shots against matches.csv: %s", raw.season, counts)
+    if problems:
+        raise ValidationError([f"{raw.season}: {p}" for p in problems])
+    rows = [(raw.season, "fact_shot", "info", f"match_check_{k}", int(counts[k]))
+            for k in MATCH_CHECK_COUNTS]
+    built.reconciliation = pd.concat(
+        [built.reconciliation, pd.DataFrame(rows, columns=built.reconciliation.columns)],
+        ignore_index=True)
+
+
 def run(cfg: dict, root: Path = ROOT) -> dict[str, Path]:
     """Ingest, validate and clean every configured season, then write the tables."""
     checkout = root / cfg["upstream"]["checkout_path"]
@@ -57,6 +82,7 @@ def run(cfg: dict, root: Path = ROOT) -> dict[str, Path]:
         validate_inputs(raw, cfg, scfg)
         result = build_season(raw, cfg)
         validate_tables(result.tables, cfg["premier_league_tag"])
+        check_shots_against_matches(raw, result, cfg)
         built.append((raw, result))
     check_match_ids_disjoint([raw for raw, _ in built])
     return {

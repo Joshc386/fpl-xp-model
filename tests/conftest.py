@@ -17,8 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_DATA = Path(__file__).parent / "fixtures" / "upstream" / "data"
 
 SAMPLE_SEASONS = {
-    "2025-2026": {"id": "2025-2026", "gameweeks": 2, "tackles_column": "tackles"},
-    "2026-2027": {"id": "2026-2027", "gameweeks": 3, "tackles_column": "tackles_won"},
+    "2025-2026": {"id": "2025-2026", "gameweeks": 2, "tackles_column": "tackles",
+                  "spell_source": "incidents"},
+    "2026-2027": {"id": "2026-2027", "gameweeks": 3, "tackles_column": "tackles_won",
+                  "spell_source": "playermatchstats"},
 }
 
 

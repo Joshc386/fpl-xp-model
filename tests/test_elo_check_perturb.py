@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from backtest.elo_check import load_settings
 from backtest.elo_leakage import (
     after_as_of_case,
     changed_values,
@@ -37,8 +38,9 @@ from fpl.validate import ValidationError
 
 RANGES = Corruption(score=(0, 9), elo=(1200.0, 2200.0), xg=(0.0, 4.0), prem_tag="prem",
                     offset_minutes=90)
-FILES = ["fixtures", "matches", "players", "teams", "playerstats", "playermatchstats",
-         "player_gameweek_stats"]
+# The files the harness copies into its scratch upstream copy, from backtest/config.yaml, so a
+# file the loader starts reading (shots and incidents, phase 2 task 1) needs no edit here.
+FILES = load_settings()["upstream_files"]
 SEASON = synth.SEASON
 
 

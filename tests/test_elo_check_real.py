@@ -19,8 +19,9 @@ from fpl.models.team_goals import elo_goals
 CFG = load_config(ROOT / "config" / "pipeline.yaml")
 DATA = upstream_data_dir(CFG)
 SEASON = "2025-2026"
-FILES = ["fixtures", "matches", "players", "teams", "playerstats", "playermatchstats",
-         "player_gameweek_stats"]
+# The files the harness copies into its scratch upstream copy, from backtest/config.yaml, so a
+# file the loader starts reading (shots and incidents, phase 2 task 1) needs no edit here.
+FILES = load_settings()["upstream_files"]
 
 pytestmark = pytest.mark.skipif(
     not (DATA / SEASON / "By Gameweek" / "GW38").exists(), reason="no upstream checkout")

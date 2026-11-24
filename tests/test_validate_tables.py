@@ -193,3 +193,33 @@ def test_table_validation_catches_a_wrong_club_in_a_match_whose_opponent_has_no_
     pm.loc[row, "team_id"] = next(t for t in tables["dim_team"].team_id if t not in clubs)
     with pytest.raises(ValidationError, match="club not in the match"):
         validate_tables(tables, "prem")
+
+
+@pytest.mark.parametrize("table", ["fact_shot", "fact_player_spell"])
+def test_table_validation_catches_duplicate_shot_and_spell_keys(
+    tables: dict[str, pd.DataFrame], table: str
+) -> None:
+    df = tables[table]
+    assert len(df) > 0
+    tables[table] = pd.concat([df, df.head(1)], ignore_index=True)
+    with pytest.raises(ValidationError, match=table):
+        validate_tables(tables, "prem")
+
+
+@pytest.mark.parametrize(
+    ("table", "col"),
+    [("fact_shot", "match_id"), ("fact_shot", "team_id"), ("fact_player_spell", "match_id"),
+     ("fact_player_spell", "team_id")],
+)
+def test_table_validation_catches_an_orphan_in_the_shot_and_spell_tables(
+    tables: dict[str, pd.DataFrame], table: str, col: str
+) -> None:
+    tables[table].loc[0, col] = "no-such-match" if col == "match_id" else 9_999
+    with pytest.raises(ValidationError, match=f"{table}.{col}"):
+        validate_tables(tables, "prem")
+
+
+def test_the_built_shot_and_spell_tables_are_not_empty_on_the_sample(
+    tables: dict[str, pd.DataFrame],
+) -> None:
+    assert len(tables["fact_shot"]) > 0 and len(tables["fact_player_spell"]) > 0

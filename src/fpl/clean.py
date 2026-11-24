@@ -1,4 +1,4 @@
-"""Cleaning: build the five processed tables from raw frames.
+"""Cleaning: build the seven processed tables from raw frames.
 
 Every function is pure over DataFrames: no file I/O and no reading of master files,
 so the point-in-time loader can feed it one gameweek snapshot at a time. Each join is
@@ -27,10 +27,16 @@ from fpl.ingest import RawSeason
 from fpl.playergw import build_fact_player_gw
 from fpl.reconcile import Reconciliation
 from fpl.schema import PROCESSED_SCHEMA, fill_sources
+from fpl.shots import build_fact_shot
+from fpl.spells import build_spells
 from fpl.validate import ValidationError, check_rule15_guards
+from fpl.validate_spells import check_shots_and_spells
 from fpl.validate_tables import check_drops, check_rows_per_match
 
 log = logging.getLogger(__name__)
+
+# The counts of check_shots_and_spells that belong to fact_shot's reconciliation lines.
+SHOT_COUNTS = ("shooter_off_pitch", "shooter_no_minutes")
 
 
 @dataclass
@@ -221,7 +227,7 @@ def _shape_player_match(
 
 
 def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
-    """Build all five processed tables for a season, and reconcile them with upstream."""
+    """Build all seven processed tables for a season, and reconcile them with upstream."""
     scfg = next(s for s in cfg["seasons"] if s["id"] == raw.season)
     prem, fill = cfg["premier_league_tag"], cfg["fill_zero_columns"]
     snapshot = raw.players[raw.players.snapshot_gw == raw.latest_gw]
@@ -239,6 +245,12 @@ def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
     pgw, d_gw = build_fact_player_gw(
         raw.player_gameweek_stats, raw.players, raw.matches, raw.teams, raw.season, prem
     )
+    shot, d_shot, c_shot = build_fact_shot(raw.shots, fixture, pmatch, prem)
+    spell, d_spell = build_spells(pmatch, fixture, raw, scfg, cfg)
+    tables = {"dim_player": dim_player, "dim_team": dim_team, "fact_fixture": fixture,
+              "fact_player_match": pmatch, "fact_player_gw": pgw, "fact_shot": shot,
+              "fact_player_spell": spell}
+    spell_problems, c_spell = check_shots_and_spells(tables, cfg)
     info = {
         "unfinished_rows_kept_with_null_results": int((~fixture.finished).sum()),
         "finished_but_not_complete": int((fixture.finished & ~fixture.stats_complete).sum()),
@@ -252,12 +264,14 @@ def build_season(raw: RawSeason, cfg: dict) -> BuiltSeason:
     rec.add("fact_fixture", len(raw.matches), d_fix, len(fixture), info)
     rec.add("fact_player_match", len(raw.playermatchstats), d_pm, len(pmatch))
     rec.add("fact_player_gw", len(raw.player_gameweek_stats), d_gw, len(pgw))
-    tables = {"dim_player": dim_player, "dim_team": dim_team, "fact_fixture": fixture,
-              "fact_player_match": pmatch, "fact_player_gw": pgw}
+    rec.add("fact_shot", len(raw.shots), d_shot, len(shot),
+            {**c_shot, **{k: c_spell[k] for k in SHOT_COUNTS}})
+    rec.add("fact_player_spell", len(pmatch), d_spell, len(spell),
+            {k: v for k, v in c_spell.items() if k not in SHOT_COUNTS})
     log.info("%s: built %s", raw.season, {k: len(v) for k, v in tables.items()})
     problems = check_drops(rec.frame(), cfg["validation"]) + check_rows_per_match(
         tables, cfg["validation"]
-    )
+    ) + spell_problems
     if problems:
         raise ValidationError([f"{raw.season}: {p}" for p in problems])
     return BuiltSeason(raw.season, tables, rec.frame())

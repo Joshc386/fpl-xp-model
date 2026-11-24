@@ -18,7 +18,7 @@ RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
         "num": [
             "gameweek", "home_team", "away_team", "home_team_elo", "away_team_elo",
             "home_score", "away_score", "home_expected_goals_xg", "away_expected_goals_xg",
-            "home_non_penalty_xg", "away_non_penalty_xg",
+            "home_non_penalty_xg", "away_non_penalty_xg", "home_total_shots", "away_total_shots",
         ],
     },
     "fixtures": {"str": ["match_id"], "bool": [], "num": ["gameweek"]},
@@ -44,8 +44,20 @@ RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
         "num": [
             "player_id", "minutes_played", "goals", "assists", "total_shots", "xg", "xa",
             "tackles", "tackles_won", "interceptions", "clearances", "blocks", "recoveries",
-            "saves", "penalties_scored", "penalties_missed",
+            "saves", "penalties_scored", "penalties_missed", "start_min", "finish_min",
         ],
+    },
+    # Shots (Premier League complete matches only are built) and, for seasons whose spells
+    # come from it, incidents (substitutions and red cards).
+    "shots": {
+        "str": ["match_id", "situation", "outcome"],
+        "bool": ["is_home"],
+        "num": ["shot_index", "minute", "added_time", "player_id", "xg"],
+    },
+    "incidents": {
+        "str": ["match_id", "incident_type", "card_type"],
+        "bool": [],
+        "num": ["minute", "added_time", "player_id", "secondary_player_id"],
     },
     # Master file (live mode only): the deadline clock.
     "gameweek_summaries": {"str": ["deadline_time"], "bool": [], "num": ["id"]},
@@ -53,7 +65,8 @@ RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
         "str": [],
         "bool": [],
         "num": [
-            "id", "gw", "event_points", "minutes", "starts", "bonus", "bps", "yellow_cards",
+            "id", "gw", "event_points", "minutes", "starts", "bonus", "bps", "goals_scored",
+            "assists", "yellow_cards",
             "red_cards", "own_goals", "goals_conceded", "tackles",
             "clearances_blocks_interceptions", "recoveries", "defensive_contribution", "now_cost",
             "selected_by_percent",
@@ -66,7 +79,8 @@ RAW_SCHEMA: dict[str, dict[str, list[str]]] = {
 # `finished`) for matches in gameweeks after the as-of gameweek, which are schedule only.
 RESULT_COLUMNS: list[str] = [
     "home_team_elo", "away_team_elo", "home_score", "away_score", "home_expected_goals_xg",
-    "away_expected_goals_xg", "home_non_penalty_xg", "away_non_penalty_xg",
+    "away_expected_goals_xg", "home_non_penalty_xg", "away_non_penalty_xg", "home_total_shots",
+    "away_total_shots",
 ]
 
 # table -> [(column, kind, nullable)]. Kinds: int, float, bool, str. A nullable int
@@ -108,13 +122,25 @@ PROCESSED_SCHEMA: dict[str, list[Col]] = {
         ("player_id", "int", False), ("team_id", "int", True), ("season", "str", False),
         ("gw", "int", False),
         ("points", "int", False), ("minutes", "int", False), ("starts", "int", False),
-        ("bonus", "int", False), ("bps", "int", False), ("yellow", "int", False),
+        ("bonus", "int", False), ("bps", "int", False), ("fpl_goals", "int", False),
+        ("fpl_assists", "int", False), ("yellow", "int", False),
         ("red", "int", False), ("own_goals", "int", False),
         ("goals_conceded", "int", False), ("tackles", "int", False),
         ("cbi", "int", False), ("recoveries", "int", False),
         ("defensive_contribution", "int", False), ("price_tenths", "int", False),
         ("selected_pct", "float", False), ("transfers_in", "int", False),
         ("transfers_out", "int", False),
+    ],
+    "fact_shot": [
+        ("match_id", "str", False), ("shot_index", "int", False), ("team_id", "int", False),
+        ("player_id", "int", True), ("minute", "int", False), ("added_time", "int", True),
+        ("clock", "float", False), ("situation", "str", False), ("outcome", "str", False),
+        ("xg", "float", False), ("is_penalty", "bool", False), ("is_own_goal", "bool", False),
+    ],
+    "fact_player_spell": [
+        ("player_id", "int", False), ("team_id", "int", False), ("match_id", "str", False),
+        ("spell_start", "float", False), ("spell_end", "float", True),
+        ("spell_repaired", "bool", False),
     ],
 }
 
@@ -125,6 +151,8 @@ TABLE_KEYS: dict[str, list[str]] = {
     "fact_fixture": ["match_id"],
     "fact_player_match": ["player_id", "match_id"],
     "fact_player_gw": ["player_id", "gw"],
+    "fact_shot": ["match_id", "shot_index"],
+    "fact_player_spell": ["player_id", "match_id"],
 }
 
 

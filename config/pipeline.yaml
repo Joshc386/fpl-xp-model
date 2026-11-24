@@ -10,14 +10,19 @@ paths:
   processed_dir: data/processed           # tables go to {processed_dir}/{season}/
 
 # One entry per season built. `tackles_column` is the playermatchstats column
-# that holds FPL's tackle measure (docs/data_contract.md, source notes).
+# that holds FPL's tackle measure (docs/data_contract.md, source notes). `spell_source` is where
+# fact_player_spell comes from: `incidents` (substitutions and red cards, 2025/26, whose
+# start_min and finish_min hold no substitution times in 157 of 380 matches) or
+# `playermatchstats` (start_min and finish_min, 2026/27, which has no incidents.csv).
 seasons:
   - id: 2025-2026
     gameweeks: 38
     tackles_column: tackles
+    spell_source: incidents
   - id: 2026-2027
     gameweeks: 38
     tackles_column: tackles_won
+    spell_source: playermatchstats
 
 # The season the published outputs describe (players.csv, fixture_difficulty.csv, meta.csv).
 current_season: 2026-2027
@@ -91,6 +96,42 @@ validation:
     always_allowed: 5
   # fact_player_match rows per complete match, after the drops (real minimum 25).
   fact_player_match_rows_per_complete_match_min: 15
+
+# fact_shot and fact_player_spell checks that run on every read (brief section 11, step 4; set
+# from the data at upstream ac8be9c, decided 2026-11-23). A count over its cap fails the run; the
+# cap is `share` of the rows compared, but never less than `always_allowed` (a small early read
+# can hold a stray row or two). Each is counted by reason and logged in the reconciliation.
+shots:
+  # Premier League shots only (cup shots aren't built), so `shootout` is not a known situation.
+  situations: [assisted, corner, fast-break, free-kick, penalty, regular, set-piece,
+               throw-in-set-piece]
+  outcomes: [block, blocked-off-line, goal, miss, ownGoal, post, save]
+  minute_range: [1, 90]
+spells:
+  minutes_tolerance: 2        # spell minutes inside 90 against minutes_played, per row (repair)
+  gw_minutes_tolerance: 2     # spell minutes against FPL's gameweek minutes, per player-gameweek
+  # Real: 12 of 11,492 (0.10%) in 2025/26, 15 of 3,076 (0.49%) in 2026/27, 14 of them red cards.
+  max_repaired: {share: 0.01, always_allowed: 5}
+  # Real: 2 of 11,361 and 2 of 3,076 player-gameweeks.
+  max_fpl_minutes_mismatch: {share: 0.002, always_allowed: 5}
+  # Real: 0 and 8 of 3,084 (players with no playermatchstats row at all).
+  max_fpl_minutes_without_spell: {share: 0.005, always_allowed: 5}
+  # Real: 5 of 760 sides with 12 starters in 2025/26 and 4 of 200 with 10 in 2026/27.
+  max_starters_not_11: {share: 0.03, always_allowed: 5}
+  # Real: 4 of 9,504 shots in 2025/26 and 0 of 2,405 in 2026/27.
+  max_shooter_off_pitch: {share: 0.001, always_allowed: 5}
+
+# Checks of fact_shot against matches.csv. They run from `run_pipeline` on the real checkout
+# only, never inside `load_as_of`: the validator's perturbation test corrupts matches.csv. The
+# shots file and matches.csv carry two xG measures from the same provider, so the team xG
+# checks are loose. Real spreads at ac8be9c (2025/26, 2026/27): penalty xG 0.008, 0.008; shot
+# count -2..+2; team xG per side 1.064, 0.991; season ratio 1.013, 1.013; mean abs 0.064, 0.132.
+shot_reconciliation:
+  penalty_xg_tolerance: 0.02      # shot penalty xG against team xG minus non-penalty xG, per side
+  shot_count_tolerance: 3         # shot rows against total_shots, per side
+  team_xg_tolerance: 1.25         # shot xG against team xG, per side
+  team_xg_season_ratio: [0.97, 1.03]   # season shot xG over season team xG
+  team_xg_mean_abs: 0.25          # season mean absolute difference per side
 
 # Output validation bounds (brief section 11, step 8). Price and position bounds are shared with
 # `validation.now_cost_m` and `position_map`.

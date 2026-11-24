@@ -6,6 +6,8 @@ computed once for every test file that renders it.
 
 from __future__ import annotations
 
+from backtest.elo_check import load_settings
+
 import synth
 
 SEASON = synth.SEASON
@@ -13,8 +15,9 @@ INFO = {"date": "2026-11-13", "commit": "abc", "code_clean": "yes", "harness_cle
         "model_version": "unset", "upstream_commit": "def", "upstream_time": "t",
         "upstream_clean": "yes",
         "model_yaml_sha256": "1", "settings_sha256": "2", "harness_sha256": "3"}
-FILES = ["fixtures", "matches", "players", "teams", "playerstats", "playermatchstats",
-         "player_gameweek_stats"]
+# The files the harness copies into its scratch upstream copy, from backtest/config.yaml, so a
+# file the loader starts reading (shots and incidents, phase 2 task 1) needs no edit here.
+FILES = load_settings()["upstream_files"]
 
 
 def settings(within: bool = True) -> dict:

@@ -59,6 +59,7 @@ def check_keys(raw: RawSeason) -> list[str]:
         (raw.playerstats, ["id"], "playerstats"),
         (raw.playermatchstats, ["player_id", "match_id"], "playermatchstats"),
         (raw.player_gameweek_stats, ["id", "gw"], "player_gameweek_stats"),
+        (raw.shots, ["match_id", "shot_index"], "shots"),
     ):
         out += key_problems(df, cols, label)
     return out
@@ -180,6 +181,10 @@ def check_references(raw: RawSeason, prem_tag: str) -> list[str]:
     unknown = int((~raw.playermatchstats.match_id.isin(m.match_id)).sum())
     if unknown:
         out.append(f"playermatchstats: {unknown} rows for unknown match_id")
+    for df, label in ((raw.shots, "shots"), (raw.incidents, "incidents")):
+        unknown = int((~df.match_id.isin(m.match_id)).sum())
+        if unknown:
+            out.append(f"{label}: {unknown} rows for unknown match_id")
     prem = m[m.tournament == prem_tag]
     no_kickoff = int(prem.kickoff_time.isna().sum())
     if no_kickoff:

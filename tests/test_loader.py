@@ -19,7 +19,8 @@ from leakage import PREM, assert_no_leakage
 SEASON = synth.SEASON
 ALL_GW = list(range(synth.N_GW + 1))
 ELO = ["home_upstream_elo", "away_upstream_elo"]
-SCFG = {"id": SEASON, "gameweeks": synth.N_GW, "tackles_column": "tackles"}
+SCFG = {"id": SEASON, "gameweeks": synth.N_GW, "tackles_column": "tackles",
+        "spell_source": "incidents"}
 
 
 @pytest.fixture(scope="module")

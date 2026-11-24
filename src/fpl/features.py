@@ -84,7 +84,7 @@ def _season_config(cfg: dict, season: str) -> dict:
 def load_as_of(
     season: str, as_of_gw: int, mode: str, *, cfg: dict | None = None, root: Path | None = None
 ) -> dict[str, pd.DataFrame]:
-    """The five processed tables as they stood at the end of `GW{as_of_gw}`.
+    """The seven processed tables as they stood at the end of `GW{as_of_gw}`.
 
     `mode` is "backtest" or "live". Backtest holds every match with `gw` up to `as_of_gw`, in
     any competition (a cup or European match's `gw` is the gameweek it was played in, so it
@@ -95,6 +95,9 @@ def load_as_of(
     identical, except that `dim_player` status, news, `chance_next`, `price_tenths` and the
     four price-change and transfer counts (`overlay.OVERLAID`) come from the master playerstats.
     `as_of_gw` may be ahead of the newest folder with data; what exists is returned.
+    `fact_shot` and `fact_player_spell` come from the `shots.csv` and `incidents.csv` of the
+    folders up to `as_of_gw` only, hold only complete Premier League matches of the read, and
+    are not overlaid in live mode. Their checks against matches.csv are not run here.
     Raises `ValueError` for a bad mode, season or gameweek, and the validation errors of a
     failed check.
     """

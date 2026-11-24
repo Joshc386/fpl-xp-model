@@ -1,0 +1,17 @@
+match_id,shot_index,minute,added_time,is_home,player_id,player_name,outcome,situation,body_part,xg,xgot,start_x,start_y,goal_mouth_y,goal_mouth_z,goal_mouth_location
+25-26-prem-manchester-united-vs-chelsea,1,90,4.0,False,246.0,Andrey Santos,block,assisted,right-foot,0.093,,10.6,48.6,52.6,19.0,low-left
+25-26-prem-manchester-united-vs-chelsea,2,83,,True,449.0,B.Fernandes,save,regular,right-foot,0.0612,0.4336,20.4,64.8,54.1,7.6,low-left
+25-26-prem-manchester-united-vs-chelsea,3,80,,False,226.0,Chalobah,goal,corner,head,0.1694,0.7183,6.9,45.3,46.4,5.7,low-right
+25-26-prem-manchester-united-vs-chelsea,4,75,,True,452.0,Amad,miss,set-piece,left-foot,0.3288,,7.3,55.2,70.8,11.1,left
+25-26-prem-manchester-united-vs-chelsea,5,63,,False,232.0,Tosin,miss,corner,head,0.045,,4.4,61.2,58.7,11.1,close-left
+25-26-prem-manchester-united-vs-chelsea,6,45,7.0,False,224.0,Cucurella,miss,set-piece,right-foot,0.0546,,7.6,67.9,49.6,76.4,high
+25-26-prem-manchester-united-vs-chelsea,7,37,,True,457.0,Casemiro,goal,corner,head,0.3547,0.6127,3.0,56.5,50.7,15.8,low-centre
+25-26-prem-manchester-united-vs-chelsea,8,37,,True,443.0,Shaw,block,corner,head,0.0781,,7.7,47.4,48.2,19.0,low-centre
+25-26-prem-manchester-united-vs-chelsea,9,23,,False,241.0,Caicedo,block,corner,right-foot,0.0275,,22.1,47.1,52.6,4.2,low-left
+25-26-prem-manchester-united-vs-chelsea,10,18,,True,119.0,Mbeumo,miss,assisted,left-foot,0.0238,,18.8,65.4,57.0,70.8,high-left
+25-26-prem-manchester-united-vs-chelsea,11,14,,True,449.0,B.Fernandes,goal,assisted,right-foot,0.6215,0.7374,4.2,52.4,51.1,17.1,low-centre
+25-26-prem-manchester-united-vs-chelsea,12,10,,True,452.0,Amad,block,corner,right-foot,0.0552,,22.5,49.2,53.3,9.7,low-left
+25-26-prem-manchester-united-vs-chelsea,13,9,,True,442.0,Maguire,miss,corner,head,0.1137,,7.7,47.2,39.3,20.8,right
+25-26-prem-manchester-united-vs-chelsea,14,8,,True,119.0,Mbeumo,block,set-piece,left-foot,0.0187,,21.5,54.0,51.7,19.0,low-centre
+25-26-prem-manchester-united-vs-chelsea,15,8,,True,449.0,B.Fernandes,block,free-kick,right-foot,0.1352,,21.5,51.0,49.3,19.0,low-centre
+25-26-prem-manchester-united-vs-chelsea,16,3,,True,119.0,Mbeumo,save,assisted,head,0.0468,0.0871,7.6,63.2,47.4,17.7,low-right

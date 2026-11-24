@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import copy
+import shutil
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from conftest import SAMPLE_DATA, SAMPLE_SEASONS, read_sample
 from fpl.ingest import RawSeason
 from fpl.validate import (
     ValidationError,
@@ -260,3 +263,36 @@ def test_all_problems_are_reported_together(raw_2627: RawSeason, small_cfg: dict
     with pytest.raises(ValidationError) as exc:
         validate_inputs(raw_2627, small_cfg, season_cfg(small_cfg, raw_2627.season))
     assert len(exc.value.problems) >= 2
+
+
+def test_a_duplicate_shot_key_fails(raw_2627: RawSeason, small_cfg: dict) -> None:
+    raw_2627.shots = pd.concat([raw_2627.shots, raw_2627.shots.head(1)], ignore_index=True)
+    assert "shots" in problems(raw_2627, small_cfg)
+
+
+@pytest.mark.parametrize(("season", "file"), [
+    ("2026-2027", "shots"), ("2025-2026", "shots"), ("2025-2026", "incidents")])
+def test_shots_and_incidents_for_an_unknown_match_fail_through_ingest(
+    small_cfg: dict, tmp_path: Path, season: str, file: str
+) -> None:
+    data = tmp_path / "data"
+    shutil.copytree(SAMPLE_DATA, data)
+    path = data / season / "By Gameweek" / "GW1" / f"{file}.csv"
+    df = pd.read_csv(path)
+    pd.concat([df, df.head(2).assign(match_id="no-such-match")]).to_csv(path, index=False)
+    scfg = {**SAMPLE_SEASONS[season]}
+    raw = read_sample(data, scfg)
+    assert (getattr(raw, file).match_id == "no-such-match").sum() == 2  # read, not lost silently
+    assert f"{file}: 2 rows for unknown match_id" in problems(raw, small_cfg)
+
+
+def test_a_missing_required_shots_column_fails(raw_2627: RawSeason, small_cfg: dict) -> None:
+    raw_2627.file_columns["GW1/shots.csv"].remove("is_home")
+    assert "is_home" in problems(raw_2627, small_cfg)
+
+
+def test_the_incidents_columns_are_required_for_an_incidents_season(
+    raw_2526: RawSeason, small_cfg: dict
+) -> None:
+    raw_2526.file_columns["GW1/incidents.csv"].remove("secondary_player_id")
+    assert "secondary_player_id" in problems(raw_2526, small_cfg)

@@ -71,7 +71,8 @@ def build_fact_player_gw(
         raise CleanError("fact_player_gw: a player's team_code is not in teams")
     cols = {
         "points": "event_points", "minutes": "minutes", "starts": "starts", "bonus": "bonus",
-        "bps": "bps", "yellow": "yellow_cards", "red": "red_cards", "own_goals": "own_goals",
+        "bps": "bps", "fpl_goals": "goals_scored", "fpl_assists": "assists",
+        "yellow": "yellow_cards", "red": "red_cards", "own_goals": "own_goals",
         "goals_conceded": "goals_conceded", "tackles": "tackles",
         "cbi": "clearances_blocks_interceptions", "recoveries": "recoveries",
         "defensive_contribution": "defensive_contribution",

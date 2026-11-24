@@ -23,7 +23,8 @@ from helpers import (
 def pgs_frame(rows: list[dict]) -> pd.DataFrame:
     base = {
         "id": 10, "gw": 1, "event_points": 6.0, "minutes": 90.0, "starts": 1.0,
-        "bonus": 2.0, "bps": 30.0, "yellow_cards": 1.0, "red_cards": 0.0, "own_goals": 0.0,
+        "bonus": 2.0, "bps": 30.0, "goals_scored": 2.0, "assists": 1.0,
+        "yellow_cards": 1.0, "red_cards": 0.0, "own_goals": 0.0,
         "goals_conceded": 2.0, "tackles": 3.0, "clearances_blocks_interceptions": 5.0,
         "recoveries": 7.0, "defensive_contribution": 10.0, "now_cost": 15.8,
         "selected_by_percent": 12.5, "transfers_in_event": 100.0, "transfers_out_event": 50.0,
@@ -42,6 +43,23 @@ def run_gw(
     pgs: pd.DataFrame, matches: pd.DataFrame, players: pd.DataFrame
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     return build_fact_player_gw(pgs, players, matches, TEAMS, "2026-2027", "prem")
+
+
+def test_fpl_goals_and_assists_are_fpls_own_counts_not_the_match_stats() -> None:
+    """`fpl_goals` and `fpl_assists` come from player_gameweek_stats (goals_scored, assists)."""
+    matches, players = pm_inputs()
+    pgs = pgs_frame([{"goals_scored": 3.0, "assists": 2.0}, {"id": 11, "goals_scored": 0.0,
+                                                           "assists": 0.0}])
+    out, _ = run_gw(pgs, matches, players)
+    assert out[["fpl_goals", "fpl_assists"]].to_dict("records") == [
+        {"fpl_goals": 3, "fpl_assists": 2}, {"fpl_goals": 0, "fpl_assists": 0}]
+    assert str(out.fpl_goals.dtype) == "int64" and len(out) == len(pgs)
+
+
+def test_a_null_fpl_goals_count_is_an_error_not_a_zero() -> None:
+    matches, players = pm_inputs()
+    with pytest.raises(CleanError):
+        run_gw(pgs_frame([{"goals_scored": np.nan}]), matches, players)
 
 
 def test_fact_player_gw_maps_columns_and_uses_fpl_minutes() -> None:

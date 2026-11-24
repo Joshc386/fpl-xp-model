@@ -31,8 +31,17 @@ SCHEDULE_FILES = ("fixtures", "matches")
 # The files expected in every gameweek folder.
 GW_FILES = (
     "fixtures", "matches", "players", "teams", "playerstats",
-    "playermatchstats", "player_gameweek_stats",
+    "playermatchstats", "player_gameweek_stats", "shots",
 )
+
+# Also read, for a season whose `spell_source` is `incidents` (2025/26): substitutions and cards.
+INCIDENT_FILES = ("incidents",)
+
+
+def season_files(season_cfg: dict) -> tuple[str, ...]:
+    """The files read from every gameweek folder up to the as-of gameweek, for this season."""
+    source = season_cfg["spell_source"]
+    return GW_FILES + (INCIDENT_FILES if source == "incidents" else ())
 
 
 class IngestError(RuntimeError):
@@ -52,7 +61,11 @@ class RawSeason:
     `fixture_ids` cover every folder of the season (future folders hold the scheduled
     matches); on an as-of read, Premier League matches after `as_of_gw` are blanked and
     later cup and European matches are absent. `teams` and `playerstats` are the
-    `latest_gw` snapshot (`teams` from GW1 when `latest_gw` is 0).
+    `latest_gw` snapshot (`teams` from GW1 when `latest_gw` is 0). `shots` and `incidents`
+    (the latter empty unless the season's `spell_source` is `incidents`) are read only from the
+    folders up to the as-of gameweek, never from a later one, and keep the rows of the matches
+    the read holds: Premier League ones up to `latest_gw`, and cup and European ones in those
+    folders. `incidents` is trimmed to the Premier League matches.
     """
 
     season: str
@@ -66,6 +79,8 @@ class RawSeason:
     fixture_ids: pd.DataFrame
     playermatchstats: pd.DataFrame
     player_gameweek_stats: pd.DataFrame
+    shots: pd.DataFrame
+    incidents: pd.DataFrame
     gw_rows: dict[str, dict[int, int]]
     file_columns: dict[str, list[str]]
     missing_files: list[str]
@@ -135,7 +150,7 @@ def _read_folders(
     base: Path, gws: Iterable[int], files: tuple[str, ...]
 ) -> tuple[dict, dict, list[str]]:
     """Read `files` of every folder in `gws`; return frames, columns seen, missing."""
-    frames: dict[str, list[pd.DataFrame]] = {f: [] for f in GW_FILES}
+    frames: dict[str, list[pd.DataFrame]] = {f: [] for f in (*GW_FILES, *INCIDENT_FILES)}
     columns: dict[str, list[str]] = {}
     missing: list[str] = []
     for gw in gws:
@@ -182,7 +197,7 @@ def read_season(
         raise ValueError(f"as_of_gw must be 0 or more, got {as_of_gw}")
     max_gw = n_gw if as_of_gw is None else min(n_gw, as_of_gw)
     base = data_dir / season / "By Gameweek"
-    reads = _read_folders(base, range(1, max_gw + 1), GW_FILES)
+    reads = _read_folders(base, range(1, max_gw + 1), season_files(season_cfg))
     if max_gw < n_gw:
         _merge_reads(reads, _read_folders(base, range(max_gw + 1, n_gw + 1), SCHEDULE_FILES))
         if max_gw == 0:
@@ -195,7 +210,7 @@ def read_season(
     filing = sorted(set(cups.snapshot_gw) - have)
     _merge_reads(reads, _read_folders(base, filing, ("playermatchstats",)))
     _merge_reads(reads, _read_folders(base, sorted(set(club_gw) - have), ("players",)))
-    cat = {f: _concat(reads[0][f], f) for f in GW_FILES}
+    cat = {f: _concat(reads[0][f], f) for f in (*GW_FILES, *INCIDENT_FILES)}
     cat["matches"] = held
     cat["fixtures"] = _without(cat["fixtures"], left_out)
     cat["playermatchstats"] = _at_club_snapshot(cat["playermatchstats"], club_gw)
@@ -230,6 +245,8 @@ def _assemble(
     is_prem = pms.match_id.isin(held.match_id[held.tournament == prem_tag])
     prem_rows = pms[is_prem & (pms.snapshot_gw <= max_gw)].groupby("snapshot_gw").size()
     pms = pms[~is_prem | (pms.snapshot_gw <= latest)].reset_index(drop=True)
+    shots = _held_rows(cat["shots"], held, left_out, latest, prem_tag)
+    incidents = _held_rows(cat["incidents"], held, left_out, latest, prem_tag, prem_only=True)
     players = cat["players"]
     keep = set(range(latest + 1)) | set(pms.snapshot_gw)
     players = players[players.snapshot_gw.isin(keep)].reset_index(drop=True)
@@ -239,9 +256,33 @@ def _assemble(
         teams=_at(cat["teams"], latest or 1), playerstats=_at(cat["playerstats"], latest),
         players=players, matches=held, fixture_ids=cat["fixtures"][["snapshot_gw", "match_id"]],
         playermatchstats=pms, player_gameweek_stats=_upto(cat["player_gameweek_stats"], latest),
+        shots=shots, incidents=incidents,
         gw_rows={"player_gameweek_stats": pgs_rows, "playermatchstats": prem_rows.to_dict()},
         file_columns=columns, missing_files=missing, as_of_gw=as_of_gw,
     )
+
+
+def _held_rows(
+    df: pd.DataFrame, held: pd.DataFrame, left_out: pd.DataFrame, latest: int, prem_tag: str,
+    prem_only: bool = False,
+) -> pd.DataFrame:
+    """The rows of `df` (shots or incidents) without those of the matches the read leaves out.
+
+    A row for a match that is neither held nor left out is kept, so validation reports it. A
+    Premier League match's rows count only from folders up to the latest played gameweek, like
+    its `playermatchstats` rows. Cup and European rows of a held match are kept (they are
+    counted and left out of `fact_shot`), unless `prem_only`.
+    """
+    prem_ids = set(held.match_id[held.tournament == prem_tag])
+    rows = df[~df.match_id.isin(left_out.match_id)]
+    is_prem = rows.match_id.isin(prem_ids)
+    recent = rows.snapshot_gw <= latest
+    if prem_only:
+        cup = rows.match_id.isin(held.match_id[held.tournament != prem_tag])
+        keep = (is_prem & recent) | ~(is_prem | cup)
+    else:
+        keep = ~is_prem | recent
+    return rows[keep].reset_index(drop=True)
 
 
 def upstream_data_dir(cfg: dict, root: Path = ROOT) -> Path:

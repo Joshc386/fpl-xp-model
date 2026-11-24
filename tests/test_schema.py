@@ -27,6 +27,7 @@ def test_every_contract_table_is_in_the_code_schema_in_the_same_column_order() -
     expected = contract_columns()
     assert set(expected) == {
         "dim_player", "dim_team", "fact_fixture", "fact_player_match", "fact_player_gw",
+        "fact_shot", "fact_player_spell",
     }
     for table, cols in expected.items():
         assert column_names(table) == cols, table
@@ -41,6 +42,8 @@ def test_nullable_columns_are_the_contract_ones_plus_the_proposed_dim_player_one
     assert nullable["fact_player_match"] == set()
     assert nullable["dim_team"] == {"upstream_elo"}
     assert nullable["fact_player_gw"] == {"team_id"}
+    assert nullable["fact_shot"] == {"player_id", "added_time"}
+    assert nullable["fact_player_spell"] == {"spell_end"}
     # Not listed in the contract; proposed in the task 1 report.
     assert nullable["dim_player"] == {
         "chance_next", "news", "pen_order", "fk_order", "corner_order", "ep_next",

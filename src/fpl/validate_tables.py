@@ -16,6 +16,10 @@ _FOREIGN_KEYS = (
     ("fact_player_match", "match_id", "fact_fixture", "match_id"),
     ("fact_player_match", "team_id", "dim_team", "team_id"),
     ("fact_player_gw", "team_id", "dim_team", "team_id"),
+    ("fact_shot", "match_id", "fact_fixture", "match_id"),
+    ("fact_shot", "team_id", "dim_team", "team_id"),
+    ("fact_player_spell", "match_id", "fact_fixture", "match_id"),
+    ("fact_player_spell", "team_id", "dim_team", "team_id"),
 )
 
 

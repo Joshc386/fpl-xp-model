@@ -43,7 +43,8 @@ def gw_row(player: int, team: int | None, gw: int, *, points: int = 0, minutes: 
     """A fact_player_gw row."""
     return {
         "player_id": player, "team_id": team, "season": SEASON, "gw": gw, "points": points,
-        "minutes": minutes, "starts": starts, "bonus": 0, "bps": 0, "yellow": 0, "red": 0,
+        "minutes": minutes, "starts": starts, "bonus": 0, "bps": 0, "fpl_goals": 0,
+        "fpl_assists": 0, "yellow": 0, "red": 0,
         "own_goals": 0, "goals_conceded": 0, "tackles": 0, "cbi": 0, "recoveries": 0,
         "defensive_contribution": dc, "price_tenths": price, "selected_pct": 1.0,
         "transfers_in": tin, "transfers_out": tout,

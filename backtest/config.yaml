@@ -86,9 +86,10 @@ perturbation:
   xg_range: [0.0, 4.0]
 
 # Files copied into the scratch upstream copy (the loader reads only these in backtest mode;
-# the master files are deliberately not copied).
+# the master files are deliberately not copied). shots and incidents: phase 2 task 1 adds them
+# to the loader's reads; copy_upstream skips a file a season doesn't have.
 upstream_files: [fixtures, matches, players, teams, playerstats, playermatchstats,
-                 player_gameweek_stats]
+                 player_gameweek_stats, shots, incidents]
 
 # The refit check (brief section 7, decided 2026-11-16): between consecutive goals reads, the
 # fitted (intercept, gap, home) coefficients count as changed when their largest absolute

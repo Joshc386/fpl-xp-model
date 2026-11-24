@@ -97,6 +97,16 @@ def postpone_gw12(folder: Path, with_cup: bool) -> None:
                         ("playermatchstats", p12)):
         both = pd.concat([pd.read_csv(dst / f"{name}.csv"), extra])
         both.to_csv(dst / f"{name}.csv", index=False)
+    for name in ("shots", "incidents"):  # the shots and incidents of those matches move too
+        moved_rows = pd.read_csv(src / f"{name}.csv")
+        pd.concat([pd.read_csv(dst / f"{name}.csv"), moved_rows]).to_csv(
+            dst / f"{name}.csv", index=False)
+        header_only(src / f"{name}.csv")
+    # FPL's GW13 minutes now cover the moved matches' players too.
+    played = pd.read_csv(dst / "playermatchstats.csv").groupby("player_id").minutes_played.sum()
+    pgs = pd.read_csv(dst / "player_gameweek_stats.csv")
+    pgs.assign(minutes=pgs.id.map(played).fillna(0)).to_csv(
+        dst / "player_gameweek_stats.csv", index=False)
     cup = pd.read_csv(folder / "GW10" / "matches.csv").query("match_id == 'cup-10'")
     first = pd.to_datetime(m12.kickoff_time, utc=True).min() + pd.Timedelta(days=1)
     cup = cup.assign(match_id="cup-12", gameweek=12,
