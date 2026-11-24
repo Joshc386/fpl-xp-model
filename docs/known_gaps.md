@@ -196,7 +196,7 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
 - **Players back from injury read low** (2026-11-23, minutes v1).
   - **Gap:** minutes v1 counts gameweeks a player missed through injury or
     suspension as non-starts. A regular starter back from injury reads low
-    for up to six gameweeks: Saka's start rate is 0.3 at 2026/27 as-of 10.
+    for up to six gameweeks.
   - **Effect:** his xP is understated until the missed gameweeks age out of
     the windows.
   - **Idea:** keep each player's status per gameweek (a contract change),
