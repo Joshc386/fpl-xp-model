@@ -86,7 +86,7 @@ All data comes from [olbauday/FPL-Core-Insights](https://github.com/olbauday/FPL
 **Layout**
 
 - **Master files** at `data/{season}/`: `players.csv`, `teams.csv`, `playerstats.csv`, `gameweek_summaries.csv`. These hold the current state.
-- **By Gameweek** at `data/{season}/By Gameweek/GW{x}/`: a point-in-time snapshot at the end of each gameweek. It holds `fixtures`, `matches`, `players`, `teams`, `playerstats` (cumulative), `playermatchstats` and `player_gameweek_stats`.
+- **By Gameweek** at `data/{season}/By Gameweek/GW{x}/`: a point-in-time snapshot at the end of each gameweek. It holds `fixtures`, `matches`, `players`, `teams`, `playerstats` (cumulative), `playermatchstats`, `player_gameweek_stats`, `shots` and, in 2025/26, `incidents`.
 - **By Tournament** at `data/{season}/By Tournament/{tournament}/GW{x}/`: the same files filtered to one competition.
 
 **Files used**

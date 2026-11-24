@@ -228,12 +228,19 @@ Brief section 4 lists the data rules.
     - 2026/27, `playermatchstats`: the start is `start_min`, and the end is
       `finish_min` when it is below 90, null otherwise. There is no
       `incidents.csv`.
-  - **Repair rule:** where a spell's minutes inside 90
-    (min(end, 90) − min(start, 90)) differ from `minutes_played` by more
+  - **Repair rule** (narrowed on 2026-11-24): where a spell's minutes inside
+    90 (min(end, 90) − min(start, 90)) differ from `minutes_played` by more
     than the tolerance, the end becomes start + `minutes_played`, and
-    `spell_repaired` is true. At `ac8be9c` that is 12 rows in 2025/26 and
-    15 in 2026/27; 14 of the 15 are sent-off players whose `finish_min`
-    reads full time.
+    `spell_repaired` is true, unless an incident gave the end. An end from a
+    2025/26 substitution or dismissal incident is never repaired; the
+    mismatch is only counted. An example is a first-half red card at 45.5,
+    whose FPL minutes (49-51) include stoppage time. In 2026/27, 14 of the
+    15 repairs at `ac8be9c` are sent-off players whose `finish_min` reads
+    full time.
+  - **A 2025/26 substitute with no "on" incident** takes his start from
+    `start_min` where it is above 0. Otherwise his start is unknown, so the
+    spell is dropped and counted under `spell_start_unknown`, never
+    guessed. At `ac8be9c` there are 5 such substitutes, each with 1 minute.
   - **Limit:** in 2026/27, a player substituted in stoppage time counts as
     on until the whistle.
 - **Checks on `fact_shot` and `fact_player_spell`:** in two groups, so that
@@ -257,7 +264,10 @@ Brief section 4 lists the data rules.
     the shots file and `matches.csv` carry two xG measures from the same
     provider.
   - Tolerances and caps live in `config/pipeline.yaml`. Their starting
-    values are logged in `docs/decisions.md` (2026-11-23).
+    values are logged in `docs/decisions.md` (2026-11-23). Each cap also
+    allows at least 5 rows (`always_allowed`), as the dropped-row caps do,
+    so that one stray row can't fail a small early-season read (approved
+    2026-11-24).
 - **`dim_player`:** the latest snapshot of the season's players, so fact
   tables may hold a `player_id` that isn't in it (players who left). A player
   with no `playerstats` row is dropped and counted under
