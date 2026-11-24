@@ -246,6 +246,15 @@ Brief section 4 lists the data rules.
     minute. Three have a `start_min` of 95-96 that fits. Two (players 345
     and 605) have a `start_min` of 4 and 3 beside a `finish_min` of 90, so
     they are dropped.
+    - **Who counts as such a substitute:** a player with no "on" incident
+      whose spell from kickoff contradicts his minutes. That includes one
+      with a later "off" or dismissal incident, who takes `start_min` only
+      where it is above 0 and fits; otherwise he keeps his start of 0, as a
+      starter sent off does. A starter whose "off" incident is missing
+      can't be told apart, so he is dropped too. Upstream never loses the
+      player going off (0 of 3,132 Premier League substitutions in
+      2025/26), and 2026/27 and live reads don't use incidents (accepted
+      2026-11-24).
   - **Limit:** in 2026/27, a player substituted in stoppage time counts as
     on until the whistle.
 - **Checks on `fact_shot` and `fact_player_spell`:** in two groups, so that
@@ -260,7 +269,8 @@ Brief section 4 lists the data rules.
     - counted by reason and capped per season: spells against
       `minutes_played` (the repair), spells against FPL gameweek minutes,
       FPL minutes without a spell, 11 starters per club per match, and
-      shooters off the pitch at their shot.
+      shooters off the pitch at their shot or with a 0-minute player-match
+      row (`shooter_off_pitch` and `shooter_no_minutes`, under one cap).
   - **At pipeline build only** (`run_pipeline` on the real checkout, never
     inside `load_as_of`), against `matches.csv`: penalty shot xG against
     team xG minus non-penalty xG, shot counts against `total_shots`, goal

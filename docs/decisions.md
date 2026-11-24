@@ -3424,3 +3424,17 @@ The model-validator's task 4 report (the harness, uncommitted, in Code Review) r
 - **Found in the review fixes:** under the narrowed rule, two 2025/26 one-minute substitutes with no "on" incident (players 345 and 605) took their start from `start_min`. That gave the spells [4, 5] and [3, 4], flagged as repaired. Their `playermatchstats` rows read `start_min` 4 and 3, `finish_min` 90 and 1 minute played, which can't all be true; the main session checked the raw rows. The same pattern appears for other 2025/26 one-minute substitutes.
 - **Josh's call:** use `start_min` for such a substitute only where the resulting spell needs no repair. Otherwise the spell is dropped and counted under `spell_start_unknown`, never guessed or repaired. The other three (447, 444 and 305) came on at 95-96, which fits.
 - **Effect at `ac8be9c`:** 2 spells dropped, 1 minute each. Those players then count under `fpl_minutes_without_spell`, well under its cap.
+
+### 2026-11-24: main - task 1B re-review: approve with findings
+- **Verdict:** approve with findings. The blocking finding (M20) is closed, and every earlier finding is closed or settled by Josh's calls. The checkout's task 1B tests give 304 passed, ruff is clean, and all 51 real as-of reads pass on the final code.
+- **Accepted (contract updated), on the reviewer's recommendation:** a 2025/26 starter whose "off" incident is missing can't be told apart from a substitute with no "on" incident, so he would be dropped as `spell_start_unknown` rather than repaired.
+  - **Why accept:** upstream loses only the player coming on, never the one going off (5 of 3,132 Premier League substitutions lack him). The case is 2025/26 only; 2026/27 and live reads don't use incidents. It is counted, and capped through `fpl_minutes_without_spell`. FPL `starts` can't separate the two cases in a double gameweek.
+- **To fix before commit (sent to the data-engineer):**
+  - **A substitute with no "on" incident but a later "off" incident** keeps a start of 0, as a starter. Use `start_min` there where it is above 0 and fits, so player 457 (a starter sent off at 45.5) stays as he is. No such row exists at `ac8be9c`.
+  - **Tests the mutants exposed:**
+    - N6, an "on"-incident player treated as a lost substitute;
+    - N10, the left-out-match filter in ingest, whose loss would falsely fail a read holding a late cup tie's shots;
+    - M33, the end clipped at 90, which is covered only by real data today;
+    - M30, the approved repair tolerance of 2, which nothing pins.
+  - **Standards:** `build_fact_shot` is 52 lines, a `noqa` stands in for a type hint, the one-off fixture code is still in `__main__`, and a docstring is broken.
+- **Contract:** now lists `shooter_no_minutes`, which shares the off-pitch shooter cap.
