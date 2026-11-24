@@ -3438,3 +3438,16 @@ The model-validator's task 4 report (the harness, uncommitted, in Code Review) r
     - M30, the approved repair tolerance of 2, which nothing pins.
   - **Standards:** `build_fact_shot` is 52 lines, a `noqa` stands in for a type hint, the one-off fixture code is still in `__main__`, and a docstring is broken.
 - **Contract:** now lists `shooter_no_minutes`, which shares the off-pitch shooter cap.
+
+### 2026-11-24: main - task 5 Code Review, new arrivals, and a fresh validator for minutes (Josh)
+- **Code Review's verdict on minutes v1:** approve with findings, nothing blocking.
+  - **Confirmed:** it follows brief 6.1 v1 and Josh's 2026-11-23 rulings, the rows match the contract, and nothing leaks.
+  - **Mutants:** 45 of 48 were killed. One real survivor (M10); two change nothing under today's config.
+  - **Fixes sent to the modeller:**
+    - a test with a `fact_player_gw` row after the as-of gameweek (M10);
+    - a synthetic 60-minute bench appearance (M20, otherwise caught only by real data, which CI skips);
+    - a test that `player_minutes` calls `load_as_of` with its own arguments (M15);
+    - `minutes.py` (336 lines) and `tests/test_minutes.py` (412) split under 300.
+- **Josh's two calls:**
+  1. **New arrivals follow the brief** ("Horizon and aggregation"). A player with no history gets the position average rates, the prior the shrinkage already uses (position only, the accepted deviation), instead of zeros. `low_confidence` is set in combine (task 10). Code Review found that v1 gave zeros, against the brief.
+  2. **A fresh model-validator agent runs the minutes diagnostics.** The 2026-11-23 main entry on minutes v1 quoted the modeller's own calibration findings. The model-validator reads main entries, and its task 4 report cites that commit, so the validator that built the harness has seen them. The entry was cleaned on 2026-11-24 (`37e1503`). A fresh agent, starting from the cleaned log, keeps CLAUDE.md's rule that the validator never sees the modeller's reasoning.
