@@ -56,3 +56,24 @@ goals_model:
     # points (sd / gap_points per point). The no-prior fit is always logged as a reference row.
     gap_points: 100
     shared_sd_grid: [0.4, 0.3, 0.25, 0.2, 0.175, 0.15, 0.125, 0.1, 0.075]
+
+# The minutes component v1 (brief section 6.1): recency-weighted starts and minutes, then the
+# availability override. Set by stated rules, not tuned (docs/decisions.md, "model - minutes
+# v1"); the 60-minute line is scoring.yaml's appearance.long_min_minutes.
+minutes:
+  # The last N Premier League gameweeks in which the player's club had a fixture
+  # (features.recent_minutes; a double gameweek is one gameweek with two fixtures).
+  windows: [1, 3, 6]
+  # Relative weight of each window. A gameweek weighs the share of the weights whose window
+  # holds it: with equal weights the last gameweek weighs 1, the two before it 2/3 and the
+  # three before those 1/3. Rule: every window counts the same.
+  window_weights: [1, 1, 1]
+  # k: P(60 | start), minutes given a start, the bench-appearance rate and minutes given a
+  # bench appearance are pulled toward the season-to-date position average with this many
+  # gameweeks' weight. Rule: the prior counts as much as the most recent gameweek.
+  prior_strength: 1
+  # The start rate in a club's second fixture of a double gameweek is cut by this share.
+  # Rule: the second-fixture start shortfall the modeller measured in 2025/26's ten
+  # team-doubles (408 player rows), 0.043; the derivation is in the task 5 report, kept out of
+  # the log for the validator's independence. Small sample; revisit with its diagnostics.
+  second_fixture_discount: 0.04

@@ -3353,6 +3353,127 @@ Josh took the main session's recommendation on points 1, 2, 5 and 6. On points 3
 - **Limit:** it doesn't guarantee freshness; GitHub can still delay or drop every slot. The alternative, an outside scheduler triggering the workflow, needs a stored token and a plan of its own.
 - **Updated:** brief sections 1 and 11, `CONTEXT.md` "Run", both phase 1 plans. The workbook's README sheet and `excel/HAND_TEST.md` keep the old times until the excel-builder's next task (`docs/known_gaps.md`, "Run times out of date in the workbook and hand test").
 
+### 2026-11-23: model - minutes v1
+Phase 2 task 5, built on upstream `ac8be9c` (2026/27 as-of 10). The early-season blend with
+last season waits for task 2. Revised the same day after Josh's decisions ("main - minutes v1:
+the modeller's choices and the horizon rule"): a chance of playing now scales the next
+gameweek only. Revised again on 2026-11-24 after Code Review ("main - task 5 Code Review, new
+arrivals, and a fresh validator for minutes"):
+- a player with no history takes his position's average rates instead of zeros;
+- three tests close the review's mutants: M10, a gameweek row after the as-of gameweek; M20, a
+  60-minute bench appearance; M15, `player_minutes` passing its own arguments to `load_as_of`;
+- the rates moved to `models/minutes_rates.py` and their tests to `tests/test_minutes_rates.py`,
+  keeping every file under 300 lines.
+- **Built:** `models/minutes.py`, with the per-player rates in `models/minutes_rates.py`.
+  `player_minutes(season, as_of_gw, mode)` gives `p_appear`,
+  `p_start`, `p_60` and `exp_minutes` per player per Premier League fixture of his club with
+  `gw` in (as-of, as-of + `max_horizon`]. These are the same fixtures `elo_goals` chooses (tested on the
+  synthetic and real seasons). The pure core is `minutes_from_tables(tables, as_of_gw,
+  settings, prem_tag)`.
+- **Rows:** every `dim_player` player, for each fixture of his `dim_player.team_id` club, so
+  a player who moved gets his new club's fixtures. Injured and departed (`u`) players get rows
+  of zeros. A blank gameweek has no row, and a double gameweek has two. At as-of 0 (`dim_player` empty) and
+  as-of 38 (no horizon), the output is empty, with the columns typed. This is now the
+  contract's row rule (Component hand-offs, decided 2026-11-23).
+- **Method (brief 6.1, v1):**
+  - **Windows:** `recent_minutes` with windows 1..W (W = max(as-of, 6)), differenced into one
+    observation per player per recency rank. Every rate then uses the contract's definition of
+    "the last N gameweeks in which his club had a fixture": the club of each gameweek, blanks
+    skipped, a double one gameweek with two fixtures.
+  - **Weights:** `minutes.windows` [1, 3, 6] with `window_weights` [1, 1, 1]. A gameweek
+    weighs the share of window weights whose window holds it: 1, 2/3, 2/3, 1/3, 1/3, 1/3. A
+    rate is then Σ_N w_N count_N / Σ_N w_N base_N over the window totals. Rule: every window counts
+    the same.
+  - **`p_start`** is the weighted start rate, starts / fixtures, so a double counts two matches.
+    It is not shrunk (brief 6.1).
+  - **Four conditional rates**, from single-fixture gameweeks only, where FPL's gameweek minutes are the match's:
+    P(60 | start), minutes given a start, the bench-appearance rate (bench appearances /
+    matches not started) and minutes given a bench appearance. Each is shrunk toward the
+    season-to-date position average: (weighted count + k × prior) / (weighted base + k), with
+    k = `prior_strength` 1 (rule: the prior counts as much as the most recent gameweek). A
+    position with no observation for a rate takes the league's.
+  - **New arrivals** (brief "Horizon and aggregation", decided 2026-11-24): a player with no
+    gameweek in the windows takes his position's season-to-date average for all five rates.
+    That is the four above and the start rate, starts / fixtures, pooled the same way: every
+    gameweek row of the position's `dim_player` players, unweighted, with the league as
+    fallback. The availability override then applies as usual, so an injured new arrival gets
+    0. `low_confidence` is set in combine (task 10).
+    - The start-rate priors at 2026/27 as-of 10 are DEF 0.394, MID 0.326, FWD 0.259 and GKP
+      0.277. No `dim_player` player there, or at 2025/26 as-of 1 or 20, has no history, so
+      those reads' outputs are unchanged.
+  - **Combined:** `p_appear` = p_start + (1 − p_start) × bench rate, `p_60` = p_start × P(60 |
+    start), `exp_minutes` = p_start × minutes given a start + (1 − p_start) × bench rate ×
+    minutes given a bench appearance. So p_60 ≤ p_start ≤ p_appear, and exp_minutes ≤ 90.
+  - **The 60-minute line** is `scoring.yaml` `appearance.long_min_minutes` on FPL
+    `fact_player_gw.minutes` (data rule 2). `fact_player_match.minutes_played` isn't used.
+  - **Double gameweeks:** in a club's second fixture of a gameweek (by kickoff), the start rate is
+    cut by `second_fixture_discount` 0.04. A player rested there can still come off the bench, so
+    p_appear, p_60 and exp_minutes follow from the cut start rate. Rule: the second-fixture
+    start shortfall the modeller measured in 2025/26's ten team-doubles (the derivation is in
+    the task 5 report). In the history, a double counts in the start rate only. FPL's
+    per-gameweek total can't say which start reached 60, or whether minutes came from a start
+    or the bench (2025/26: 52 of 409 double rows had one start, and 46 of those had 1-119
+    minutes).
+  - **Availability override** (brief 6.1, decided 2026-11-23). `availability(status, chance)`
+    gives two factors per player, and each multiplies all four outputs, exp_minutes included:
+    - one for every gameweek of the horizon: 0 for status injured, suspended, unavailable or
+      not available, otherwise 1;
+    - one for the next gameweek, `as_of_gw` + 1, both fixtures if it's a double: that factor times
+      the chance of playing / 100. FPL's chance is for the next round, so later gameweeks use
+      the unscaled rates. If the next gameweek is blank for the club, the chance scales nothing.
+
+    Every status and chance seen in both seasons' snapshots (every as-of read of 2025/26 and
+    2026/27 GW1-10):
+
+    | Status | Chance seen | Handling |
+    | --- | --- | --- |
+    | `a` | null, 100 | 1 |
+    | `a` | 0 (2025/26 GW2-10 only, 345-565 players a snapshot, no news) | 1: about half played the next gameweek (48% at as-of 10), against 75% for `a`/100 at as-of 10. At as-of 3 the shares were 47% and 54% |
+    | `d` | 25, 50, 75 | chance / 100 in the next gameweek; 1 after it |
+    | `i`, `s`, `u` | 0 | 0 in every gameweek |
+    | `n` (2025/26 only: ineligible against a parent club, 31-33 players a snapshot at GW16-20 and 15 at GW21) | 0 | 0 in every gameweek, as unavailable; 6.5% played the next gameweek at as-of 20 |
+
+    Unseen combinations: a chance below 100 scales the next gameweek whatever the status; `d`
+    with a null chance is 1; `d`/0 is 0 in the next gameweek. An unknown status, or a chance
+    outside 0-100, raises `MinutesError`, because nothing upstream validates the codes.
+    - At 2026/27 as-of 10, Virgil (`d`, 75) is 0.75 in GW11 (p_start 0.75, exp_minutes 66.6)
+      and back to his rates in GW12-15 (1.0, 88.8).
+- **Early season:** at as-of 1 the start rate is 0 or 1 (times availability). At as-of 2-3 it
+  is over the 2-3 gameweeks played. The position priors use those same gameweeks. GW0
+  friendlies aren't used.
+- **Inputs:** `fact_player_gw` (`player_id`, `team_id`, `gw`, `minutes`, `starts`, through
+  `recent_minutes`); `fact_fixture` (`match_id`, `gw`, `kickoff_utc`, `tournament`,
+  `home_team_id`, `away_team_id`); `dim_player` (`player_id`, `team_id`, `position`,
+  `status`, `chance_next`). All are read through `load_as_of`.
+- **Outputs:** `player_id`, `team_id`, `match_id`, `gw`, `p_appear`, `p_start`, `p_60`,
+  `exp_minutes`, sorted by gameweek, kickoff, match, club and player. `team_id` is the
+  player's club, for the join to team goals. 3,360 rows at 2026/27 as-of 10 (672 players × 5).
+- **Config keys added (`config/model.yaml` `minutes:`):** `windows`, `window_weights`,
+  `prior_strength`, `second_fixture_discount`. Read from `scoring.yaml`:
+  `appearance.long_min_minutes`. `model_version` is unchanged (phase 2 publishes nothing).
+- **The modeller's quick look at 2025/26** (predicted against actual starts and 60s) went to the
+  main session in the task 5 report and is kept out of this log, so the model-validator's
+  minutes diagnostics stay independent (decided 2026-11-24).
+- **Assumptions and known weaknesses:**
+  - The start rate counts gameweeks missed through injury or suspension as non-starts, so a
+    returning player reads low for up to 6 gameweeks. Past status isn't in the processed
+    tables.
+  - A hard status zeroes all five gameweeks, so a one-match ban zeroes the whole horizon. A
+    chance scales the next gameweek only, so a knock that lasts longer is missed after it.
+    Return dates are in `news`, a v2 input (`docs/known_gaps.md`).
+  - A new signing appears in FPL at 0 minutes from the gameweek he is added, so from then he
+    has history and a start rate of 0 until he plays. Only a player with no gameweek row at
+    all takes the position prior.
+  - A mid-season mover's rates mix his old club and his new one: 16-23 players a season
+    have had 2+ clubs.
+  - 60-minute bench appearances are ignored in `p_60`: they are 0.5% of 60-minute
+    appearances in 2025/26 and 0.3% in 2026/27.
+  - The position prior is position only, not position and team (rule 4 says both). Team
+    cells hold a few starts early in a season, and the rates differ mostly by position:
+    P(60 | start) 2025/26 GKP 0.995, DEF 0.945, MID 0.906, FWD 0.913.
+  - In backtest mode, status comes from the as-of snapshot, which can land after the next
+    deadline (brief section 7). For the holdout that is task 3's fix.
+
 ### 2026-11-23: main - task 1 contract change: FPL goals and assists, shots and on-pitch spells (Josh)
 The data-engineer's step A report (no code) proposed the change. Josh took all five of the main session's recommendations. The contract (`docs/data_contract.md`), brief sections 4, 5 and 6.3, plan point 7, `CONTEXT.md` (**On-pitch spell**), `docs/known_gaps.md` and the data-engineer's agent file are updated. Step B builds it.
 - **The change:**
