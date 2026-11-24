@@ -96,9 +96,12 @@ When a gap is fixed, delete its entry and log the fix in `docs/decisions.md`.
     `deadline_time` disagree in a live run.
 - **Snapshot timing** (brief section 7).
   - **Gap:** a snapshot can land up to about 7 hours after the next deadline,
-    and the 2025/26 folders were rewritten on 2026-07-22.
+    and 2025/26's GW1-10 snapshot files were rewritten weeks later (GW1 on
+    2025-12-13, GW2-10 on 2025-11-19).
   - **Effect:** status, news and `ep_next` can include post-deadline news. The
     model-validator reports pre- and post-deadline snapshots separately.
+  - **Fix:** task 3's pre-deadline view, for both seasons (decided
+    2026-11-24).
 
 - **A stalled upstream across a deadline** (2026-11-16, task 6 plan).
   - **Gap:** `update.yml` publishes only when upstream's commit changes. If

@@ -425,6 +425,11 @@ guard against leakage.
   as-of gameweek is the next gameweek minus 1, so it is 0 before the GW1
   deadline. After the GW38 deadline there is no next gameweek in the
   season, and the run fails with a clear error.
+- **The one read outside the loader in `backtest/`:** the snapshot-timing
+  audit (`backtest/snapshot_timing.py`) reads upstream's git history to find
+  each snapshot's last version before its deadline. It is a check, and no
+  predictor may import it (decided 2026-11-24). The outside-source Elo check
+  has its own reader too ("Outside sources").
 - `features.py` also holds generic features. Model-specific features live in
   the model components.
   - **Recent minutes and starts:** `recent_minutes(tables, as_of_gw,
@@ -454,7 +459,7 @@ DataFrames only; in phase 1, `export.py` writes `elo_ratings.csv` and
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |
 | Bonus | `models/bonus.py` | Minutes, attack, defence | `xp_bonus` |
-| Combine | `xp.py` | All of the above | `xp_appear`, `xp_cards`, `xp_total`; writes `projections.csv` |
+| Combine | `xp.py` | All of the above | `xp(season, as_of_gw, mode)`: every `dim_player` player whose club has a Premier League fixture with `gw` in (`as_of_gw`, `as_of_gw` + `max_horizon`], one row per fixture: `team_id`, `xp_appear`, `xp_cards`, `xp_total`. The backtest harness sums a player's rows per gameweek, and a missing player stops its run (decided 2026-11-24). Writes `projections.csv` |
 | Value | `value.py` | Combine | Per player per horizon (1–5): the `player_summary.csv` columns |
 
 - **Elo seeds** (brief data rule 12) come only from Premier League kickoff

@@ -202,7 +202,7 @@ Each model component exposes a function that takes `season`, `as_of_gw` and `mod
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |
 | Bonus | `models/bonus.py` | Minutes, attack, defence | `xp_bonus` |
-| Combine | `xp.py` | All of the above | `xp_appear`, `xp_cards`, `xp_total`; writes `projections.csv` |
+| Combine | `xp.py` | All of the above | `xp(season, as_of_gw, mode)`: every player whose club has a fixture in the horizon, per fixture: `xp_appear`, `xp_cards`, `xp_total`; writes `projections.csv` |
 | Value | `value.py` | Combine | Per player per horizon (1–5): the `player_summary.csv` columns |
 
 **Canonical copy:** phase 0 copies this section into `docs/data_contract.md`. From then on that file is the contract, and changes are made there first.
@@ -373,10 +373,11 @@ Known limitation: the snapshot is taken at the end of `GW{g−1}`, so team news 
 
 Known limitation (snapshot timing):
 - Upstream keeps rewriting a gameweek folder until the next gameweek becomes current. A `GW{g−1}` snapshot can therefore land up to about 7 hours after the g deadline; this happened in 4 of the first 10 gameweeks of 2026/27.
-- All the 2025/26 folders were rewritten on 2026-07-22, so their timing is unknown.
+- 2025/26's snapshot files were rewritten after their deadlines. GW1's was rewritten on 2025-12-13 with the GW15 snapshot's state, so its `ep_next` is for GW16. GW2–10's were rewritten on 2025-11-19, which set most available players' chance of playing to 0. Upstream's git history keeps a version of each from before its deadline (checked 2026-11-24).
 - Price, status, news and `ep_next` in a snapshot may include news from after the deadline. Match data can't leak, because each folder holds only its own gameweek.
 - The validator checks whether a post-deadline `ep_next` refers to g or g+1, and reports pre- and post-deadline snapshots separately.
-- **The holdout avoids this** (decided 2026-11-18). For each 2026/27 gameweek g, status, chance of playing, news, price and `ep_next` come from upstream's `playerstats.csv` at its last commit before the g deadline, as a live run would have seen them. The model and the `ep_next` baseline both use them. 2025/26 can't be rebuilt this way, because its folders were rewritten on 2026-07-22.
+- **The backtest avoids this** (decided 2026-11-18 for the holdout, and extended to 2025/26 on 2026-11-24). For each gameweek g of both seasons, status, chance of playing, news, price and `ep_next` come from upstream's `playerstats.csv` at its last commit before the g deadline, as a live run would have seen them. The model and the `ep_next` baseline both use them.
+- **The snapshot-timing audit** (`backtest/snapshot_timing.py`) reads upstream's git history outside `load_as_of`. It is a check, never a model input, like the outside-source Elo check's reader (decided 2026-11-24).
 
 The report goes to `backtest/reports/{date}.md`, and the headline MAEs go into `meta.csv` for the Dashboard.
 
