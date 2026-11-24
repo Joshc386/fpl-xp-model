@@ -238,9 +238,14 @@ Brief section 4 lists the data rules.
     15 repairs at `ac8be9c` are sent-off players whose `finish_min` reads
     full time.
   - **A 2025/26 substitute with no "on" incident** takes his start from
-    `start_min` where it is above 0. Otherwise his start is unknown, so the
-    spell is dropped and counted under `spell_start_unknown`, never
-    guessed. At `ac8be9c` there are 5 such substitutes, each with 1 minute.
+    `start_min` only where the resulting spell needs no repair, that is,
+    where it fits his `minutes_played` within the tolerance. Otherwise his
+    start is unknown, so the spell is dropped and counted under
+    `spell_start_unknown`, never guessed or repaired (tightened on
+    2026-11-24). At `ac8be9c` there are 5 such substitutes, each with 1
+    minute. Three have a `start_min` of 95-96 that fits. Two (players 345
+    and 605) have a `start_min` of 4 and 3 beside a `finish_min` of 90, so
+    they are dropped.
   - **Limit:** in 2026/27, a player substituted in stoppage time counts as
     on until the whistle.
 - **Checks on `fact_shot` and `fact_player_spell`:** in two groups, so that
