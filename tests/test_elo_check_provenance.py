@@ -107,3 +107,13 @@ def test_run_info_counts_untracked_code_and_upstream_changes(tmp_path: Path) -> 
     dirty = run_info(pcfg, root=root)
     assert dirty["code_clean"] == "no: 0 modified, 1 untracked (src/fpl/new.py)"
     assert dirty["upstream_clean"] == "no: 1 modified, 0 untracked (data/f.csv)"
+
+
+def test_the_harness_hash_ignores_line_endings(tmp_path: Path) -> None:
+    """A Windows checkout with core.autocrlf and a Linux one hash the same commit alike."""
+    lf, crlf = tmp_path / "lf", tmp_path / "crlf"
+    for folder, eol in ((lf, b"\n"), (crlf, b"\r\n")):
+        folder.mkdir()
+        (folder / "a.py").write_bytes(eol.join([b"x = 1", b"y = 2", b""]))
+        (folder / "config.yaml").write_bytes(eol.join([b"k: v", b""]))
+    assert harness_sha256(lf) == harness_sha256(crlf)

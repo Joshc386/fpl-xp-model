@@ -16,7 +16,7 @@ import fpl
 import fpl.features
 import fpl.models.elo
 import synth
-from elo_check_synth import BASE_CFG, CALLERS, stray_callers, synth_point
+from elo_check_synth import BASE_CFG, ELO_CALLERS, callers, stray_callers, synth_point
 from fpl.features import load_as_of
 from fpl.ingest import ROOT
 
@@ -39,7 +39,8 @@ def test_every_module_holding_load_as_of_is_swapped() -> None:
     assert stray_callers() == []
     holders = {n for n in names
                if any(v is load_as_of for v in vars(sys.modules[n]).values())}
-    assert holders - {"fpl.features"} == {m.__name__ for m in CALLERS}
+    assert holders - {"fpl.features"} == {m.__name__ for m in callers()}
+    assert set(ELO_CALLERS) <= set(callers())
 
 
 def plant(monkeypatch: pytest.MonkeyPatch, name: str, **attrs: object) -> None:
@@ -50,11 +51,41 @@ def plant(monkeypatch: pytest.MonkeyPatch, name: str, **attrs: object) -> None:
 
 
 @pytest.mark.parametrize("name", ["fpl.planted_caller", "backtest.planted_caller"])
-def test_a_new_caller_stops_the_synthetic_redirect(monkeypatch: pytest.MonkeyPatch,
-                                                   tmp_path: Path, name: str) -> None:
-    """Both packages are guarded: dropping either from `PACKAGES` fails one case."""
+def test_a_new_caller_under_its_own_name_is_found_and_swapped(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str) -> None:
+    """A new component that imports `load_as_of` by name needs no edit to the guard."""
     plant(monkeypatch, name, load_as_of=load_as_of)
     plant(monkeypatch, "planted_outside", load_as_of=load_as_of)  # not fpl or backtest
+    assert stray_callers() == []
+    assert name in {m.__name__ for m in callers()}
+    assert "planted_outside" not in {m.__name__ for m in callers()}
+    with synth_point(tmp_path):
+        assert sys.modules[name].load_as_of is not load_as_of
+    assert sys.modules[name].load_as_of is load_as_of
+
+
+def test_a_nested_block_re_points_every_caller_at_its_own_copy(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The perturbation's redirect enters the swap inside an outer one: the inner copy wins,
+    and the outer swap is back on exit."""
+    plant(monkeypatch, "fpl.planted_caller", load_as_of=load_as_of)
+    module = sys.modules["fpl.planted_caller"]
+    with synth_point(tmp_path / "outer" / "data"):
+        outer = module.load_as_of
+        with synth_point(tmp_path / "inner" / "data"):
+            inner = module.load_as_of
+            assert inner is not outer and inner.keywords != outer.keywords
+            assert all(m.load_as_of is not outer for m in ELO_CALLERS)
+        assert module.load_as_of is outer
+    assert module.load_as_of is load_as_of
+
+
+@pytest.mark.parametrize("name", ["fpl.planted_alias", "backtest.planted_alias"])
+def test_an_alias_in_either_package_stops_the_synthetic_redirect(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str) -> None:
+    """Both packages are guarded: dropping either from `PACKAGES` fails one case."""
+    plant(monkeypatch, name, read_tables=load_as_of)
+    plant(monkeypatch, "planted_outside", read_tables=load_as_of)  # not fpl or backtest
     assert stray_callers() == [name]
     with pytest.raises(RuntimeError, match=name), synth_point(tmp_path):
         pass
@@ -67,7 +98,7 @@ def test_an_aliased_import_is_a_stray_caller(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_an_alias_inside_a_swapped_module_is_a_stray_caller(
         monkeypatch: pytest.MonkeyPatch) -> None:
-    """Only the `load_as_of` name of a module in `CALLERS` is swapped."""
+    """Only a swapped module's own `load_as_of` name is swapped."""
     monkeypatch.setattr(fpl.models.elo, "planted_loader", load_as_of, raising=False)
     assert stray_callers() == ["fpl.models.elo"]
 
@@ -106,15 +137,15 @@ def test_a_call_through_the_loaders_module_raises_inside_the_swap(tmp_path: Path
     with synth_point(tmp_path / "data"):
         with pytest.raises(RuntimeError, match="bypassed the synthetic swap"):
             read_through_the_module()
-        assert all(m.load_as_of is not load_as_of for m in CALLERS)  # the swap still holds
+        assert all(m.load_as_of is not load_as_of for m in ELO_CALLERS)  # the swap holds
     assert fpl.features.load_as_of is load_as_of
 
 
 def test_the_swap_reaches_every_caller_and_is_undone(tmp_path: Path) -> None:
     with synth_point(tmp_path / "data"):
-        assert all(m.load_as_of is not load_as_of for m in CALLERS)
+        assert all(m.load_as_of is not load_as_of for m in ELO_CALLERS)
         assert stray_callers() == []
-    assert all(m.load_as_of is load_as_of for m in CALLERS)
+    assert all(m.load_as_of is load_as_of for m in ELO_CALLERS)
 
 
 # --- callers the identity scan can't see: `_resolve` is patched, so any of them raises ------
@@ -174,7 +205,7 @@ def test_a_caller_the_scan_misses_still_raises_inside_the_swap(
         call(held)
 
 
-@pytest.mark.parametrize("module", CALLERS, ids=lambda m: m.__name__)
+@pytest.mark.parametrize("module", ELO_CALLERS, ids=lambda m: m.__name__)
 def test_every_swapped_caller_still_reads_the_synthetic_season(
         synth_upstream: tuple[Path, dict], module: types.ModuleType) -> None:
     with synth_point(synth_upstream[0] / "data"):

@@ -142,3 +142,117 @@ beyondelo_check:
   compare_decimals: 9
   top_disagreements: 5         # biggest rank disagreements listed at each window's last GW
   report_suffix: beyondelo     # backtest/reports/{date}-beyondelo.md
+
+# The xP walk-forward backtest (python -m backtest.run_backtest; brief section 7). For each target
+# gameweek g, every predictor is called with as-of g-1 in backtest mode and scored against
+# fact_player_gw points for g. GW1 has no snapshot before it (as-of 0 holds no players), so it
+# can't be predicted. The gate thresholds are Josh's: never change them to make a run pass.
+xp_backtest:
+  mode: backtest
+  seasons:
+    - id: "2025-2026"                 # the development window
+      target_gameweeks: [2, 38]
+  # Seasons scored only with the explicit holdout switch (--holdout), after Josh has approved
+  # and logged the look in docs/decisions.md. Their player fields must come from the
+  # pre-deadline view (phase 2 task 3).
+  holdout_seasons: ["2026-2027"]
+  early_season_gws: [1, 5]            # reported separately (brief section 7)
+  # Where status, chance of playing, price and ep_next come from (xp_inputs.pre_deadline_view).
+  # Task 3's pre-deadline view covers 2025/26 and 2026/27 (decided 2026-11-24). Until it is
+  # wired in: snapshot = the GW g-1 snapshot, holdout seasons refused; task3 refuses all.
+  player_fields: snapshot
+
+  # The model under test and the component diagnostics, by import path "module:function", each
+  # taking (season, as_of_gw, mode), as named in docs/data_contract.md ("Component hand-offs").
+  # A module that doesn't exist yet, or a null callable (not named in the contract yet), is
+  # reported "not built"; a module that exists without the function stops the run. kind: player
+  # or team rows; outcome: what a row is scored against (xp_components); edges: the
+  # diagnostics bins below.
+  model: {callable: "fpl.xp:xp", column: xp_total}
+  components:
+    minutes: {callable: "fpl.models.minutes:player_minutes", column: p_60, kind: player,
+              outcome: p60, edges: p60_edges}
+    team_goals: {callable: null, column: lambda_for, kind: team, outcome: goals_for,
+                 edges: team_goals_edges}
+    defence: {callable: "fpl.models.defence:defence", column: p_cs, kind: player, outcome: cs,
+              edges: cs_edges}
+    attack: {callable: "fpl.models.attack:attack", column: xg, kind: player, outcome: goals,
+             edges: xg_edges}
+  # Reads that raise by design, per name (baselines, model or a component): season -> as-of ->
+  # "module:ExceptionClass". None known yet: the modeller says which; any other exception
+  # stops the run, and a listed read that doesn't raise is reported.
+  expected_skips: {}
+
+  baselines:
+    last_n: 5                         # club-fixture gameweeks in the last-5 average
+  evaluation_set:
+    previous_matches: 3               # "started one of their team's previous 3 matches"
+  metrics:
+    top_n: 10                         # top-N hit rate: N players per gameweek, all positions
+    calibration_edges: [0, 1, 2, 3, 4, 5, 6, 7, 8]   # lower edges; 8+ is open
+  gate:                               # brief section 7, dry run on the development window
+    beat_share: 0.6                   # share of gameweeks with MAE below ep_next's
+    calibration_tolerance: 0.3        # points
+    calibration_min_count: 200        # a bin carries the tolerance from this many rows
+    compare_decimals: 9               # gaps are rounded first, so exactly 0.3 passes
+  weakest:
+    top_n: 3
+    min_rows: 300                     # a group is ranked only with this many scored rows
+    price_edges_tenths: [0, 50, 65, 80, 100]       # lower edges, in £0.1m
+    minutes_window: 3                 # FPL minutes over the last 3 club-fixture gameweeks
+    minutes_edges: [0, 1, 91, 181, 270]
+  diagnostics:
+    p60_baseline: {window: 5, unavailable: [i, s, u, n]}
+    p60_edges: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    cs_edges: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    team_goals_edges: [0, 0.75, 1.25, 1.75]
+    xg_edges: [0, 0.05, 0.15, 0.3, 0.5]
+    europe_tournaments: [champions-league, europa-league, conference-league]
+
+  # Snapshot timing (brief section 7, "Known limitation"): each GW g-1 playerstats.csv as the
+  # loader reads it, against its last version committed before the GW g deadline, in the
+  # upstream checkout's git history. A snapshot is late when more than late_share of the
+  # players in both versions differ in any of the fields.
+  snapshot_timing:
+    fields: [ep_next, now_cost, status, chance_of_playing_next_round]
+    late_share: 0.01
+
+  # The perturbation test (brief section 7): at each case, every row dated after the as-of
+  # snapshot is corrupted in every file below (results as in the Elo check, other columns by
+  # shuffling), and every predictor is re-run. keys are never corrupted; club columns are
+  # corrupted after the as-of only, so the control's reads stay valid.
+  perturbation:
+    seed: 20261123
+    cases: [{season: "2025-2026", as_of: 1}, {season: "2025-2026", as_of: 5},
+            {season: "2025-2026", as_of: 20}, {season: "2025-2026", as_of: 33}]
+    score_range: [0, 9]
+    elo_range: [1200.0, 2200.0]
+    xg_range: [0.0, 4.0]
+    files:
+      matches: &schedule
+        keys: [gameweek, kickoff_time, home_team, away_team, match_id, match_url, fotmob_id,
+               tournament, finished, home_score, away_score, home_team_elo, away_team_elo,
+               home_expected_goals_xg, away_expected_goals_xg, home_non_penalty_xg,
+               away_non_penalty_xg]
+      fixtures: *schedule
+      players: {keys: [player_code, player_id], club: [team_code]}
+      teams: {keys: [code, id, name, short_name]}
+      playerstats: {keys: [id, gw]}
+      player_gameweek_stats: {keys: [id, gw]}
+      playermatchstats: {keys: [player_id, match_id]}
+      shots: {keys: [match_id, shot_index]}
+      incidents: {keys: [match_id, incident_index]}
+  # The static check (backtest/xp_reads.py): model source files (globs from the repo root), and
+  # the modules within `follow` they import except the trusted loader and config modules, must
+  # not name these readers, give load_as_of its own cfg or root, import it under another name,
+  # or import anything from backtest.
+  static_check:
+    paths: ["src/fpl/models/*.py", "src/fpl/xp.py", "src/fpl/value.py"]
+    follow: [fpl]
+    trusted: [fpl.features, fpl.ingest]
+    forbidden: [read_csv, read_parquet, read_table, read_excel, read_json, read_season,
+                read_master_state, read_deadlines, upstream_data_dir, use_data_copy,
+                live_deadlines, live_gameweeks, fpl.master, open, read_text, read_bytes,
+                reader, DictReader, subprocess, Popen, system, loadtxt, genfromtxt,
+                fromfile, listdir, scandir, import_module, __import__]
+  report_suffix: baselines            # a baselines-only run writes {date}-baselines.md

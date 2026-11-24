@@ -9,10 +9,14 @@ reaches it through the module (`features.load_as_of(...)`) fails instead of read
 checkout; the swapped callers' partial holds the original. `use_data_copy` is never patched.
 `tests/test_elo_check_real.py` exercises it.
 
-`CALLERS` is listed by hand, so `synth_point` first checks that no loaded `fpl` or `backtest`
-module holds the real `load_as_of` anywhere the swap doesn't reach: under another name (an
-aliased import), as a default argument, or, outside `CALLERS`, under its own name. Such a
-caller would bypass the swap and silently read the real checkout. The scan names the module up
+The callers are found, not listed: `callers()` is every loaded `fpl` or `backtest` module
+(other than the loader) whose own `load_as_of` is the real loader, so a new model component
+that imports it by name is swapped with no edit here (decided 2026-11-23, when the minutes
+component arrived). `synth_point` first checks that no loaded module holds the real
+`load_as_of` anywhere the swap doesn't reach: under another name (an aliased import) or as a
+default argument or class attribute. Such a caller would bypass the swap and silently read the
+real checkout. A module first imported inside the block isn't swapped; it reaches the patched
+`_resolve` below and fails. The scan names the module up
 front but can't see every hiding place (a dict, a partial, a closure, a nested class...), so
 `fpl.features._resolve`, which `load_as_of`, `live_deadlines` and `live_gameweeks` look up at
 each call, is also patched to raise when it resolves to the real checkout's data folder:
@@ -45,9 +49,9 @@ from fpl.ingest import ROOT, load_config, upstream_data_dir
 
 # Without score corrections: the synthetic data is a cut that lacks the corrected match (rule 16).
 BASE_CFG = {**load_config(ROOT / "config" / "pipeline.yaml"), "score_corrections": []}
-# Every module that imports `load_as_of` by name. The tuner isn't on the check's path; it is
-# swapped anyway so the rule stays "every holder is swapped".
-CALLERS = (fpl.models.elo, fpl.models.elo_tune, backtest.elo_check, backtest.elo_leakage)
+# The Elo check's own callers, imported above so they are always found and swapped. The tuner
+# isn't on the check's path; it is swapped anyway, as every holder is.
+ELO_CALLERS = (fpl.models.elo, fpl.models.elo_tune, backtest.elo_check, backtest.elo_leakage)
 PACKAGES = ("fpl", "backtest")
 
 
@@ -72,13 +76,31 @@ def _bypasses(module: types.ModuleType, swapped: bool) -> bool:
                if not (swapped and name == "load_as_of") for held in _held(value))
 
 
+def _loaded() -> list[tuple[str, types.ModuleType]]:
+    return sorted((name, m) for name, m in list(sys.modules.items())
+                  if name.split(".")[0] in PACKAGES and isinstance(m, types.ModuleType))
+
+
+SWAP_MARK = "_synth_swap"
+
+
+def _swappable(value: object) -> bool:
+    """The real loader, or a swap an enclosing `synth_point` put there (blocks nest: the
+    perturbation's redirect re-points the callers at its copy inside an outer block)."""
+    return value is load_as_of or getattr(value, SWAP_MARK, False)
+
+
+def callers() -> tuple[types.ModuleType, ...]:
+    """Every loaded `fpl` and `backtest` module but the loader whose own `load_as_of` is the
+    real loader (or an enclosing block's swap): the modules `synth_point` swaps."""
+    return tuple(m for name, m in _loaded()
+                 if name != "fpl.features" and _swappable(getattr(m, "load_as_of", None)))
+
+
 def stray_callers() -> list[str]:
     """Loaded `fpl` and `backtest` modules that hold the real `load_as_of` where the swap
-    misses it: any name but `load_as_of` in `CALLERS` and the loader, any name elsewhere."""
-    swapped = {m.__name__ for m in CALLERS} | {"fpl.features"}
-    return sorted(name for name, module in list(sys.modules.items())
-                  if name.split(".")[0] in PACKAGES and isinstance(module, types.ModuleType)
-                  and _bypasses(module, name in swapped))
+    misses it: under any name but their own `load_as_of`, or held inside a value."""
+    return [name for name, module in _loaded() if _bypasses(module, True)]
 
 
 REAL_DATA = upstream_data_dir(BASE_CFG, ROOT).resolve()
@@ -105,16 +127,17 @@ def _bypassed(*args: object, **kwargs: object) -> NoReturn:
 def synth_point(data_dir: Path) -> Iterator[None]:
     """Every `load_as_of` call by the model or the harness reads `data_dir` as synthetic data.
 
-    Raises `RuntimeError` if a module holds `load_as_of` where the swap misses it (add it to
-    `CALLERS`, or import it by its own name), and, inside, on any call through `fpl.features`
+    Raises `RuntimeError` if a module holds `load_as_of` where the swap misses it (import it
+    by its own name instead), and, inside, on any call through `fpl.features`
     and on any read that resolves to the real checkout's data, however the caller holds the
     loader and whatever `cfg` or `root` it passes.
     """
     if stray := stray_callers():
-        raise RuntimeError(f"load_as_of callers missing from CALLERS: {stray}")
+        raise RuntimeError(f"load_as_of held where the synthetic swap can't reach it: {stray}")
     load = partial(load_as_of, cfg=synth_cfg_for(data_dir))
+    setattr(load, SWAP_MARK, True)
     with ExitStack() as stack:
-        for module in CALLERS:
+        for module in callers():
             stack.enter_context(mock.patch.object(module, "load_as_of", load))
         stack.enter_context(mock.patch.object(fpl.features, "load_as_of", _bypassed))
         stack.enter_context(mock.patch.object(fpl.features, "_resolve",

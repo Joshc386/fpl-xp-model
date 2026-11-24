@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,7 +51,8 @@ class Corruption:
     keep: frozenset[str] = frozenset()
 
 
-def _folders(season_dir: Path) -> dict[int, Path]:
+def gameweek_folders(season_dir: Path) -> dict[int, Path]:
+    """A season's `By Gameweek/GW{n}` folders, by gameweek."""
     base = season_dir / GAMEWEEKS
     return {int(p.name[2:]): p for p in base.iterdir() if p.is_dir() and p.name.startswith("GW")}
 
@@ -59,7 +60,7 @@ def _folders(season_dir: Path) -> dict[int, Path]:
 def copy_upstream(src: Path, dst: Path, seasons: list[str], files: list[str]) -> None:
     """Copy `files` of every gameweek folder of `seasons` from data dir `src` to `dst`."""
     for season in seasons:
-        for gw, folder in sorted(_folders(src / season).items()):
+        for gw, folder in sorted(gameweek_folders(src / season).items()):
             out = dst / season / GAMEWEEKS / f"GW{gw}"
             out.mkdir(parents=True, exist_ok=True)
             for name in files:
@@ -68,16 +69,20 @@ def copy_upstream(src: Path, dst: Path, seasons: list[str], files: list[str]) ->
                     shutil.copy2(path, out / path.name)
 
 
-def restore_season(src: Path, dst: Path, season: str) -> None:
-    """Copy every `matches.csv` and `fixtures.csv` of `season` back from `src`."""
-    for gw, folder in _folders(src / season).items():
-        for name in RESULT_FILES:
+def restore_season(src: Path, dst: Path, season: str,
+                   files: Sequence[str] = RESULT_FILES) -> None:
+    """Copy every one of `files` (by default `matches.csv` and `fixtures.csv`) of `season`
+    back from `src`."""
+    for gw, folder in gameweek_folders(src / season).items():
+        for name in files:
             path = folder / f"{name}.csv"
             if path.exists():
                 shutil.copy2(path, dst / season / GAMEWEEKS / f"GW{gw}" / path.name)
 
 
-def _read(path: Path) -> pd.DataFrame:
+def read_text_csv(path: Path) -> pd.DataFrame:
+    """A CSV as text (every cell a string, blanks kept), so a rewrite keeps every cell
+    that isn't corrupted exactly."""
     return pd.read_csv(path, dtype=str, keep_default_na=False)
 
 
@@ -132,7 +137,7 @@ def _rewrite(folders: dict[int, Path], select: Selector, rng: np.random.Generato
     its `fixtures.csv`, except the ids in `c.keep`; returns the number of cells rewritten."""
     total = 0
     for gw, folder in sorted(folders.items()):
-        matches = _read(folder / "matches.csv")
+        matches = read_text_csv(folder / "matches.csv")
         rows = select(gw, matches) & ~matches.match_id.isin(c.keep)
         if not rows.any():
             continue
@@ -141,7 +146,7 @@ def _rewrite(folders: dict[int, Path], select: Selector, rng: np.random.Generato
         matches.to_csv(folder / "matches.csv", index=False)
         path = folder / "fixtures.csv"
         if path.exists():
-            fixtures = _read(path)
+            fixtures = read_text_csv(path)
             total += _corrupt_rows(fixtures, fixtures.match_id.isin(ids), rng, c, keep_finished)
             fixtures.to_csv(path, index=False)
     return total
@@ -151,9 +156,25 @@ def _deadline_after(folders: dict[int, Path], as_of: int, c: Corruption) -> pd.T
     """The GW as_of+1 deadline: its first Premier League kickoff minus the offset."""
     if as_of + 1 not in folders:
         return None
-    df = _read(folders[as_of + 1] / "matches.csv")
+    df = read_text_csv(folders[as_of + 1] / "matches.csv")
     first = _kick(df[df.tournament == c.prem_tag]).min()
     return first - pd.Timedelta(minutes=c.offset_minutes)
+
+
+def after_selector(folders: dict[int, Path], as_of: int, c: Corruption) -> Selector:
+    """The matches dated after as-of gameweek `as_of`: every Premier League match in a folder
+    after it, and every cup or European match kicked off at or after the GW as_of+1 deadline
+    (or with no kickoff time, in a later folder)."""
+    deadline = _deadline_after(folders, as_of, c)
+
+    def select(gw: int, df: pd.DataFrame) -> pd.Series:
+        prem = df.tournament == c.prem_tag
+        kick = _kick(df)
+        late_cup = ~prem & (kick >= deadline if deadline is not None else False)
+        undated_cup = ~prem & kick.isna() & (gw > as_of)
+        return (prem & (gw > as_of)) | late_cup | undated_cup
+
+    return select
 
 
 def corrupt_after(data_dir: Path, season: str, as_of: int, rng: np.random.Generator,
@@ -165,17 +186,8 @@ def corrupt_after(data_dir: Path, season: str, as_of: int, rng: np.random.Genera
     later folder). Match ids, gameweeks, kickoffs, clubs and tournaments are kept. Returns the
     number of cells rewritten.
     """
-    folders = _folders(data_dir / season)
-    deadline = _deadline_after(folders, as_of, c)
-
-    def select(gw: int, df: pd.DataFrame) -> pd.Series:
-        prem = df.tournament == c.prem_tag
-        kick = _kick(df)
-        late_cup = ~prem & (kick >= deadline if deadline is not None else False)
-        undated_cup = ~prem & kick.isna() & (gw > as_of)
-        return (prem & (gw > as_of)) | late_cup | undated_cup
-
-    total = _rewrite(folders, select, rng, c, keep_finished=False)
+    folders = gameweek_folders(data_dir / season)
+    total = _rewrite(folders, after_selector(folders, as_of, c), rng, c, keep_finished=False)
     log.info("%s: corrupted %d cells after as-of %d", season, total, as_of)
     return total
 
@@ -186,7 +198,7 @@ def corrupt_up_to(data_dir: Path, season: str, as_of: int, rng: np.random.Genera
 
     The control: a function that reads the copy must change its output.
     """
-    folders = {g: f for g, f in _folders(data_dir / season).items() if g <= as_of}
+    folders = {g: f for g, f in gameweek_folders(data_dir / season).items() if g <= as_of}
     return _rewrite(folders, lambda gw, df: df.tournament == c.prem_tag, rng, c,
                     keep_finished=True)
 

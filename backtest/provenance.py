@@ -33,11 +33,14 @@ def status_summary(porcelain: str) -> str:
 
 def harness_sha256(folder: Path = HARNESS) -> str:
     """One hash of the harness: every `.py` file and `config.yaml` directly in `folder`, by name
-    and content (the reports are left out)."""
+    and content (the reports are left out). Line endings are normalised to LF first, so a
+    Windows checkout (core.autocrlf) and a Linux one of the same commit hash alike. Hashes in
+    reports written before 2026-11-24 were of the raw bytes and won't match."""
     h = hashlib.sha256()
     for path in sorted([*folder.glob("*.py"), folder / "config.yaml"]):
         if path.exists():
-            h.update(path.name.encode() + b"\0" + path.read_bytes() + b"\0")
+            body = path.read_bytes().replace(b"\r\n", b"\n")
+            h.update(path.name.encode() + b"\0" + body + b"\0")
     return h.hexdigest()
 
 
