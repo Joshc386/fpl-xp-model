@@ -1,4 +1,10 @@
-"""The Elo goals model (brief section 6.2): Poisson goals on the Elo gap and home advantage.
+"""Team goals v1 (brief section 6.2): the Elo goals model, plus `lambda_pen`.
+
+The hand-off is `team_goals`: the Elo goals model's rows (below) with `lambda_pen`, each club's
+expected penalty goals per match (`models/team_penalties.py`), and `lambda_league`, the pool's
+mean goals per team-match, the league average that `lambda_for` is on.
+
+The Elo goals model is Poisson goals on the Elo gap and home advantage.
 
 A team's goals in a match are Poisson with
     log lambda = intercept + gap * (own elo_before - opponent's elo_before) + home * is_home.
@@ -15,7 +21,7 @@ Below `goals_model.min_matches` finished matches in the pool there is no fit: th
 
 It supplies `fixture_difficulty.csv` in phase 1: per team per unfinished Premier League fixture
 in the next `max_horizon` gameweeks, `lambda_for`, `lambda_against` (the opponent's
-`lambda_for`) and `p_cs` = exp(-`lambda_against`). `lambda_pen` comes in phase 2.
+`lambda_for`) and `p_cs` = exp(-`lambda_against`).
 """
 
 from __future__ import annotations
@@ -36,11 +42,14 @@ from fpl.models.elo import (
     prem_fixtures,
     run_elo,
 )
+from fpl.models.team_penalties import penalty_pool, penalty_prior, penalty_rates
 
 log = logging.getLogger(__name__)
 
 OUT_COLUMNS = ["team_id", "match_id", "gw", "opponent_id", "home", "lambda_for",
                "lambda_against", "p_cs"]
+TEAM_GOALS_COLUMNS = ["team_id", "match_id", "gw", "opponent_id", "home", "lambda_for",
+                      "lambda_against", "lambda_pen", "lambda_league", "p_cs"]
 
 
 class GoalsModelError(ValueError):
@@ -225,4 +234,41 @@ def elo_goals(season: str, as_of_gw: int, mode: str) -> pd.DataFrame:
     log.info("Elo goals %s as-of %d (%s): %d rows; intercept %.4f, gap %.6f/pt, home %.4f, "
              "%d matches", season, as_of_gw, mode, len(out), fit.intercept, fit.gap, fit.home,
              fit.n_matches)
+    return out
+
+
+def team_goals_from_history(history: Sequence[SeasonRead], elo_s: EloSettings,
+                            s: GoalsSettings, k: float, prem_tag: str) -> pd.DataFrame:
+    """The pure core of `team_goals`: `goals_from_history`'s rows with two columns added.
+
+    `lambda_pen` is each club's shrunk penalty rate over the same seasons as the goals
+    model's pool (`models/team_penalties.py`; prior strength `k`), the league mean for a club
+    with no match there. `lambda_league` is the goals pool's mean goals per team-match.
+    `match_id` is cast to `str`, which it already is unless the frame is empty, so an empty
+    read has a full one's dtypes.
+    """
+    out, fit = goals_from_history(history, elo_s, s, prem_tag)
+    rates, league_pen = penalty_rates(penalty_pool(history[-s.pool_seasons:], prem_tag), k)
+    codes = history[-1].tables["dim_team"].set_index("team_id").team_code
+    lambda_pen = out.team_id.map(codes).map(rates).fillna(league_pen).astype("float64")
+    out = out.assign(lambda_pen=lambda_pen, lambda_league=fit.mean_goals)
+    return out.astype({"match_id": "str"})[TEAM_GOALS_COLUMNS]
+
+
+def team_goals(season: str, as_of_gw: int, mode: str) -> pd.DataFrame:
+    """Team goals v1 for `season`'s next `max_horizon` gameweeks after `as_of_gw` (brief 6.2).
+
+    `mode` goes to `load_as_of`. The `elo_goals` rows, one per team per Premier League
+    fixture with `gw` in (as_of_gw, as_of_gw + max_horizon], with `lambda_pen` and
+    `lambda_league` added (`TEAM_GOALS_COLUMNS`). Raises by design where `elo_goals` does,
+    `MissingSeedError` or `InsufficientSampleError` (docs/data_contract.md, Elo seed notes).
+    Raises `PenaltyError` on bad penalty data, a complete match in the pool with no xG or
+    npxG, or npxG above xG: a data error, never a read that raises by design.
+    """
+    cfg = model_config()
+    out = team_goals_from_history(load_history(season, as_of_gw, mode),
+                                  EloSettings.from_config(cfg), GoalsSettings.from_config(cfg),
+                                  penalty_prior(cfg), pipeline_config()["premier_league_tag"])
+    log.info("team goals %s as-of %d (%s): %d rows; lambda_pen %.4f-%.4f", season, as_of_gw,
+             mode, len(out), out.lambda_pen.min(), out.lambda_pen.max())
     return out

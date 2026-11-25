@@ -238,7 +238,7 @@ Minutes is the largest source of xP error, so it gets the most care.
 - **The Elo goals model:** a Poisson model driven by the Elo-rating gap and home advantage. It is built in phase 1, fitted only on results up to and including the as-of gameweek (the finished results in the read; a finished result is final, unlike bonus), and supplies `fixture_difficulty.csv` until phase 3.
 - **Inputs:** Premier League results and team xG from `matches.csv`, this season and last; the Elo ratings from the Elo component (data rule 12). 2025/26 has no earlier season loaded, so the Elo goals model fits on 2025/26 alone; its minimum sample is set in `config/model.yaml`.
 - **Gate:** Dixon-Coles work starts only after Josh's own comparison of our Elo ratings with an outside Elo source. If the ratings are poor (a **poor Elo rating**, `CONTEXT.md`), a separate Elo agent rebuilds the Elo component first.
-- **Promoted teams:** an Elo-based prior until they have about 6 matches.
+- **Promoted teams:** an Elo-based prior for `lambda_for` and `lambda_against` until they have about 6 matches. Their `lambda_pen` shrinks toward the league mean like every club's (decided 2026-11-25).
 
 ### 3. Attacking returns
 
@@ -255,7 +255,7 @@ Minutes is the largest source of xP error, so it gets the most care.
 E[\text{goals}_{i,f}] = \lambda^{np}_{f} \cdot \text{share}_i \cdot \frac{m_{i,f}}{90} \;+\; \lambda^{pen}_{f} \cdot P(\text{on pens}_{i,f})
 ```
 
-- **Terms:** λ^np is the team's expected non-penalty goals (`lambda_for` × the team's non-penalty fraction). λ^pen is the team's expected penalty goals, from team xG minus non-penalty xG in `matches.csv`, shrunk toward the league average. m is `exp_minutes`.
+- **Terms:** λ^np is the team's expected non-penalty goals, `lambda_for` − `lambda_pen`, so the two parts add up to `lambda_for` (decided 2026-11-25). λ^pen is `lambda_pen`, the team's expected penalty goals, from team xG minus non-penalty xG in `matches.csv`, shrunk toward the league average. m is `exp_minutes`.
 - **Penalty duty:** for the first-choice taker (`penalties_order` = 1), P(on pens) is his expected share of the match on the pitch, `exp_minutes` / 90. The second-choice taker gets the share of the match when the first choice is off the pitch or out.
 - **Why separate:** folded into `share`, penalty xG would inflate a taker's share and be applied to every open-play chance. It would also stay with him after he lost the job, while the new taker got nothing.
 - **Stripping penalties from history:** player non-penalty xG = xG − penalty attempts × the provider's penalty xG value. The provider uses 0.7884 per penalty, verified in `shots.csv` for 2025/26 and 2026/27. The value goes in config, not code. From 2025/26, penalty shots are identified from `shots.csv`'s situation instead, and this subtraction is needed only for 2024/25.

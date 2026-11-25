@@ -480,7 +480,7 @@ DataFrames only; in phase 1, `export.py` writes `elo_ratings.csv` and
 | --- | --- | --- | --- |
 | Elo | `models/elo.py` | Processed tables (results, `upstream_elo` seeds) | Per team per finished Premier League match, 2025/26 onwards, each season seeded as below: `elo_before`, `elo_after` (the `elo_ratings.csv` rows) |
 | Minutes | `models/minutes.py` | Processed tables | `player_minutes`: every `dim_player` player, for each Premier League fixture of his `dim_player.team_id` club with `gw` in (`as_of_gw`, `as_of_gw` + `max_horizon`], the fixtures `elo_goals` chooses: `team_id`, `p_appear`, `p_start`, `p_60`, `exp_minutes` (decided 2026-11-23) |
-| Team goals | `models/team_goals.py` | Processed tables, Elo | Per team per fixture: `lambda_for`, `lambda_against`, `lambda_pen`. The phase 1 Elo goals model is its fallback and benchmark, and supplies `fixture_difficulty.csv` until phase 3. It returns `lambda_for`, `lambda_against` and `p_cs` (e^(−`lambda_against`)) for each team's Premier League fixtures with `gw` in (`as_of_gw`, `as_of_gw` + `max_horizon`], chosen by gameweek, not by `finished`; `lambda_pen` comes with the phase 2 team goals model |
+| Team goals | `models/team_goals.py` | Processed tables, Elo | `team_goals(season, as_of_gw, mode)`: per team per fixture, for each team's Premier League fixtures with `gw` in (`as_of_gw`, `as_of_gw` + `max_horizon`], chosen by gameweek, not by `finished`: `team_id`, `match_id`, `gw`, `opponent_id`, `home`, `lambda_for`, `lambda_against`, `lambda_pen`, `lambda_league`, `p_cs`. `lambda_pen` is the club's expected penalty goals per match: team xG minus npxG over the goals pool's complete Premier League matches, shrunk toward the league mean by `team_goals.penalty_prior_matches` in `config/model.yaml`. `lambda_league` is the goals pool's mean goals per team-match. `p_cs` here is team-level, e^(−`lambda_against`); defence drops it before merging onto player rows, which carry their own `p_cs`. The phase 1 Elo goals model `elo_goals` returns the same rows without `lambda_pen` and `lambda_league`, and supplies `fixture_difficulty.csv` until phase 3 (decided 2026-11-25) |
 | Attack | `models/attack.py` | Minutes, team goals | `xg`, `xa`, `xp_goals`, `xp_assists` |
 | Defence | `models/defence.py` | Minutes, team goals | `p_cs`, `exp_gc`, `xp_cs`, `xp_gc`, `xp_dc`, `xp_saves` |
 | Bonus | `models/bonus.py` | Minutes, attack, defence | `xp_bonus` |
@@ -506,5 +506,9 @@ DataFrames only; in phase 1, `export.py` writes `elo_ratings.csv` and
 - Below `goals_model.min_matches` finished matches in its pool, the Elo goals
   model raises an error instead of fitting. That happens at 2025/26 as-of
   1-2.
+- `team_goals` raises wherever `elo_goals` does. It also raises
+  `PenaltyError` on bad penalty data (npxG above xG, or missing, on a complete
+  Premier League match in its pool). That is a data error, never a read that
+  raises by design (decided 2026-11-25).
 - Clubs are matched across seasons on `team_code`, never `team_id` (brief
   data rule 6).

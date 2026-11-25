@@ -57,6 +57,22 @@ goals_model:
     gap_points: 100
     shared_sd_grid: [0.4, 0.3, 0.25, 0.2, 0.175, 0.15, 0.125, 0.1, 0.075]
 
+# Team goals v1 (brief section 6.2): the Elo goals model above, plus lambda_pen, each club's
+# expected penalty goals per match. That is its team xG minus non-penalty xG per complete match,
+# pooled over the goals model's seasons (goals_model.pool_seasons) and shrunk toward the pool's
+# league mean (models/team_penalties.py).
+team_goals:
+  # k, in team-matches: after n matches a club's own rate weighs n / (n + k). Rule: the
+  # method-of-moments estimate on 2025/26 in full, rounded to the nearest 5:
+  #   k = m / (v - m / n)
+  # with m the league's penalties per team-match, v the sample variance of the 20 clubs'
+  # penalties per match (19 in the denominator), and n = 38 matches a club, so m / n is the noise
+  # in v. All three are counted in penalties (fact_shot penalty shots, or penalty xG / 0.7884),
+  # not xG: m / n is the Poisson noise only for counts, and in xG units the formula gives more
+  # than twice the k. The figures are in the task 6 report, kept out of the log for the
+  # validator's independence.
+  penalty_prior_matches: 65
+
 # The minutes component v1 (brief section 6.1): recency-weighted starts and minutes, then the
 # availability override. Set by stated rules, not tuned (docs/decisions.md, "model - minutes
 # v1"); the 60-minute line is scoring.yaml's appearance.long_min_minutes.

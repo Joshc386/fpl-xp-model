@@ -3631,3 +3631,105 @@ The model-validator's task 4 report (the harness, uncommitted, in Code Review) r
   - **On the outcome-free rows** (entered by a recent start: 10,658 of 13,116), Brier is 0.1706 against the baseline's 0.1922. Mean `p_60` is 0.6533 against an observed 0.6450.
   - **So the overall under-prediction** (0.539 against 0.579) comes from the selection. Minutes v1 over-predicts slightly on the rows where calibration can be judged.
 - **Not acted on:** the validator noted that `model_version` wasn't bumped in `9c219a1`. That is already settled: it stays unchanged while phase 2 publishes nothing.
+
+### 2026-11-25: model - team goals v1
+Phase 2 task 6, built on upstream `ac8be9c`. The hand-off was approved as proposed ("main - task
+6 Code Review and the team goals hand-off"). Revised the same day after Code Review:
+- tests that kill M22 (a hardcoded k: `team_goals()` with k patched to 3 and 5) and M15 (a
+  hardcoded two-season pool: `goals_model.pool_seasons` 1);
+- the done-when as real-data tests: every 2025/26 club-match's pool penalty xG within
+  `shot_reconciliation.penalty_xg_tolerance` of its `fact_shot` penalty xG (so each club's
+  total within it per side), and at as-of 38 the matches-weighted mean rate equal to the
+  league mean. The pool now carries `match_id` for the first;
+- the as-of 38 empty frame's dtypes: `match_id` is cast to `str`. `elo_goals` types it
+  `object` when empty and `str` otherwise; it is unchanged;
+- `PenaltyError` named in `team_goals`' docstring, and k's rule in `config/model.yaml` given
+  with its units.
+- **Built:** `team_goals(season, as_of_gw, mode)` in `models/team_goals.py`: the Elo goals
+  model's rows with `lambda_pen` and `lambda_league` added. The penalty parts are in the new
+  `models/team_penalties.py`, which keeps every file under 300 lines. The pure core is
+  `team_goals_from_history(history, elo_settings, goals_settings, k, prem_tag)`. `elo_goals`,
+  its output and `tests/test_elo_regression.py` are unchanged; `team_goals` calls
+  `goals_from_history` as it stands.
+- **Rows:** the fixtures `elo_goals` chooses: each club's Premier League fixtures with `gw` in
+  (as-of, as-of + `max_horizon`], chosen by gameweek. A double gameweek gives two rows and a
+  blank none. 100 rows at 2025/26 as-of 20 and 2026/27 as-of 10 (live); 0 at as-of 38, with
+  the columns typed.
+- **Columns:** `team_id`, `match_id`, `gw`, `opponent_id`, `home`, `lambda_for`,
+  `lambda_against`, `lambda_pen`, `lambda_league`, `p_cs`. The first seven and `p_cs` are
+  `elo_goals`' own, unchanged, so phase 3's `fixture_difficulty.csv` can come from this output.
+  - `lambda_pen`: the club's expected penalty goals per match.
+  - `lambda_league`: the goals pool's mean goals per team-match, the same in every row. It is
+    the league average that `lambda_for` is on (the intercept has no prior, so the fitted
+    lambdas average to it over the pool). It is there for the saves scaling in brief 6.6.
+- **Method (brief 6.2, v1):**
+  - **Source:** a club's penalty xG in a complete Premier League match is its `fact_fixture`
+    team xG minus non-penalty xG, which is matches.csv's, as brief 6.2 and plan point 5 say.
+    `fact_shot` is not read. matches.csv rounds both to two decimals, so one penalty reads 0.78
+    or 0.79 against the shots' 0.7884, and a match without one reads exactly 0. Task 1's
+    build-only check holds the two sources within 0.02 a side. A negative or missing value in
+    a complete match raises `PenaltyError`.
+  - **Pool:** the goals model's seasons, this season and last (`goals_model.pool_seasons`, no
+    new key). That is complete matches up to and including each read's as-of gameweek, with
+    clubs matched across seasons on `team_code`. A later row is never used, even if it holds
+    xG (tested). A finished match without xG yet counts in the goals pool but not here.
+  - **Shrinkage:** lambda_pen = (club's penalty xG + k × league mean) / (club's matches + k).
+    The league mean is the pool's penalty xG per team-match, and k is
+    `team_goals.penalty_prior_matches`. A club with no match in the pool gets the league mean.
+  - **Not split by home and away, and the same in every fixture of a club,** as brief 6.2's
+    method says. The evidence on both is in the task 6 report, for the main session.
+- **Promoted clubs:** they have no previous-season matches in the pool, so they start near the
+  league mean. At 2026/27 as-of 10 a promoted club's own rate weighs 10 / (10 + 65) = 0.13.
+- **Early season:** in 2025/26, the first season of the run, the league mean comes from 2025/26
+  alone: 30 matches at as-of 3, the first read that fits. In 2026/27 the pool also holds
+  2025/26's 380 matches. 2024/25 isn't used, per plan point 3.
+- **Reads that raise by design:** the same as `elo_goals`, because `team_goals` runs it first.
+  - 2025/26 as-of 0 raises `MissingSeedError`, and as-of 1-2 `InsufficientSampleError`.
+  - 2026/27 as-of 0-1 raise `MissingSeedError`.
+  - Checked on the real checkout and in the synthetic tests. `PenaltyError` is never by design.
+- **Inputs:** `fact_fixture` (`match_id`, `gw`, `tournament`, `stats_complete`, `home_xg`,
+  `away_xg`, `home_npxg`, `away_npxg`, plus the Elo goals model's own columns) and `dim_team`
+  (`team_id`, `team_code`), through `load_as_of` via `elo.load_history`.
+- **Config keys added (`config/model.yaml` `team_goals:`):** `penalty_prior_matches: 65`.
+  Rule: the method-of-moments estimate on 2025/26 (the league penalty rate over the
+  between-club variance of the true rate, net of Poisson noise), rounded to the nearest 5. The
+  derivation is in the task 6 report, kept out of this log for the validator's independence.
+  `model_version` is unchanged, because phase 2 publishes nothing.
+- **For attack (task 7):** λ^np = `lambda_for` − `lambda_pen` keeps the two parts adding up to
+  `lambda_for`. `lambda_for` is fitted on goals, so it includes own goals, which no player is
+  credited with. `lambda_pen` is in xG units (0.78-0.79 per penalty), while attack identifies
+  penalties from shots (0.7884): the gap is under 0.01 per penalty.
+- **Assumptions and known weaknesses:**
+  - The rate is flat across a club's fixtures. It doesn't rise against weak opponents or at
+    home.
+  - 2025/26's early-season league mean rests on a few matches.
+  - Penalty xG stands in for penalty goals: 0.7884 is the provider's average conversion.
+
+### 2026-11-25: main - task 6 Code Review and the team goals hand-off (Josh)
+- **Code Review's verdict on team goals v1:** approve with findings, nothing blocking.
+  - **Confirmed:** it follows brief 6.2 and plan point 5, and `elo_goals` is unchanged. `team_goals`' shared columns equal `elo_goals` exactly at five real reads, and `tests/test_elo_regression.py` is untouched and green.
+  - **Results:** 1,458 tests passed and ruff is clean. 21 of 24 mutants were killed.
+  - **The surviving mutants:**
+    - M22: a hardcoded k in the public function;
+    - M15: a hardcoded two-season pool;
+    - M21: the float64 cast, which is equivalent on pandas 3.1.1.
+- **Josh took the main session's four recommendations:**
+  1. **The hand-off is approved (contract updated):** `team_goals(season, as_of_gw, mode)`, with the fixtures `elo_goals` chooses. Its columns are `team_id`, `match_id`, `gw`, `opponent_id`, `home`, `lambda_for`, `lambda_against`, `lambda_pen`, `lambda_league` and `p_cs`.
+     - **`p_cs` here is team-level.** Defence drops it before merging onto player rows, which carry their own `p_cs` (brief 6.4).
+     - **`lambda_league`** stays, for defence's saves scaling (brief 6.6).
+     - **`PenaltyError`** is a data error, never a read that raises by design.
+  2. **Promoted clubs' `lambda_pen` shrinks toward the league mean,** like every club's. Brief 6.2's Elo-based prior covers `lambda_for` and `lambda_against` (brief 6.2 updated).
+  3. **Brief 6.3 is settled:** λ^np = `lambda_for` − `lambda_pen`, so the two parts add up to `lambda_for`. The brief's undefined "non-penalty fraction" is gone. Whether own goals come out of λ^np is task 7's call.
+  4. **A short fix round for the modeller, then a focused re-review,** before commit:
+     - a test through `team_goals()` that fails if k isn't `team_goals.penalty_prior_matches` (M22);
+     - a real-data test tying each club's penalty pool to `fact_shot` penalty xG within the contract's 0.02 a side, plus the as-of 38 weighted mean of the rates equalling the league mean;
+     - a test with `pool_seasons` 1 (M15);
+     - a column-type assertion at as-of 38;
+     - `PenaltyError` named in the `team_goals` docstring;
+     - the units of k's rule in the `config/model.yaml` comment.
+- **Not taken from the review:**
+  - The early-season weakness of `lambda_pen` stays in the `model -` entry, not `docs/known_gaps.md`. The validator reads `known_gaps.md`, and the weakness rests on the modeller's own figures.
+  - npxG above xG is checked only in the model. Whether ingest validation should own that rule is left for the data-engineer's next validation change; there are no such rows today.
+- **For the model-validator's next harness task:**
+  - set `team_goals`' callable in `backtest/config.yaml` to `fpl.models.team_goals:team_goals`;
+  - list its expected skips: 2025/26 as-of 0 (`MissingSeedError`), 2025/26 as-of 1-2 (`InsufficientSampleError`) and 2026/27 as-of 0-1 (`MissingSeedError`).
