@@ -3621,4 +3621,13 @@ The model-validator's task 4 report (the harness, uncommitted, in Code Review) r
   2. **Before the v1.1 minutes round, the same validator splits the two worst bins** by how each row entered the evaluation set, by `status`, and by target window. It's a scratch analysis, with no harness change. The aim is that v1.1 tunes against the model's error, not a selection effect.
   3. **The brief's evaluation-set sentence is corrected** (section 7). It said the rule uses only information known before the deadline, but its first clause uses gameweek g's actual minutes, so a player who rarely starts enters the set mostly when he plays. The rule stays for the MAE gate, because every predictor is scored on the same rows.
      - **Before task 11,** `/grill-with-docs` settles whether the ±0.3 calibration rule should be judged on this set (plan, "Main-session choices"). Every baseline misses the 0-1 xP bin by more than 1 point: for example, `ep_next` predicts 0.220 there against an actual 1.434.
+- **The bin split (call 2), from the validator's scratch analysis; the main session rechecked it against its log:**
+  - **The 0-0.1 bin's gap is mostly the selection effect.**
+    - 2,068 of its 2,680 rows entered the set only because they played in g: predicted 0.0149, actual 0.2732.
+    - The 612 that entered by a recent start miss by +0.0422: predicted 0.0052, actual 0.0474.
+  - **The top end is the model's own error.** Every 0.8-0.9 and 0.9+ row entered by a recent start.
+    - 0.9+: predicted 0.9809, actual 0.8837, on 3,499 rows. The miss is -0.0800 to -0.1124 across every status, and worst in GW2 (-0.1994, 184 rows).
+    - 0.8-0.9: -0.0500, on 891 rows.
+  - **On the outcome-free rows** (entered by a recent start: 10,658 of 13,116), Brier is 0.1706 against the baseline's 0.1922. Mean `p_60` is 0.6533 against an observed 0.6450.
+  - **So the overall under-prediction** (0.539 against 0.579) comes from the selection. Minutes v1 over-predicts slightly on the rows where calibration can be judged.
 - **Not acted on:** the validator noted that `model_version` wasn't bumped in `9c219a1`. That is already settled: it stays unchanged while phase 2 publishes nothing.
