@@ -318,7 +318,7 @@ The model ships only if it beats FPL's `ep_next` in a walk-forward backtest. The
 
 **Baselines:** `ep_next`, the last-5-gameweek average, and season points per game.
 
-**Evaluation set:** players with actual minutes > 0, or who started at least one of their team's previous 3 Premier League matches. The rule uses only information known before the deadline and no model's output, so it favours neither the model nor a baseline. Score every model on this identical set. Scoring all \~700 players flatters everyone, because hundreds of non-players score 0 trivially.
+**Evaluation set:** players with actual minutes > 0, or who started at least one of their team's previous 3 Premier League matches. The rule uses no model's output, so it favours neither the model nor a baseline. Score every model on this identical set. It isn't pre-deadline only: the first clause uses gameweek g's actual minutes, so a player who rarely starts enters the set mostly when he plays. That raises the actual rates in low calibration bins, for every predictor alike (decided 2026-11-25). Scoring all \~700 players flatters everyone, because hundreds of non-players score 0 trivially.
 
 | Metric | Answers |
 | --- | --- |

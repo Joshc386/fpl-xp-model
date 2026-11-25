@@ -44,6 +44,11 @@ the contract; so do the modeller's.
   if the official 2025/26 and 2026/27 assist rules match. The main session
   checks before task 7. Otherwise it's fitted on the same season only, as
   bonus is.
+- **Before task 11,** the main session runs `/grill-with-docs` on whether the
+  gate's calibration rule (±0.3 per bin) should be judged on the evaluation set,
+  whose first clause uses gameweek g's actual minutes (brief section 7). Every
+  baseline misses the 0-1 bin by more than 1 point on 2025/26 (decided
+  2026-11-25).
 - **Attack and defence run one after the other,** not in parallel. They
   share the modeller's shrinkage helpers and `config/model.yaml`.
 - **Phase 2 publishes nothing new.** `projections.csv`, `player_summary.csv`

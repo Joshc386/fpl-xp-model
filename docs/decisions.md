@@ -3595,3 +3595,30 @@ The model-validator's task 4 report (the harness, uncommitted, in Code Review) r
 - **Josh's two calls:**
   1. **New arrivals follow the brief** ("Horizon and aggregation"). A player with no history gets the position average rates, the prior the shrinkage already uses (position only, the accepted deviation), instead of zeros. `low_confidence` is set in combine (task 10). Code Review found that v1 gave zeros, against the brief.
   2. **A fresh model-validator agent runs the minutes diagnostics.** The 2026-11-23 main entry on minutes v1 quoted the modeller's own calibration findings. The model-validator reads main entries, and its task 4 report cites that commit, so the validator that built the harness has seen them. The entry was cleaned on 2026-11-24 (`37e1503`). A fresh agent, starting from the cleaned log, keeps CLAUDE.md's rule that the validator never sees the modeller's reasoning.
+
+### 2026-11-25: main - minutes diagnostics on 2025/26, and the evaluation set's wording (Josh)
+- **Run:** a fresh model-validator ran `python -m backtest.run_backtest` on the development window at `06bb339`, whose code is the same as `9c219a1` (minutes v1). Upstream is `ac8be9c`, with `player_fields: snapshot` because task 3 isn't built yet. Report: `backtest/reports/2026-11-25.md`. There is no pass mark (plan point 1). The main session rechecked every figure below against the report and the validator's script output.
+- **Brier for `p_60`, GW2-38, against the last-5 baseline:**
+  - all: 0.189 against 0.207, on 13,116 rows;
+  - clubs in Europe: 0.200 against 0.218, on 6,003 rows;
+  - the rest: 0.179 against 0.197, on 7,113 rows.
+- **By target window**, from the validator's scratch script:
+  - GW2-5: 0.2256 against 0.2357;
+  - GW2-11: 0.1859 against 0.2027;
+  - GW12-38: 0.1899 against 0.2083.
+  - **Europe:** the gain is the same in Europe and the rest in every window.
+- **Calibration is worst at the ends:**
+  - the 0-0.1 bin: 2,680 rows, predicted 0.013, actual 0.222;
+  - the 0.9+ bin: 3,499 rows, predicted 0.981, actual 0.884;
+  - overall: mean `p_60` 0.539 against an observed 0.579.
+- **Leakage:** the perturbation test changed no minutes value at as-of 1, 5, 20 or 33. The planted leak was caught in all 4 cases, each by the loader rejecting the corrupted read; value-level catching is shown in `tests/test_xp_leakage.py`.
+- **Snapshot fields:** the validator's timing audit corrects the task message.
+  - In 2025/26's GW2-10 snapshots, `status` matches its pre-deadline version almost everywhere; what was rewritten is the chance of playing, which brief 6.1's "chance 0 with status available means 100" rule cancels.
+  - The GW1 snapshot differs in `status` for 29.2% of players, so target GW2's minutes inputs hold later news. Task 3 fixes it, and the diagnostics are re-run once task 3 is wired in.
+- **The report's header is wrong:** it says "harness build (baselines only)", because `render` in `backtest/xp_report.py` keys on whether the combined model exists. Minutes was scored, and the numbers are unaffected. The fix goes in the validator's next harness task.
+- **Josh's three calls:**
+  1. **The report is committed** as task 5's diagnostics.
+  2. **Before the v1.1 minutes round, the same validator splits the two worst bins** by how each row entered the evaluation set, by `status`, and by target window. It's a scratch analysis, with no harness change. The aim is that v1.1 tunes against the model's error, not a selection effect.
+  3. **The brief's evaluation-set sentence is corrected** (section 7). It said the rule uses only information known before the deadline, but its first clause uses gameweek g's actual minutes, so a player who rarely starts enters the set mostly when he plays. The rule stays for the MAE gate, because every predictor is scored on the same rows.
+     - **Before task 11,** `/grill-with-docs` settles whether the ±0.3 calibration rule should be judged on this set (plan, "Main-session choices"). Every baseline misses the 0-1 xP bin by more than 1 point: for example, `ep_next` predicts 0.220 there against an actual 1.434.
+- **Not acted on:** the validator noted that `model_version` wasn't bumped in `9c219a1`. That is already settled: it stays unchanged while phase 2 publishes nothing.
