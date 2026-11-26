@@ -433,14 +433,17 @@ guard against leakage.
       unpredictable. **As-of 38** has no next deadline and keeps the GW38
       snapshot's `dim_player`.
     - **Built by its own command** from the checkout's git history (a full
-      clone), never by `run_pipeline` or `update.yml`. It is stored as
-      `data/processed/{season}/dim_player_deadline.parquet`: the `dim_player`
-      columns, plus `gw` (the gameweek whose deadline it describes),
-      `upstream_commit`, `commit_utc` and `checkout_ends_early`, keyed on
-      (`gw`, `player_id`). It records the checkout commit it was built from.
-    - **A backtest read refuses** (raises) if the file is missing, lacks the
-      gameweek, or was built from a different checkout commit than the
-      processed tables. It never falls back to the snapshot.
+      clone), never by `run_pipeline` or `update.yml`. It is stored under
+      `data/` (never committed), outside upstream's checkout and outside any
+      folder `run_pipeline` rebuilds, as a table `dim_player_deadline`: the
+      `dim_player` columns, plus `gw` (the gameweek whose deadline it
+      describes), `upstream_commit`, `commit_utc` and `checkout_ends_early`,
+      keyed on (`gw`, `player_id`). It records the checkout commit it was
+      built from. The data-engineer proposes the path, and how a read through
+      another data copy (`use_data_copy`) finds its view.
+    - **A backtest read refuses** (raises) if the view is missing, lacks the
+      gameweek, or was built from a different upstream commit than the
+      checkout the read uses. It never falls back to the snapshot.
     - **Live mode** never reads it.
   - **Later Premier League fixtures** appear in `fact_fixture` as **schedule
     only**: `finished` and `stats_complete` false, and results, xG and
