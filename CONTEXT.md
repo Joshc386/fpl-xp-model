@@ -70,6 +70,14 @@ The gameweek before the next gameweek: the latest gameweek whose data a run
 may use, possibly only part-played.
 _Avoid_: current gameweek, latest gameweek
 
+**Pre-deadline view**:
+Each player's whole record for a gameweek (club, position, status, chance of
+playing, news, price, ownership, set-piece orders and **ep_next**), as
+upstream's master player files held it at its last commit before that
+gameweek's **deadline**. The backtest's players come from it, for GW2-38
+(decided 2026-11-25).
+_Avoid_: deadline snapshot, live read
+
 ### Points
 
 **xP**:
@@ -288,6 +296,11 @@ _Avoid_: freshness, staleness
   counts GW+5 the same as the **next gameweek** (decided 2026-11-09).
   "Time decay" in the Dixon-Coles team-goals fit is a different idea: it
   down-weights *past* matches when fitting, and stays.
+- "Snapshot" means a gameweek folder's files as they stand today, which
+  upstream may have rewritten after the next deadline. Player fields known
+  before a deadline are the **pre-deadline view**, not a snapshot. In
+  2025/26 GW2-3 the two differ even at the same commit, because upstream had
+  already started the next gameweek's master rows.
 - Upstream's `is_current` and `is_next` flags are not used to find the
   **next gameweek**: they update only when upstream refreshes, hours after a
   deadline.

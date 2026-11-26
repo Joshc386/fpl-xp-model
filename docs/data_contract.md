@@ -41,7 +41,7 @@ Brief section 4 lists the data rules.
   `players.csv` of the match's `gw`, mapped to `teams.id`. For a cup or
   European match that is the gameweek it was played in, not the folder that
   holds it; a GW0 match uses the GW1 snapshot. Don't use the master
-  `team_history.csv`, because backtest mode never reads master files.
+  `team_history.csv`, because backtest mode never reads today's master files.
   - A row whose club isn't one of the match's clubs is dropped and counted
     under `club_not_in_match`, and validation checks this. Example: upstream
     id errors such as Bailey in Kairat v Arsenal.
@@ -61,8 +61,9 @@ Brief section 4 lists the data rules.
   have it in 2025/26's GW2-10 folders, with no news, and 2026/27 has none.
   It is passed through unchanged; the minutes component reads it as no
   concern (decided 2026-11-23).
-- **`dim_player.ep_next`:** from the snapshot being loaded, never from master
-  history in backtest mode.
+- **`dim_player.ep_next`:** in live mode, from the snapshot being loaded. In
+  backtest mode, from the pre-deadline view ("Point-in-time loader"), never
+  from today's master history (decided 2026-11-25).
 - **`dim_player.fk_order` and `corner_order`:** `direct_freekicks_order` and
   `corners_and_indirect_freekicks_order`.
 - **`dim_player.price_change_start_tenths`, `price_change_gw_tenths`,
@@ -409,9 +410,38 @@ guard against leakage.
     - Validation fails if the derived deadlines don't strictly increase.
 - **Backtest mode:** the processed tables as they stood at the end of
   `GW{as_of_gw}`, built from that snapshot and the folders it needs.
-  - It never reads master files.
+  - It never reads today's master files. `dim_player` comes from the
+    pre-deadline view (below).
   - It never returns a result, xG, upstream Elo, player row, shot or spell
     from a match outside the read.
+  - **`dim_player`: the pre-deadline view** (phase 2 task 3, decided
+    2026-11-25 with `/grill-with-docs`). At as-of g, from 1 to 37:
+    - **Source:** `dim_player` is built from upstream's master `players.csv`
+      and each player's newest `playerstats.csv` row (the highest `gw`) at the
+      checkout's last commit before the GW g+1 deadline, by the same cleaning
+      rules as the snapshot's `dim_player`. Every column comes from there:
+      club, position, status, chance of playing, news, price, ownership,
+      set-piece orders, `ep_next` and the price and transfer counts.
+    - **Players:** a player in the as-of read but not in the view is dropped
+      from `dim_player` and counted (2025/26's rewritten snapshots hold up to
+      60). The fact tables are unchanged.
+    - **A deadline after the checkout's newest commit** uses that commit,
+      and its rows are flagged `checkout_ends_early`. The harness leaves
+      flagged gameweeks out of anything it scores. Pulling upstream rebuilds
+      them.
+    - **As-of 0** stays empty (`docs/known_gaps.md`), so GW1 stays
+      unpredictable. **As-of 38** has no next deadline and keeps the GW38
+      snapshot's `dim_player`.
+    - **Built by its own command** from the checkout's git history (a full
+      clone), never by `run_pipeline` or `update.yml`. It is stored as
+      `data/processed/{season}/dim_player_deadline.parquet`: the `dim_player`
+      columns, plus `gw` (the gameweek whose deadline it describes),
+      `upstream_commit`, `commit_utc` and `checkout_ends_early`, keyed on
+      (`gw`, `player_id`). It records the checkout commit it was built from.
+    - **A backtest read refuses** (raises) if the file is missing, lacks the
+      gameweek, or was built from a different checkout commit than the
+      processed tables. It never falls back to the snapshot.
+    - **Live mode** never reads it.
   - **Later Premier League fixtures** appear in `fact_fixture` as **schedule
     only**: `finished` and `stats_complete` false, and results, xG and
     upstream Elo null. Fixture difficulty needs them. Their gameweek and

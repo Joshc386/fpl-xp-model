@@ -3733,3 +3733,17 @@ Phase 2 task 6, built on upstream `ac8be9c`. The hand-off was approved as propos
 - **For the model-validator's next harness task:**
   - set `team_goals`' callable in `backtest/config.yaml` to `fpl.models.team_goals:team_goals`;
   - list its expected skips: 2025/26 as-of 0 (`MissingSeedError`), 2025/26 as-of 1-2 (`InsufficientSampleError`) and 2026/27 as-of 0-1 (`MissingSeedError`).
+
+### 2026-11-25: main - task 3's shape: the pre-deadline view (Josh, with /grill-with-docs)
+The main session checked each question against upstream's git history first. Josh took the main session's recommendation on all six; the contract ("Point-in-time loader", `dim_player.ep_next`), brief section 7, plan point 6 and task 3's row, and `CONTEXT.md` (**Pre-deadline view**) are updated.
+1. **Source:** upstream's master files at the last commit before the deadline, each player's newest row. They match the GW g-1 folder at that commit in every 2026/27 gameweek checked (GW2-10), but not in 2025/26 GW2-3, where upstream had already started the next gameweek's master rows: before GW3, 38 statuses, 95 prices and 28 `ep_next` differ. A full live read at that commit was rejected: live mode takes `ep_next` from the older folder, and it would re-run the pipeline's checks at 76 old commits.
+2. **Players missing from the view are dropped from the read and counted.** Today's 2025/26 snapshots hold players upstream added after the deadline: 60 before GW2, 43 before GW3, 11 before GW6 and 4 before GW11, none from GW16. 2026/27 has none in the gameweeks checked.
+3. **GW1 stays out:** as-of 0 stays empty. Team goals raises at 2025/26 as-of 0-2 and 2026/27 as-of 0-1, so no xP exists there anyway. The GW1 gap stays in `docs/known_gaps.md`, due before 2027/28 GW1.
+4. **A deadline after the checkout's newest commit uses that commit, flagged `checkout_ends_early`.** It leaks nothing, and refusing would break the seven real-data test files and the Elo check that read 2026/27 as-of 10 at `ac8be9c`. The harness leaves flagged gameweeks out of anything it scores.
+5. **Its own local command,** like the beyondELO pull; `run_pipeline` and `update.yml` never build it. A backtest read refuses a missing or stale view, and never falls back to the snapshot.
+6. **The whole player record,** club and position included, built by the same cleaning rules. The penalty order feeds attack (task 7), and the brief's leakage checklist names ownership. Clubs differ between today's snapshots and the pre-deadline files around transfer windows: 5, 1 and 10 players before 2025/26 GW2-4, 2, 1 and 5 before GW22-24, and 2 and 8 before 2026/27 GW2-3. Positions never differed.
+- **Main-session defaults, not asked:** as-of 38 has no next deadline and keeps the GW38 snapshot's `dim_player`. The fact tables are unchanged.
+- **Brief changes that follow:** the walk-forward steps 1 and 4 and the leakage checklist's price-and-status item now point at the view, not the `GW{g-1}` snapshot.
+- **After task 3 lands:**
+  - the model-validator switches `player_fields` to `task3`, and re-runs the baselines and the minutes diagnostics;
+  - the `known_gaps.md` "Snapshot timing" entry is closed.

@@ -29,7 +29,7 @@ the contract; so do the modeller's.
 | --- | --- | --- | --- | --- |
 | 1 | data-engineer | **FPL goals and assists, and shots.** Adds FPL `goals_scored` and `assists` (from `player_gameweek_stats`) to `fact_player_gw`, for the attack's xA-to-FPL-assists mapping. Builds a shots table and each player's on-pitch spells for 2025/26 and 2026/27 (point 7). | Phase 1 signed off | Built for both seasons. The point 7 checks pass, with every failure counted by reason. |
 | 2 | data-engineer | **2024/25 prior season.** Match-level tables joined on `player_code` and `team_code` (point 3). It feeds player priors only, never the Elo or team goals. | 1 | All three point 4 checks pass, or each failure has a cited correction. The FPL API pull runs only after Josh approves its request count and terms. |
-| 3 | data-engineer | **Pre-deadline view for both seasons.** Player fields from upstream's last commit before each deadline of 2025/26 and 2026/27 (point 6; 2025/26 added on 2026-11-24), including GW1 if that commit has players. That would close the "can't predict GW1" gap. | 1 | Tests prove that no field comes from after its deadline, and that each value equals what a live run would have read at that commit. |
+| 3 | data-engineer | **Pre-deadline view for both seasons.** Each player's whole record from upstream's master files at the last commit before each deadline of 2025/26 and 2026/27, GW2-38, built by its own command and used by every backtest read (point 6; 2025/26 added on 2026-11-24; the shape settled with `/grill-with-docs` on 2026-11-25, contract "Point-in-time loader"). GW1 stays out. | 1 | Tests prove that no record comes from a commit after its deadline, and that each record equals the cleaning rules applied to that commit's master files, read independently with `git show`. A backtest read refuses a missing or stale view. |
 | 4 | model-validator | **Backtest harness.** `backtest/run_backtest.py`: the walk-forward procedure, evaluation set, three baselines, section 7's metrics and leakage checks (a planted leak and the perturbation test included). It's built against a stub model and the hand-off interfaces. Component diagnostics run as each component lands, with no pass mark (point 1). It never reads 2026/27 before task 11. | Phase 1 signed off | Harness tests pass, with a baselines-only report on 2025/26. Runs alongside tasks 1-10. |
 | 5 | expected-points-modeller | **Minutes v1** (point 2), with the double-gameweek rotation discount. The early-season blend is added once task 2 lands. | Phase 1 signed off | Tests pass. The validator's minutes diagnostics on 2025/26 are reported to the main session. |
 | 6 | expected-points-modeller | **Team goals v1:** the Elo goals model plus `lambda_pen` (point 5). | Phase 1 signed off (runs after 5) | Tests pass. `lambda_pen` reconciles with team penalty xG on 2025/26. |
@@ -140,6 +140,12 @@ the contract; so do the modeller's.
      GW16, and GW2-10's on 2025-11-19, with most available players at a
      chance of 0. So the development window gets the same pre-deadline view,
      and the modeller tunes on what a live run would have seen.
+   - **Its shape (Josh, 2026-11-25, with `/grill-with-docs`):**
+     - the whole player record, club included, from the master `players.csv` and each player's newest `playerstats.csv` row at the last commit before the deadline;
+     - a player missing from the view is dropped from the read and counted;
+     - a deadline after the checkout's newest commit uses that commit, flagged;
+     - its own local command, and a backtest read refuses a missing or stale view;
+     - GW1 stays out, because team goals can't predict it anyway.
 7. **Attack measures on-pitch team xG from shot data (Josh).**
    - **How:** upstream's `shots.csv` (2025/26 and 2026/27) gives each shot's
      match, minute, player, situation and xG. Each player's on-pitch spells

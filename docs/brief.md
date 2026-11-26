@@ -309,10 +309,10 @@ The model ships only if it beats FPL's `ep_next` in a walk-forward backtest. The
 
 **Walk-forward procedure**
 
-1. For each target gameweek g in the test window, build features only from the `GW{g−1}` snapshot and earlier.
+1. For each target gameweek g in the test window, build features only from the `GW{g−1}` snapshot and earlier, with player records from the pre-deadline view for g.
 2. Refit any learned parameters (team ratings, shrinkage priors, regressions) on data before g.
 3. Predict xP for g and compare with actual points from `player_gameweek_stats` for g.
-4. Take `ep_next` from the `GW{g−1}` snapshot as the baseline prediction for g.
+4. Take `ep_next` from the pre-deadline view for g (see "Known limitation (snapshot timing)" below) as the baseline prediction for g.
 
 **Test window:** in two parts. The development window is the full 2025/26 season (confirmed complete: 38 gameweeks, 380 matches); the modeller iterates against it freely. The holdout is 2026/27 to date; it is scored only at phase sign-off, so repeated tweaking can't overfit it. Every look at the holdout is logged in docs/decisions.md. Report GW1–5 of each season separately, because early-season priors behave differently.
 
@@ -366,7 +366,7 @@ How the check is run (decided 2026-11-13):
 - [ ] Features for gameweek g use nothing timestamped after the g deadline
 - [ ] Rolling windows exclude the target gameweek
 - [ ] Team ratings are refitted per target gameweek, not fitted once on the full season
-- [ ] Price, status and ownership come from the `GW{g−1}` snapshot, never the master files
+- [ ] Price, status and ownership come from the pre-deadline view for g, never from today's master files or a snapshot rewritten after the g deadline (decided 2026-11-25)
 - [ ] Shrinkage priors are computed from training data only
 
 Known limitation: the snapshot is taken at the end of `GW{g−1}`, so team news that breaks before the g deadline is missed. The backtest slightly understates live accuracy.
@@ -376,7 +376,7 @@ Known limitation (snapshot timing):
 - 2025/26's snapshot files were rewritten after their deadlines. GW1's was rewritten on 2025-12-13 with the GW15 snapshot's state, so its `ep_next` is for GW16. GW2–10's were rewritten on 2025-11-19, which set most available players' chance of playing to 0. Upstream's git history keeps a version of each from before its deadline (checked 2026-11-24).
 - Price, status, news and `ep_next` in a snapshot may include news from after the deadline. Match data can't leak, because each folder holds only its own gameweek.
 - The validator checks whether a post-deadline `ep_next` refers to g or g+1, and reports pre- and post-deadline snapshots separately.
-- **The backtest avoids this** (decided 2026-11-18 for the holdout, and extended to 2025/26 on 2026-11-24). For each gameweek g of both seasons, status, chance of playing, news, price and `ep_next` come from upstream's `playerstats.csv` at its last commit before the g deadline, as a live run would have seen them. The model and the `ep_next` baseline both use them.
+- **The backtest avoids this** (decided 2026-11-18 for the holdout, and extended to 2025/26 on 2026-11-24). For each gameweek g of both seasons, each player's whole record (club, position, status, chance of playing, news, price, ownership, set-piece orders and `ep_next`) comes from the **pre-deadline view**: upstream's master `players.csv` and each player's newest `playerstats.csv` row at its last commit before the g deadline, as a live run would have seen them. The model and the `ep_next` baseline both use it. It covers GW2–38; GW1 stays unpredictable (decided 2026-11-25; the rules are in `docs/data_contract.md`, "Point-in-time loader").
 - **The snapshot-timing audit** (`backtest/snapshot_timing.py`) reads upstream's git history outside `load_as_of`. It is a check, never a model input, like the outside-source Elo check's reader (decided 2026-11-24).
 
 The report goes to `backtest/reports/{date}.md`, and the headline MAEs go into `meta.csv` for the Dashboard.
