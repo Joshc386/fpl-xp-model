@@ -179,7 +179,7 @@ def test_the_master_files_differ_from_the_gameweek_folder_where_upstream_rewrote
     assert (rows.loc[both, "ep_next"] != folder.loc[both, "ep_next"]).sum() > 0
 
 
-@pytest.mark.skipif(head() != PINNED, reason="counts are those at upstream ac8be9c")
+@pytest.mark.skipif(head_commit(CHECKOUT) != PINNED, reason="counts are those at upstream ac8be9c")
 def test_gameweeks_after_the_checkouts_last_commit_are_flagged_at_the_pinned_checkout(
     view_dir: Path
 ) -> None:
@@ -194,7 +194,7 @@ def test_gameweeks_after_the_checkouts_last_commit_are_flagged_at_the_pinned_che
     assert not rows[rows.gw == 10].checkout_ends_early.any()
 
 
-@pytest.mark.skipif(head() != PINNED, reason="counts are those at upstream ac8be9c")
+@pytest.mark.skipif(head_commit(CHECKOUT) != PINNED, reason="counts are those at upstream ac8be9c")
 def test_the_row_counts_at_the_pinned_checkout(view_dir: Path) -> None:
     sizes = {s: view_of(view_dir, s).groupby("gw").size() for s in SEASONS}
     assert sizes["2025-2026"][2] == 699 and sizes["2025-2026"][38] == 840
