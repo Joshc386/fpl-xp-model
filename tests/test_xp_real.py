@@ -25,6 +25,7 @@ from backtest.xp_leakage import peeking_baselines, perturbation_case
 
 import fpl.features
 from fpl.ingest import ROOT, load_config, upstream_data_dir
+from fpl.view_checkout import copy_view
 
 CFG = load_config(ROOT / "config" / "pipeline.yaml")
 DATA = upstream_data_dir(CFG)
@@ -53,6 +54,9 @@ def test_a_real_case_leaves_the_baselines_alone_and_catches_the_planted_leak(
     p = S["perturbation"]
     dst = tmp_path / "data"
     copy_upstream(DATA, dst, [SEASON], list(p["files"]))
+    # A read inside the copy takes its view from the copy (the one built by fpl.pre_deadline).
+    copy_view(ROOT / CFG["paths"]["pre_deadline_dir"], ROOT / CFG["upstream"]["checkout_path"],
+              dst, [SEASON])
     fns = {"baselines": functools.partial(baselines, s=S, prem="prem"),
            "planted_leak": functools.partial(peeking_baselines, s=S, prem="prem")}
     out = perturbation_case(fns, SEASON, 20, DATA, dst, redirect, np.random.default_rng(3),

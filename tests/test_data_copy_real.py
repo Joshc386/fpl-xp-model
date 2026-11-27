@@ -15,6 +15,7 @@ import pytest
 from fpl.features import use_data_copy
 from fpl.ingest import ROOT, load_config, upstream_data_dir
 from fpl.models.elo import elo_ratings
+from fpl.view_checkout import copy_view
 
 CFG = load_config(ROOT / "config" / "pipeline.yaml")
 DATA = upstream_data_dir(CFG)
@@ -28,6 +29,9 @@ def copy(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
     """A copy of the data (without By Tournament) with one GW10 score set to 9-0, and its id."""
     dest = tmp_path_factory.mktemp("copy") / "data"
     shutil.copytree(DATA, dest, ignore=shutil.ignore_patterns("By Tournament"))
+    # A read inside the copy takes its view from the copy (the one built by fpl.pre_deadline).
+    copy_view(ROOT / CFG["paths"]["pre_deadline_dir"], ROOT / CFG["upstream"]["checkout_path"],
+              dest, [SEASON])
     path = dest / SEASON / "By Gameweek" / "GW10" / "matches.csv"
     matches = pd.read_csv(path)
     row = matches[(matches.tournament == CFG["premier_league_tag"]) & matches.finished].index[0]

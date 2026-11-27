@@ -138,11 +138,15 @@ def test_as_of_ahead_of_the_newest_folder_with_data_returns_what_exists(
     fx = ahead["fact_fixture"]
     assert fx[fx.tournament == "prem"].finished[fx.gw > 20].sum() == 0
     assert len(fx) == 78  # 76 Premier League fixtures and both cup matches
+    # Backtest takes the players from the pre-deadline view of GW26 (the state after GW25, which
+    # the synthetic view has even though the folders stop at 20); live has the master files.
     assert ahead["dim_player"].price_tenths.tolist() == (
-        [99] * 8 if mode == "live" else [50 + p + 20 for p in synth.PLAYER_CLUB]
+        [99] * 8 if mode == "live" else [50 + p + 25 for p in synth.PLAYER_CLUB]
     )
     at20 = load_as_of(SEASON, 20, mode, cfg=cfg)
     for name in ("fact_player_gw", "dim_player"):
+        if name == "dim_player" and mode == "backtest":
+            continue  # the view differs by gameweek
         pd.testing.assert_frame_equal(ahead[name], at20[name])
 
 
@@ -171,8 +175,10 @@ def test_as_of_one_before_upstream_writes_gw1_returns_the_as_of_zero_tables(
     one, zero = load_as_of(SEASON, 1, mode, cfg=cfg), load_as_of(SEASON, 0, mode, cfg=cfg)
     assert one.keys() == zero.keys()
     for name in zero:
+        if name == "dim_player" and mode == "backtest":
+            continue  # backtest as-of 1 takes the players from the view of GW2, not the snapshot
         pd.testing.assert_frame_equal(one[name], zero[name])
-    assert one["dim_player"].empty and len(one["dim_team"]) == 4
+    assert one["dim_player"].empty == (mode == "live") and len(one["dim_team"]) == 4
 
 
 def test_a_finished_premier_league_match_in_the_gap_folder_still_fails_the_run(

@@ -127,8 +127,18 @@ def test_real_2026_27_as_of_ahead_of_the_newest_folder(mode: str) -> None:
 
 def test_real_live_mode_overlays_from_the_master_playerstats() -> None:
     back, live = load_as_of("2026-2027", 5, "backtest"), load_as_of("2026-2027", 5, "live")
-    other = [c for c in back["dim_player"].columns if c not in OVERLAID]
-    pd.testing.assert_frame_equal(back["dim_player"][other], live["dim_player"][other])
+    # Live changes only the overlaid columns of the as-of read's snapshot `dim_player`.
+    snapshot = build_season(read("2026-2027", 5), CFG).tables["dim_player"]
+    other = [c for c in snapshot.columns if c not in OVERLAID]
+    pd.testing.assert_frame_equal(live["dim_player"][other], snapshot[other])
+    # Every other table is the same in both modes; backtest's dim_player is the view's.
+    for name in back:
+        if name != "dim_player":
+            pd.testing.assert_frame_equal(back[name], live[name])
+    ident = ["player_id", "player_code", "web_name", "position"]
+    both = back["dim_player"][ident].merge(live["dim_player"][ident], on="player_id")
+    assert len(both) > 600
+    assert (both.filter(like="_x").to_numpy() == both.filter(like="_y").to_numpy()).all()
     master = pd.read_csv(DATA / "2026-2027" / "playerstats.csv", usecols=["id", "gw", "now_cost"])
     now = master.sort_values("gw").drop_duplicates("id", keep="last").set_index("id").now_cost
     expect = (now.reindex(live["dim_player"].player_id) * 10).round().astype("int64")

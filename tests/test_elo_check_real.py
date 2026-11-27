@@ -15,6 +15,7 @@ from backtest.perturb import copy_upstream, redirect
 from fpl.ingest import ROOT, load_config, upstream_data_dir
 from fpl.models.elo import elo_ratings
 from fpl.models.team_goals import elo_goals
+from fpl.view_checkout import copy_view
 
 CFG = load_config(ROOT / "config" / "pipeline.yaml")
 DATA = upstream_data_dir(CFG)
@@ -31,6 +32,9 @@ def test_a_real_case_passes_reaches_the_copy_and_catches_the_planted_leak(
         tmp_path: Path) -> None:
     dst = tmp_path / "data"
     copy_upstream(DATA, dst, [SEASON], FILES)
+    # A read inside the copy takes its view from the copy (the one built by fpl.pre_deadline).
+    copy_view(ROOT / CFG["paths"]["pre_deadline_dir"], ROOT / CFG["upstream"]["checkout_path"],
+              dst, [SEASON])
     c = corruption(load_settings(), CFG)  # keeps the score-corrected match (data rule 16)
     assert c.keep
     fns = {"elo_ratings": elo_ratings, "elo_goals": elo_goals, "planted_leak": peeking_goals}

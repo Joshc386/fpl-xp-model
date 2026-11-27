@@ -56,7 +56,13 @@ PACKAGES = ("fpl", "backtest")
 
 
 def synth_cfg_for(data_dir: Path) -> dict:
-    """The synthetic config pointed at `data_dir` (a folder named `data` in a checkout)."""
+    """The synthetic config pointed at `data_dir` (a folder named `data` in a checkout).
+
+    A data copy made by the harness holds no pre-deadline view, so the synthetic one is
+    written next to it on first use (it is a formula of the season, not of the copy's files).
+    """
+    if not (data_dir.parent / "pre_deadline").exists():
+        synth.write_view_of(data_dir.parent)
     return synth.synth_cfg(BASE_CFG, data_dir.parent)
 
 

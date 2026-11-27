@@ -24,7 +24,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from helpers import blank_frame
+from fpl.deadline_view import build_view_rows, write_view
+from helpers import blank_frame, teams_frame
 
 SEASON = "2025-2026"
 N_GW = 38
@@ -39,6 +40,7 @@ CUPS = [("cup-10", 10, 1, 7 * 10 - 3, 9), ("cup-late", 25, 1, 7 * 3 - 3, 2)]
 OUTSIDE_CODE = 999
 ROUNDS = [((1, 2), (3, 4)), ((1, 3), (2, 4)), ((1, 4), (2, 3))]
 FIRST_KICKOFF = pd.Timestamp("2025-08-16T14:00:00Z")
+POSITIONS = {"Goalkeeper": "GKP", "Defender": "DEF", "Midfielder": "MID", "Forward": "FWD"}
 POISON = {"status": "i", "news": "Poison", "chance": 0.0, "now_cost": 9.9}
 
 
@@ -216,19 +218,45 @@ def _write_master(base: Path) -> None:
     _write(pd.DataFrame([{"id": t, "code": c} for t, c in TEAM_CODE.items()]), base / "teams.csv")
 
 
+def view_rows(gw: int) -> pd.DataFrame:
+    """The pre-deadline view's rows for GW `gw`: the state after GW gw - 1, so the same
+    `dim_player` as the gw - 1 snapshot (a view that matches the snapshot leaves every other
+    synthetic test as it was). The commit is a week before the gameweek's deadline."""
+    players = blank_frame("players", [
+        {"player_code": 1000 + p, "player_id": p, "web_name": f"P{p}", "position": "Midfielder",
+         "team_code": TEAM_CODE[club(p, gw - 1)]} for p in PLAYER_CLUB])
+    rows, _ = build_view_rows(
+        players, blank_frame("playerstats", _state_rows(gw - 1)),
+        teams_frame([(t, c) for t, c in TEAM_CODE.items()]), POSITIONS, [3.0, 20.0], [8, 8], [8, 8])
+    when = FIRST_KICKOFF + pd.Timedelta(days=7 * (gw - 1))
+    return rows.assign(gw=gw, deadline_utc=f"{when + pd.Timedelta(days=7):%Y-%m-%dT%H:%M:%SZ}",
+                       upstream_commit="synthetic", commit_utc=f"{when:%Y-%m-%dT%H:%M:%SZ}",
+                       checkout_ends_early=False)
+
+
+def write_view_of(checkout: Path) -> None:
+    """Write the synthetic pre-deadline view (GW2-38) to `checkout/pre_deadline`, recorded as
+    built from a checkout that is not a git repo (commit None), as the synthetic one is."""
+    view = pd.concat([view_rows(gw) for gw in range(2, N_GW + 1)], ignore_index=True)
+    write_view(checkout / "pre_deadline", SEASON, view, checkout_commit=None)
+
+
 def write_upstream(data_dir: Path) -> Path:
-    """Write the season under `data_dir/2025-2026/`; return the season folder."""
+    """Write the season under `data_dir/2025-2026/`, and the pre-deadline view next to the
+    data folder (`data_dir.parent / "pre_deadline"`); return the season folder."""
     base = data_dir / SEASON
     for gw in range(1, N_GW + 1):
         _write_folder(base, gw)
     _write_master(base)
+    write_view_of(data_dir.parent)
     return base
 
 
 def synth_cfg(cfg: dict, checkout: Path) -> dict:
     """The pipeline config pointed at a synthetic checkout, with bounds sized to it."""
     upstream = {**cfg["upstream"], "checkout_path": str(checkout), "data_dir": "data"}
-    out = {**cfg, "upstream": upstream}
+    paths = {**cfg["paths"], "pre_deadline_dir": str(checkout / "pre_deadline")}
+    out = {**cfg, "upstream": upstream, "paths": paths}
     out["validation"] = {
         **cfg["validation"], "teams_rows": [4, 4], "prem_matches_rows": [76, 76],
         "matches_rows": [78, 78], "players_rows_per_snapshot": [8, 8],

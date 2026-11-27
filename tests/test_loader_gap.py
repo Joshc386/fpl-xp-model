@@ -13,18 +13,40 @@ import copy
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
+from fpl.deadline_view import build_view_rows, write_view
 from fpl.features import live_gameweeks, load_as_of
+from fpl.ingest import read_table
 from leakage import assert_no_leakage
 
 GAP = Path(__file__).parent / "fixtures" / "upstream_gap"
 SEASON = "2026-2027"
 
 
+def write_gap_view(cfg: dict, view_dir: Path) -> None:
+    """A view for the renumbered fixture (not a git checkout), from its GW1 player files."""
+    folder = GAP / "data" / SEASON / "By Gameweek" / "GW1"
+    rows, _ = build_view_rows(
+        read_table(folder / "players.csv", "players"),
+        read_table(folder / "playerstats.csv", "playerstats"),
+        read_table(folder / "teams.csv", "teams"), cfg["position_map"],
+        cfg["validation"]["now_cost_m"], [1, 1000], [1, 1000],
+    )
+    view = pd.concat([rows.assign(
+        gw=gw, deadline_utc="2026-12-31T00:00:00Z", upstream_commit="fixture",
+        commit_utc="2026-01-01T00:00:00Z",
+        checkout_ends_early=False) for gw in (2, 3)], ignore_index=True)
+    write_view(view_dir, SEASON, view, checkout_commit=None)
+
+
 @pytest.fixture(scope="module")
-def gap_cfg(cfg: dict) -> dict:
+def gap_cfg(cfg: dict, tmp_path_factory: pytest.TempPathFactory) -> dict:
+    view_dir = tmp_path_factory.mktemp("gap_view")
+    write_gap_view(cfg, view_dir)
     out = copy.deepcopy(cfg)
+    out["paths"]["pre_deadline_dir"] = str(view_dir)
     out["upstream"].update(checkout_path=str(GAP), data_dir="data")
     out["seasons"] = [{"id": SEASON, "gameweeks": 3, "tackles_column": "tackles_won",
                        "spell_source": "playermatchstats"}]

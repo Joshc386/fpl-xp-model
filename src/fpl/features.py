@@ -5,6 +5,9 @@ the main guard against leakage:
 
 * **backtest** builds the processed tables from the `GW{as_of_gw}` snapshot and earlier
   folders only. It never opens a master file. Matches in later gameweeks are schedule only.
+  Its `dim_player` (as-of 1 to the last gameweek minus 1) comes from the pre-deadline view,
+  upstream's master player files at the checkout's last commit before the next deadline
+  (`deadline_view`, built by `python -m fpl.pre_deadline`), and a missing or stale view refuses.
 * **live** is the same, then overlays the current-state fields of `dim_player` (status, news,
   chance of playing, price, and the price-change and transfer counts) from the master
   playerstats, so projections see the latest team news.
@@ -21,14 +24,22 @@ from pathlib import Path
 
 import pandas as pd
 
+from fpl.asof import deadlines
 from fpl.clean import build_season
 from fpl.clock import as_of_gameweek, next_gameweek, parse_deadlines
+from fpl.deadline_view import (
+    COPY_VIEW_DIR,
+    apply_view,
+    check_before_deadline,
+    read_view,
+)
 from fpl.frames import checked_merge
-from fpl.ingest import ROOT, load_config, read_season, upstream_data_dir
+from fpl.ingest import ROOT, RawSeason, load_config, read_season, upstream_data_dir
 from fpl.master import read_deadlines, read_master_state
 from fpl.overlay import overlay_current_state
 from fpl.validate import validate_inputs
 from fpl.validate_tables import validate_tables
+from fpl.view_checkout import head_commit, recorded_commit
 
 log = logging.getLogger(__name__)
 
@@ -88,19 +99,24 @@ def load_as_of(
 
     `mode` is "backtest" or "live". Backtest holds every match with `gw` up to `as_of_gw`, in
     any competition (a cup or European match's `gw` is the gameweek it was played in, so it
-    may come from a later folder; see `asof.py`), with `dim_player` from the `as_of_gw`
-    snapshot and never opens a master file. Later Premier League fixtures are schedule only
+    may come from a later folder; see `asof.py`), with `dim_player` from the pre-deadline view
+    of GW `as_of_gw` + 1 (`deadline_view`) for as-of 1 up to the last gameweek minus 1, and
+    from the snapshot at as-of 0 and at the last gameweek, and never opens a master file.
+    Later Premier League fixtures are schedule only
     (`finished` and `stats_complete` false, results, xG and Elo null); later cup and European
     matches are left out. Upstream Elo exists for Premier League matches only. Live is
-    identical, except that `dim_player` status, news, `chance_next`, `price_tenths` and the
-    four price-change and transfer counts (`overlay.OVERLAID`) come from the master playerstats.
+    identical except for `dim_player`, which is the snapshot's (never the view) with status,
+    news, `chance_next`, `price_tenths` and the four price-change and transfer counts
+    (`overlay.OVERLAID`) taken from the master playerstats.
     `as_of_gw` may be ahead of the newest folder with data; what exists is returned.
     `fact_shot` and `fact_player_spell` come from the `shots.csv` and `incidents.csv` of the
     folders up to `as_of_gw` only, hold only complete Premier League matches of the read, and
     are not overlaid in live mode. Their checks against matches.csv are not run here.
-    Raises `ValueError` for a bad mode, season or gameweek, and the validation errors of a
-    failed check.
+    Raises `ValueError` for a bad mode, season or gameweek, the validation errors of a failed
+    check, and `deadline_view.ViewError` when a backtest read's view is missing, lacks the
+    gameweek, is stale or holds a row from a commit at or after its deadline.
     """
+    in_copy = cfg is None and root is None and _DATA_COPY.get() is not None
     cfg, data_dir = _resolve(cfg, root)
     scfg = _season_config(cfg, season)
     if mode not in MODES:
@@ -113,6 +129,11 @@ def load_as_of(
     )
     validate_inputs(raw, cfg, scfg)
     tables = build_season(raw, cfg).tables
+    if mode == "backtest" and 1 <= as_of_gw < int(scfg["gameweeks"]):
+        tables["dim_player"] = _pre_deadline_players(
+            tables["dim_player"], raw, cfg, root, season, as_of_gw,
+            data_dir / COPY_VIEW_DIR if in_copy else None,
+        )
     if mode == "live":
         master = read_master_state(data_dir / season)
         tables["dim_player"] = overlay_current_state(
@@ -120,6 +141,38 @@ def load_as_of(
         )
     validate_tables(tables, cfg["premier_league_tag"])
     return tables
+
+
+def _pre_deadline_players(
+    snapshot: pd.DataFrame, raw: RawSeason, cfg: dict, root: Path | None, season: str,
+    as_of_gw: int, copy_view_dir: Path | None,
+) -> pd.DataFrame:
+    """`dim_player` from the pre-deadline view of GW `as_of_gw` + 1 (see `deadline_view`).
+
+    The view and the checkout it must match are the configured ones (`root`, or the project).
+    Inside a data copy (`copy_view_dir` is the copy's own view folder) the view is the copy's:
+    it is not compared with a checkout, which a read there may not open; `copy_view` did that
+    when it made the copy. Raises `ViewError` if the view is missing, lacks the gameweek, is
+    built from another checkout commit, or holds a row from a commit at or after the deadline
+    (the one derived from this read's schedule, or the row's own stored `deadline_utc`).
+    """
+    if copy_view_dir is not None:
+        view_dir, commit = copy_view_dir, recorded_commit(copy_view_dir, season)
+    else:
+        base = ROOT if root is None else root
+        view_dir = base / cfg["paths"]["pre_deadline_dir"]
+        commit = head_commit(base / cfg["upstream"]["checkout_path"])
+    gw = as_of_gw + 1
+    view = read_view(view_dir, season, gw, commit)
+    due = deadlines(
+        raw.matches, raw.n_gw, cfg["premier_league_tag"], cfg["loader"]["deadline_offset_minutes"]
+    )
+    check_before_deadline(view, gw, due[gw])
+    out, counts = apply_view(snapshot, view)
+    log.info("%s as-of %d: dim_player from the pre-deadline view of GW%d: %d players dropped "
+             "(in the snapshot, not in the view), %d kept that the snapshot lacks",
+             season, as_of_gw, gw, counts["dropped"], counts["not_in_snapshot"])
+    return out
 
 
 def live_deadlines(

@@ -8,6 +8,10 @@ upstream:
 
 paths:
   processed_dir: data/processed           # tables go to {processed_dir}/{season}/
+  # The pre-deadline view of dim_player ({season}.parquet and {season}.json), built from the
+  # checkout's git history by `python -m fpl.pre_deadline`. Outside the checkout and outside
+  # processed_dir, which run_pipeline rebuilds. Never committed.
+  pre_deadline_dir: data/pre_deadline
 
 # One entry per season built. `tackles_column` is the playermatchstats column
 # that holds FPL's tackle measure (docs/data_contract.md, source notes). `spell_source` is where

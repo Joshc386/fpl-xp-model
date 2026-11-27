@@ -3747,3 +3747,71 @@ The main session checked each question against upstream's git history first. Jos
 - **After task 3 lands:**
   - the model-validator switches `player_fields` to `task3`, and re-runs the baselines and the minutes diagnostics;
   - the `known_gaps.md` "Snapshot timing" entry is closed.
+
+### 2026-11-26: data - the pre-deadline view of `dim_player` (phase 2 task 3)
+- **What was built:** `python -m fpl.pre_deadline` walks the checkout's git history and writes `dim_player_deadline` for 2025/26 and 2026/27, GW2-38, to `data/pre_deadline/{season}.parquet` (never committed). `{season}.json` next to it records the checkout commit the table was built from, and is written last, so a table without it counts as missing. Settings: `paths.pre_deadline_dir` in `config/pipeline.yaml`. A backtest read at as-of 1-37 takes `dim_player` from the view of GW as-of+1; as-of 0 stays empty and as-of 38 keeps the GW38 snapshot's; live never reads it.
+- **Code:** `src/fpl/deadline_view.py` (pure builders, the stored table, `read_view`, `apply_view`, `head_commit`, `copy_view`), `src/fpl/pre_deadline.py` (git I/O and the command), and `features._pre_deadline_players`. `clean.build_dim_player` is reused unchanged: the view's rows are its output for the master `players.csv` and each player's newest `playerstats.csv` row (highest `gw`).
+- **Rules, each tested:**
+  - the commit is the newest in history order strictly before the deadline (first Premier League kickoff minus 90 minutes, as the loader derives it from the final folders at HEAD). A commit at the deadline is not before it. Commit times (committer date, converted to UTC) must not increase from the newest commit back, or the build fails;
+  - a deadline after the checkout's newest commit takes that commit and is flagged `checkout_ends_early`;
+  - the build reads git objects only (`git show`), never the working tree, and fails on a shallow clone;
+  - each gameweek's rows must pass what the snapshot's input checks do: no duplicate `(id, gw)`, no duplicate `player_id` or `player_code`, the row count in `validation.players_rows_per_snapshot`, `now_cost` in GBP m inside `validation.now_cost_m` (a price in tenths fails, it is never converted), the contract schema, and every cleaning rule of `build_dim_player`. Any failure fails the whole run, names the season, gameweek and commit, and writes nothing;
+  - the clubs' id-to-code pairs must be the same in all 38 gameweek folders (`team_id` is taken from GW1's `teams.csv`);
+  - the derived deadlines are compared with FPL's own `deadline_time` in the master `gameweek_summaries.csv` and any difference is logged.
+- **Read-side refusals (`ViewError`, naming `python -m fpl.pre_deadline`), never a fallback to the snapshot:** the table or its record is missing; the view lacks the gameweek; the view's recorded checkout commit differs from the checkout's HEAD; a view row is from a commit at or after the deadline derived from the read's own schedule; the table breaks the schema or repeats a `(gw, player_id)`.
+- **The checkout's commit is read from `.git` files, not by running git** (`head_commit`). The xP harness's read guard (`backtest/xp_reads.py`) fails any predictor read that starts a process, and `tests/test_xp_leakage.py` caught the first version, which ran `git rev-parse` in the loader. A folder with no `.git` has commit None, and a real view never matches it.
+- **Data copies (`use_data_copy`):** the harness forbids reads under `ROOT/data`, where the view lives, so a copy carries its own view in `{copy}/pre_deadline/`. `deadline_view.copy_view(view_dir, checkout, copy, seasons)` puts it there, and refuses a missing or stale view at that moment; a read inside the copy trusts the copy's record and opens nothing outside the copy. The harness's copy step must call it (the model-validator's next task); this task's real-data tests that make copies call it themselves.
+- **Players:** `apply_view` takes the view's players and columns. A player in the as-of read but not in the view is dropped from `dim_player` and counted in the log (the fact tables are unchanged). A view player the snapshot lacks is kept and counted too.
+- **Evidence, build at `ac8be9c` (HEAD 2026-11-13 15:35 UTC), 26 s:**
+  - 2025/26: 37 gameweeks, 28,961 rows, 37 distinct commits, none flagged;
+  - 2026/27: 37 gameweeks, 24,740 rows, 10 distinct commits, GW11-38 flagged (28), all from `ac8be9c`;
+  - no cleaning-rule failure, no player without a playerstats row, no duplicate key, and no disagreement with FPL's `deadline_time` in any of the 74 gameweeks;
+  - 2025/26 players the as-of read holds that the view lacks, as-of 1-10: 60, 43, 14, 12, 11, 10, 9, 7, 6, 4, then none (the decision of 2026-11-25 had 60, 43, 11 and 4 for as-of 1, 2, 5 and 10); 2026/27: none dropped, but the view holds 6, 26 and 2 players more than the snapshot at as-of 1, 2 and 3 (upstream added them before the deadline);
+  - independent check (`tests/test_deadline_view_real.py`): for 2025/26 GW2, 3, 4, 12 and 38 and 2026/27 GW3, 9 and 11, each record equals the contract's rules written out by hand over `git show` of the commit that `git rev-list --before` finds from FPL's own deadline; for all 74 gameweeks no record is from a commit at or after FPL's deadline. At 2025/26 GW3 and GW4 the view differs from the previous gameweek's folder in status and `ep_next`.
+- **Changed pinned values in other tests:** listed in the task report.
+- **Effect downstream:** every backtest read at as-of 1-37 needs the view and refuses without it, so run the command after cloning and after every pull of the upstream checkout. `run_pipeline` and `update.yml` are untouched.
+- **Open:** the contract says backtest and live modes differ only in the overlaid fields. With the view they also differ in the other `dim_player` columns (`ep_next`, ownership, set-piece orders, club) and in the players held. Proposed wording is in the task report.
+
+### 2026-11-27: main - task 3 Code Review and four contract calls (Josh)
+- **Code Review's verdict on the pre-deadline view:** approve with findings, nothing blocking.
+  - **Confirmed:**
+    - the full suite passes (1,568 tests, 99% coverage, 56 minutes), and ruff is clean;
+    - for all 74 gameweeks, every record's commit is before FPL's own `deadline_time`;
+    - no process starts during a read, and nothing outside a data copy is opened.
+  - **Mutants:** 25 of 28 killed. The three survivors:
+    - M20: the exact-deadline boundary;
+    - M22: a read inside a data copy taking the configured view, killed only by a real-data test that CI skips;
+    - M27: an explicit `cfg` inside a copy.
+- **Josh took the main session's four recommendations (contract updated):**
+  1. **The deadline is the earlier of the derived one and FPL's `deadline_time`,** and a gap is logged. Each view row stores it as `deadline_utc`, and a read checks both deadlines. Today a mismatch only logs a warning, so a first fixture postponed on the day could let a post-deadline commit through the build and the read alike. A failing build was rejected: it would stop the view over one postponed match.
+  2. **Only upstream's first-parent line counts.** Upstream has 17 merges, all from July 2026; a side-branch commit merged after a deadline wasn't on main before it. Every pick at `ac8be9c` is on the first-parent line already.
+  3. **All 74 gameweeks are checked against the cleaning rules,** not 8. The build takes about 30 seconds.
+  4. **A checkout that isn't a git repo matches only a view whose record names no commit.** The builder never writes one; the synthetic fixtures rely on it. Written down, not changed.
+- **The fix round (sent to the data-engineer):**
+  - tests that kill M20, M22 and M27;
+  - tests for the five rules the `data -` entry calls tested that never run:
+    - the club id-to-code check;
+    - the deadline mismatch;
+    - "deadlines can't be derived";
+    - a cleaning-rule failure wrapped as `ViewError`;
+    - a gameweek with no deadline;
+  - restore the real-data check that live mode changes only the overlaid columns, lost when `test_loader_real.py` was narrowed.
+  - **Nits:**
+    - the `load_as_of` docstring;
+    - record the head the history was read at;
+    - delete the old record before a rebuild, so a crash leaves the view missing, not mismatched;
+    - split `tests/test_deadline_view.py` (346 lines);
+    - type the untyped test parameters;
+    - restore the snapshot's `playerstats` row-count bound.
+  - The command's `print` stays: `publish_decision` does the same.
+
+### 2026-11-27: data - task 3 fix round (Josh's four calls, Code Review's findings)
+- **The deadline is the earlier of the derived one and FPL's `deadline_time`** in the checkout's master `gameweek_summaries.csv` (a gameweek FPL's file lacks uses the derived one). Any gap is logged and listed in the build report (`deadline_gaps`). It is stored per row as `deadline_utc`, so the view's columns are now `dim_player`'s plus `gw`, `deadline_utc`, `upstream_commit`, `commit_utc` and `checkout_ends_early`. A read refuses a row whose commit isn't strictly before both its `deadline_utc` and the deadline derived from the read's own schedule, without opening a master file. This supersedes the earlier line that a mismatch is only logged.
+- **Commits come from the first-parent line only** (`git log --first-parent`). Evidence: a test merges (`-s ours`) a side-branch commit dated before a deadline after it; with the plain history the build takes the side commit, with first-parent it takes the main-line commit (checked by removing the flag: the test fails). At `ac8be9c` every commit used is on the line.
+- **Record equality is checked for all 74 gameweeks** (`tests/test_deadline_view_real.py`): the commit is the one a first-parent `git rev-list --before` finds from FPL's own deadline, `deadline_utc` equals FPL's, and the rows equal the contract's rules written out by hand over `git show`.
+- **A checkout that isn't a git repo matches only a view whose record names no commit:** unchanged, now written down in the contract.
+- **Tests added for rules the first `data -` entry called tested but never ran:** the club id-to-code check across folders, "deadlines can't be derived" (non-increasing deadlines, and a gameweek with none), a cleaning-rule failure wrapped as `ViewError` (unknown position, club code not in teams), a gameweek with no deadline at the read, the deadline gaps (FPL earlier, later, absent), and a rebuild's crash leaving the view missing.
+- **Mutants from the review:** M20 (commit exactly at the deadline, against the derived deadline and against the row's own), M22 (a read inside `use_data_copy` takes the copy's altered view, and refuses when the copy has none though the configured view exists) and M27 (a call with its own `cfg` inside a copy uses the configured view) each have a synthetic test, so CI runs them.
+- **Other fixes:** the snapshot's `playerstats_rows_snapshot` bound now applies to the view's newest rows; the record names the head the history was read at (the build fails if two seasons were read at different heads); a rebuild removes the old record before writing the new table, so a crash leaves the view missing, not mismatched; the `load_as_of` docstring names the view and `ViewError`; `tests/test_deadline_view.py` is split in three (builders, the stored table, shared helpers).
+- **`tests/test_loader_real.py`:** live mode changes only the `OVERLAID` columns of the as-of read's snapshot `dim_player` (built through `build_season`), checked again at 2026/27 as-of 5.
+- **Rebuilt at `ac8be9c`:** 37 gameweeks and 28,961 rows for 2025/26 (none flagged); 37 and 24,740 for 2026/27 (GW11-38 flagged); no player without a playerstats row, no cleaning-rule failure, no deadline gap in any of the 74 gameweeks.

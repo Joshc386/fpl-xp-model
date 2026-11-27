@@ -418,13 +418,26 @@ guard against leakage.
     2026-11-25 with `/grill-with-docs`). At as-of g, from 1 to 37:
     - **Source:** `dim_player` is built from upstream's master `players.csv`
       and each player's newest `playerstats.csv` row (the highest `gw`) at the
-      checkout's last commit before the GW g+1 deadline, by the same cleaning
-      rules as the snapshot's `dim_player`. Every column comes from there:
+      last commit on the checkout's first-parent line before the GW g+1
+      deadline, by the same cleaning rules as the snapshot's `dim_player`.
+      A side-branch commit merged later wasn't on upstream's main line before
+      the deadline, so a live run couldn't have seen it (decided 2026-11-27).
+    - **The deadline it uses** is the earlier of the derived deadline (above)
+      and FPL's `deadline_time` in the checkout's `gameweek_summaries.csv`.
+      A gap between them is logged. Each row stores it as `deadline_utc`, so
+      a read can check it without opening a master file (decided 2026-11-27).
+      They agree in all 74 gameweeks of 2025/26 and 2026/27 so far; a first
+      fixture postponed on the day would put the derived one late.
+    - **Each source rule is checked for all of GW2-38 of both seasons,** not
+      a sample (decided 2026-11-27). Every column comes from there:
       club, position, status, chance of playing, news, price, ownership,
       set-piece orders, `ep_next` and the price and transfer counts.
     - **Players:** a player in the as-of read but not in the view is dropped
       from `dim_player` and counted (2025/26's rewritten snapshots hold up to
-      60). The fact tables are unchanged.
+      60). A player in the view but not in the read is kept, because the
+      view is what upstream held before the deadline (2026/27's view holds 6,
+      26 and 2 such players at as-of 1-3; decided 2026-11-26). Both counts
+      are logged. The fact tables are unchanged.
     - **A deadline after the checkout's newest commit** uses that commit,
       and its rows are flagged `checkout_ends_early`. The harness leaves
       flagged gameweeks out of anything it scores. Pulling upstream rebuilds
@@ -437,13 +450,30 @@ guard against leakage.
       `data/` (never committed), outside upstream's checkout and outside any
       folder `run_pipeline` rebuilds, as a table `dim_player_deadline`: the
       `dim_player` columns, plus `gw` (the gameweek whose deadline it
-      describes), `upstream_commit`, `commit_utc` and `checkout_ends_early`,
-      keyed on (`gw`, `player_id`). It records the checkout commit it was
-      built from. The data-engineer proposes the path, and how a read through
-      another data copy (`use_data_copy`) finds its view.
+      describes), `deadline_utc`, `upstream_commit`, `commit_utc` and
+      `checkout_ends_early`,
+      keyed on (`gw`, `player_id`). The path is
+      `data/pre_deadline/{season}.parquet` (`paths.pre_deadline_dir` in
+      `config/pipeline.yaml`), with `{season}.json` recording the checkout
+      commit it was built from and the flagged gameweeks. The JSON is
+      written last, so a table without it counts as missing.
+    - **Another data copy** (`use_data_copy`): a read inside the copy takes
+      its view from `{copy}/pre_deadline/`. `copy_view` puts it there when
+      the copy is made, and refuses a missing or stale view at that moment.
+      A read inside the copy trusts the copy's record and opens nothing
+      outside it, so the harness's every-read guards hold. Whoever makes a
+      copy (the harness's perturbation and leakage checks, tests) calls
+      `copy_view` (decided 2026-11-26).
+    - **The loader reads the checkout's commit from its `.git` files,** never
+      by starting `git`.
     - **A backtest read refuses** (raises) if the view is missing, lacks the
-      gameweek, or was built from a different upstream commit than the
-      checkout the read uses. It never falls back to the snapshot.
+      gameweek, holds a row whose commit isn't before both its `deadline_utc`
+      and the read's derived deadline, or was built from a different upstream
+      commit than the checkout the read uses. It never falls back to the
+      snapshot.
+    - **A checkout that isn't a git repo** matches only a view whose record
+      names no commit. The builder never writes such a record, so only test
+      fixtures do (decided 2026-11-27).
     - **Live mode** never reads it.
   - **Later Premier League fixtures** appear in `fact_fixture` as **schedule
     only**: `finished` and `stats_complete` false, and results, xG and
@@ -452,8 +482,11 @@ guard against leakage.
     rescheduled fixtures earlier than a manager would (`docs/known_gaps.md`).
   - **Later cup and European matches are left out.** In a knockout cup a
     future tie reveals who won the earlier rounds.
-- **Live mode:** the same, with current status, news, chance of playing,
-  price, price changes and transfers overlaid from the master files.
+- **Live mode:** the same six fact and team tables, with current status,
+  news, chance of playing, price, price changes and transfers overlaid from
+  the master files onto the snapshot's `dim_player`. Backtest's `dim_player`
+  is the pre-deadline view, so the two modes' `dim_player` can differ in
+  every column and in the players held (decided 2026-11-26).
   - **Overlay rules:** the master row with the highest `gw` wins. A cleared
     concern clears the snapshot value. A player with no master row keeps his
     snapshot values. Rows are matched by `player_id`, never by position, and

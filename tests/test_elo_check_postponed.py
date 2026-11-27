@@ -59,6 +59,7 @@ def postponed(tmp_path_factory: pytest.TempPathFactory, cfg: dict) -> tuple[dict
     with mock.patch.object(synth, "schedule", postponed_schedule):
         for gw in range(1, synth.N_GW + 1):  # no master files: backtest mode never reads them
             synth._write_folder(root / "data" / SEASON, gw)
+        synth.write_view_of(root)  # the view every backtest read of 1-37 needs
     spy = mock.Mock(wraps=refit_pairs)
     with synth_point(root / "data"), mock.patch.object(backtest.elo_check, "refit_pairs", spy):
         res = run_check(run_settings(), Models(), synth.synth_cfg(cfg, root), root / "data",

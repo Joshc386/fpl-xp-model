@@ -82,6 +82,7 @@ Update this list as each piece is built.
 * `FPL_FULL_SWEEP=1 .venv/Scripts/python -m pytest tests/test_loader_real.py`: the full real-data leakage sweep (every as-of gameweek of 2025/26)
 * `.venv/Scripts/ruff check .`: lint
 * `.venv/Scripts/python -m fpl.run\_pipeline`: build the processed tables in `data/processed/` from the local upstream checkout (`data/raw/upstream/repo`; pull it first). Ingest, validate and clean only, so far
+* `.venv/Scripts/python -m fpl.pre\_deadline [--checkout DIR] [--out-dir DIR]`: build the pre-deadline view of `dim\_player` into `data/pre\_deadline/` from the upstream checkout's git history (a full clone; about 30 s). Every backtest read of as-of 1 to 37 needs it and refuses if it is missing, lacks the gameweek or was built from another checkout commit, so re-run it after every pull of upstream. `run\_pipeline` and `update.yml` never run it
 * `.venv/Scripts/python -m fpl.publish\_decision [--checkout DIR] [--meta FILE]`: whether the upstream checkout's commit differs from `upstream_commit` in `outputs/meta.csv`. Prints `publish=true` or `publish=false` (and appends it to `$GITHUB_OUTPUT`); exits non-zero on an unusable `meta.csv`. `update.yml` calls it
 * `.venv/Scripts/python -m fpl.models.elo\_tune`: re-tune the Elo settings on 2025/26 (logs only; about 20 s)
 * `.venv/Scripts/python -m fpl.models.goals\_tune`: re-tune the Elo goals model's prior sd on 2025/26 by walk-forward log-loss (logs only; about 1 minute)
